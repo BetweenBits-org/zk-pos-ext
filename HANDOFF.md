@@ -8,9 +8,9 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
-<R2/1 commit>  feat(profile): absorb cex_assets_info.csv loader into binance snapshot
-e2e0f1c       docs: shift paths to root-cwd perspective + refresh HANDOFF after init
-8aaf4c3       feat: scaffold zkpor engine — productization of Binance OSS PoR v2
+8813999 feat(profile): absorb cex_assets_info.csv loader into binance snapshot
+e2e0f1c docs: shift paths to root-cwd perspective + refresh HANDOFF after init
+8aaf4c3 feat: scaffold zkpor engine — productization of Binance OSS PoR v2
 ```
 
 `zkpor/` 는 자체 git 저장소 (`zkpor/.git/`). parent (`zkmerkle-proof-of-solvency`)
