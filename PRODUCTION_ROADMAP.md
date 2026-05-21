@@ -16,6 +16,40 @@
 | 5 | `zkpor/HANDOFF.md` | 현재 시점 인수인계. 휘발성 — 다른 source와 충돌 시 후순위. |
 | 6 | `docs/*.md` (legacy historical notes) | 참고. source 아님. |
 
+## Scope Boundary
+
+zkpor engine 의 출하 단위는 **backend + CLI + file artifacts** 다. UI
+/ web frontend / 사용자-facing 검증 페이지는 engine 밖, V1 scope 에
+포함하지 않는다. 이 boundary 는 모든 stage 의 exit criteria 를 해석하는
+기준이며, 위에서 surface 되지 않은 작업은 engine 책임이 아니다.
+
+| Engine 안 (V1 scope) | Engine 밖 (external client / post-V1) |
+|---|---|
+| `zkpor/core/spec/` 인터페이스 + 카탈로그 | 웹 페이지 / 모바일 앱 / 임베드 위젯 |
+| `zkpor/core/solvency/<model>/circuit/` + `.pk`/`.vk`/`.r1cs` artifact | 사용자가 자기 inclusion 을 확인하는 self-verifier UI |
+| `zkpor/profile/<customer>/` 어댑터 set | customer 의 운영 인프라 (k8s, cron, S3, KMS) |
+| `src/witness` CLI — witness 생성 | proof 시각화 / dashboard |
+| `src/prover` CLI — groth16.Prove → proof 파일 | inclusion proof 결과의 UX (성공/실패 페이지) |
+| `src/userproof` CLI — 사용자별 Merkle inclusion proof → DB 행 | 사용자에게 inclusion proof 를 노출하는 customer-facing 페이지 |
+| `src/verifier` CLI — `groth16.Verify` → exit code | PoR 검증 결과의 일반인용 분배 (호스팅 페이지 등) |
+
+이 분할의 의도:
+
+1. **Audit boundary 단순화** — CLI 입출력 + artifact format 만 감사
+   대상. UI 갈아끼워도 audit 무효 안 됨.
+2. **Customer flexibility** — 각 customer 가 자기 UX (web / mobile /
+   internal dashboard) 를 자유롭게 wrap. engine 은 UI dep 을 강제하지
+   않는다.
+3. **차별화 우위와 정합** — `docs/01-project-context.md` 의 "차별화
+   우위 = customer 통합 비용 + audit trust; tech/UX 는 후순위" 와 같은
+   결.
+4. **R3 / R4 acceptance 명확화** — "사용자가 자기 잔고를 확인할 도구
+   없음" 은 engine 결함이 아니라 customer / partner 영역. SLA 협상
+   대상 (G14).
+
+reference CLI / sample 검증 도구 정도는 engine 옆에 둘 수 있으나, 그
+범위는 V1 이후 별도 결정 (G14 참조).
+
 ## Stages
 
 production 구현 순서. 각 stage는 `목표 / 산출물 / exit criteria`를 가진다.
@@ -166,6 +200,14 @@ Exit criteria:
 import 제거. `ValueScale` invariant assert (G6). `AccountIDProvider.
 Scheme()` v1 freeze (G2).
 
+**Slice 분해는 agent 자율**. step 4 는 한 commit 이 아니라 4 서비스
+별 commit (witness → prover → userproof → verifier, 또는 의존도 따라).
+agent 는 진입 시 분해를 HANDOFF Resume Actions 에 자기 슬라이스로
+박는다. 같은 commit 에 묶는 것은 import 경로 동시 교체 같은 사소한
+변경에 한정한다. 4 서비스 사이의 결합도 (DB 스키마 공유, file
+hand-off, witness→prover artifact 의존 등) 는 코드를 만져봐야 드러나
+므로 사전 분해를 박지 않는다.
+
 산출물:
 
 - 4개 서비스가 `zkpor/profile/binance` import 만으로 동작.
@@ -175,9 +217,12 @@ Scheme()` v1 freeze (G2).
 
 Exit criteria:
 
-- sample data 기준 end-to-end PoR 생성·검증 통과 (witness → proof →
-  verifier).
+- sample data 기준 **CLI** end-to-end PoR 생성·검증 통과 (witness →
+  proof → verifier). userproof 서비스가 사용자별 inclusion proof
+  데이터를 DB 행으로 적재.
 - G2, G6 closed.
+- **Engine boundary**: 사용자-facing UI / web frontend / inclusion 검증
+  페이지는 engine 밖, V1 scope 미포함 (`## Scope Boundary` 참조).
 
 Blocking gates: G1 (step 3), G2 (step 4), G6 (step 4), G13 (step 1).
 
@@ -278,6 +323,7 @@ Blocking gates: G4, G10.
 | **G11** core/circuit 추가 헬퍼 승격 규약 | deferred | R6 | rule-of-three — 3번째 model 등장 시 검토. | 세 번째 model 구현 시점. |
 | **G12** multi-customer profile 충돌 정책 | deferred | R4 | profile/<customer>/ 단일 패키지 가정. shape/.vk 공유 정책 미정. | 두 번째 customer 등장 시. |
 | **G13** AccountID fr.Element 정규화 위치 | closed | R3 step 1 | **(a) snapshot 어댑터** 채택. legacy `src/utils/utils.go:553` 와 동일 layer 에서 `new(fr.Element).SetBytes(id).Marshal()` round-trip. 근거: G1 byte-equivalence 비용 최저 (snapshot 출력 hex 직접 비교 가능), `AccountInfo.AccountID == userproof.AccountID == field input` 단일 형태 유지, R3 step 4 service rewire 시 호출 누락 위험 없음. 트레이드오프: `profile/binance/snapshot.go` 가 bn254 에 직접 결합 — 현재 카탈로그 5 model 전부 bn254 라 실질 충돌 없음, 두 번째 customer profile (R4) 등장 시 R6 helper 승격 후보로 carry. (b)/(c) 는 layering 더 깔끔하나 user-facing inconsistency / interface 확장 / 회귀 위험으로 기각. | impl: R3 step 2 (alpha wiring 과 동반). `AccountIDProvider.Scheme()` 명칭 갱신은 R3 step 4 (G2 closure) 동반. |
+| **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R4 진입) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
 
 ## Gate → Stage Dependency
 
@@ -294,6 +340,7 @@ G10 --> R7 (LegacyKeyName deprecate)
 G11 --> R6 (core/circuit promotion)
 G12 --> R4 (multi-customer .vk policy)
 G13 --> R3 step 1 (AccountID fr.Element normalization)
+G14 --> post-V1 / customer SLA (user-facing verification distribution)
 
 (G7, G8, G9 는 R0 시점에 closed)
 ```

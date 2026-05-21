@@ -104,6 +104,9 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
   (G2 closure 동반).
 - goroutine leak guard 테스트 — uber-go/goleak dep 도입 시점에.
 - 나머지 4개 model 회로 — R4+ (시장 신호 대기).
+- 사용자-facing verification UI / 페이지 — engine boundary 밖, V1 scope
+  미포함. customer / partner 영역. PRODUCTION_ROADMAP `## Scope
+  Boundary` + G14 참조.
 
 발견 사항 (작업 중 surface된 것, 의사결정 보류):
 
@@ -223,12 +226,13 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | AccountID fr.Element 정규화 위치 결정 (G13) | ✅ closed — (a) snapshot 어댑터 | R3 step 1 |
 | Constraint Architecture alpha wiring + fr.Element impl | pending | R3 step 2 |
 | G1 byte-equivalence 절차 합의 + 실행 | pending | R3 step 3 |
-| 4개 service rewiring + ValueScale assert + Scheme freeze | pending | R3 step 4 / G2 + G6 |
+| 4개 service rewiring + ValueScale assert + Scheme freeze | pending | R3 step 4 / G2 + G6 (agent 가 4 서비스 별 commit 으로 자율 분해) |
 | AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
 | 두 번째 customer profile | awaits signal | R4 / G12 |
 | 두 번째 model 회로 구현 | awaits signal | R5 |
 | core/circuit/ 추가 헬퍼 승격 | awaits signal | R6 / G11 |
 | 카탈로그 v1 freeze | awaits R7 | R7 / G4 |
+| 사용자-facing verification 분배 책임 (UI / 페이지) | deferred | post-V1 / customer SLA / G14 |
 
 ## Resume Actions
 
