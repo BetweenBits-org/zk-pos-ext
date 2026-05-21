@@ -286,6 +286,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | core/circuit/ 추가 헬퍼 승격 | awaits signal | R6 / G11 |
 | 카탈로그 v1 freeze | awaits R7 | R7 / G4 |
 | 사용자-facing verification 분배 책임 (UI / 페이지) | deferred | post-V1 / customer SLA / G14 |
+| Prove-path GPU 가속 (ICICLE) 채택 여부 (G15) | deferred | post-R3 step 4 / first production prove SLA |
 | Module composition compatibility 검토 프로세스 (G16) | deferred | R5 candidate / 첫 multi-module composition |
 | `core/constraint_modules/noop/` promotion (universal noop 분리) | pending | R3 step 4 직후 또는 R4 진입 시 |
 | Composite 패턴 (`ComposeModules` 헬퍼) 도입 | pending | R5 candidate / 첫 N≥2 module deployment |
