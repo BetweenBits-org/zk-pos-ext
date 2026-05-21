@@ -8,7 +8,9 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
-8aaf4c3 feat: scaffold zkpor engine — productization of Binance OSS PoR v2
+<R2/1 commit>  feat(profile): absorb cex_assets_info.csv loader into binance snapshot
+e2e0f1c       docs: shift paths to root-cwd perspective + refresh HANDOFF after init
+8aaf4c3       feat: scaffold zkpor engine — productization of Binance OSS PoR v2
 ```
 
 `zkpor/` 는 자체 git 저장소 (`zkpor/.git/`). parent (`zkmerkle-proof-of-solvency`)
@@ -21,7 +23,7 @@ Latest implementation commit (`zkpor/.git/`, branch `main`):
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource, ConstraintModule, witness (BatchCreateUserWitness 등) |
 | `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). `.pk`/`.vk` byte-equivalence 런타임 검증 pending (R3 와 함께) |
 | `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
-| `zkpor/profile/binance/*` | ⚠ stubs — 8개 어댑터 constructor 존재. `snapshot.go`는 `errStubSnapshot` 반환 (R2에서 CSV loader 흡수) |
+| `zkpor/profile/binance/*` | ⚠ partial — `snapshot.go`의 `CexAssets()` 구현 완료 (cex_assets_info.csv + user CSV header 흡수, 캐싱). `AccountStream()`은 여전히 stub (`errAccountStreamPending`) — R2 step 2에서 사용자 shard 스트리밍 흡수. 나머지 7개 어댑터는 constructor 형태 |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
 | docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`) | ✅ complete |
 
@@ -30,6 +32,10 @@ Latest implementation commit (`zkpor/.git/`, branch `main`):
 최근 작업 흐름:
 
 ```text
+<R2/1>  feat(profile): absorb cex_assets_info.csv loader into binance snapshot
+        (CexAssets() 구현 — user CSV header → asset 순서, cex_assets_info.csv
+         → BasePrice + 3 buckets × TierCount, reserved 슬롯으로 AssetCounts
+         까지 패딩. AccountStream() stub 유지.)
 8aaf4c3 feat: scaffold zkpor engine — productization of Binance OSS PoR v2
         (root-commit: methodology docs, core/spec, core/circuit,
          core/solvency catalog with tier_3bucket spec+circuit ported,
@@ -43,12 +49,20 @@ Latest implementation commit (`zkpor/.git/`, branch `main`):
   Merkle/commitment/arithmetic 부분만 추출.
 - tier_3bucket model spec (`zkpor/core/solvency/tier_3bucket/spec/`).
 - Binance 어댑터 8개 (constructor 형태) — 단일 Go 패키지.
+- `binance.csvSnapshot.CexAssets()` — legacy `ParseAssetIndexFromUserFile` +
+  `ParseCexAssetInfoFromFile` 흡수. sync.Once 캐싱, 두 자리 가격
+  multiplier (`pricing.PriceMultiplier`) 재사용, tier boundary는
+  `corespec.DefaultValueScale` (1e16) 로 스케일, TierCount/AssetCounts
+  패딩 모두 적용.
 - 5-tier 카탈로그 (`zkpor/core/spec/solvency_models.go`).
 - 명명 규약: SolvencyModelID, BatchShape, key file naming, ConstraintModuleID.
 
 아직 의도적으로 닫지 않은 것:
 
-- CSV ETL 실제 로직 — R2 (현재 `errStubSnapshot`).
+- 사용자 shard CSV 스트리밍 — R2 step 2 (`AccountStream` 현재
+  `errAccountStreamPending` 반환).
+- `CexAssets()` happy-path/tamper 픽스처 테스트 — R2/1 후속 commit (
+  docs/scaffold → impl → tests 분리 원칙).
 - 4개 service main.go 의 wiring — R3.
 - `.pk`/`.vk` byte-equivalence 런타임 검증 — R3 와 함께 (G1 closing).
 - 나머지 4개 model 회로 — R4+ (시장 신호 대기).
@@ -137,7 +151,9 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 
 | Item | 상태 | track 위치 |
 |---|---|---|
-| CSV ETL absorb | pending | R2 / G5 |
+| CSV ETL absorb — CexAssets 부분 | ✅ done | R2 / G5 (step 1) |
+| CSV ETL absorb — AccountStream + invalid-account 처리 | pending | R2 / G5 (step 2) |
+| `CexAssets()` 픽스처 테스트 (happy + tamper) | pending | R2 / G5 (step 1 follow-up) |
 | 4개 service rewiring + `.pk`/`.vk` byte-equivalence 검증 | pending | R3 / G1 + G2 + G6 |
 | AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
 | 두 번째 customer profile | awaits signal | R4 / G12 |
@@ -159,19 +175,26 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 권장 다음 슬라이스:
 
 ```text
-R2 진입 — CSV ETL absorb 1단계.
-legacy src/utils/utils.go 의 ParseAssetIndexFromUserFile 와
-ParseCexAssetInfoFromFile 를 profile/binance/snapshot.go 의
-CexAssets(ctx) 구현으로 흡수한다 (AssetCatalog + RiskPolicy 도 같은
-CSV 출처에서 일관 구축).
+R2/1 후속 — CexAssets() 픽스처 테스트.
+zkpor/profile/binance/testdata/ 아래 작은 cex_assets_info.csv +
+가짜 user CSV 헤더 fixture 를 두고 happy-path 와 tamper 케이스
+(missing symbol, malformed header, non-monotonic boundary,
+boundary overflow, two-digit multiplier) 를 single _test.go 로
+검증한다.
+
+그 다음 R2/2 — AccountStream 흡수.
+legacy ReadUserDataFromCsvFile 의 핵심 의미(equity/debt/loan/margin/
+PM 파싱, ValueScale 적용, invalid-account 분류, AccountInfo 채널화)를
+csvSnapshot.AccountStream(ctx) 으로 흡수. workers/GC 디테일은
+production wiring 단계(R3)에서 결정.
 ```
 
 목표 / 범위 제외:
 
-- 이 슬라이스: cex_assets_info.csv 로딩 — CexAssets() stub 제거, AssetCatalog
-  symbol 리스트 추출, RiskPolicy tier ratio 값 채움.
-- 같은 커밋에 넣지 않을 것: 사용자 CSV 스트리밍 (`AccountStream`),
-  invalid-account 처리 wiring, 서비스 main.go 변경.
+- 다음 슬라이스 (R2/1 후속): `CexAssets()` 단위 테스트만 — implementation
+  파일은 손대지 않음.
+- 같은 commit 에 넣지 않을 것: 사용자 CSV 스트리밍, invalid-account
+  분류 로직, 서비스 main.go 변경.
 
 ## Required Commands
 
