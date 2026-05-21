@@ -8,8 +8,8 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
+cd50632 test(profile): full AccountStream fixture coverage
 a26a7d2 feat(profile): classify+skip invalid account rows
-9f21fd4 docs(handoff): R2/2 step 1 close + step 2 entry plan + fr.Element finding
 d27cde7 feat(profile): stream user-shard rows into AccountStream
 ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 8813999 feat(profile): absorb cex_assets_info.csv loader into binance snapshot
@@ -26,7 +26,7 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
 | `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). `.pk`/`.vk` byte-equivalence 런타임 검증 pending (R3 와 함께) |
 | `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
-| `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 (collateral>equity / debt-uncovered / hex / float overflow). 10개 테스트 통과. multi-shard concurrency 는 R3. 나머지 7개 어댑터는 constructor 형태 |
+| `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 + full-coverage 테스트 (multi-shard / ctx cancel / numeric overflow / collateral sum overflow / fatal column count). 15개 테스트 통과. multi-shard *concurrency* 는 여전히 R3 (현재는 sequential). 나머지 7개 어댑터는 constructor 형태 |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
 | docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`) | ✅ complete |
 
@@ -35,6 +35,12 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 최근 작업 흐름:
 
 ```text
+<R2/2/3> test(profile): full AccountStream fixture coverage
+        (5건 신규 — MultiShardSequential, CtxCancelCloses,
+         InvalidNumericOverflow, InvalidCollateralSumOverflow,
+         FatalColumnCount. testdata/multi_shard/{cex_assets_info,
+         a, b}.csv 신설. goroutine leak guard 는 deferred —
+         goleak dep 도입 부담 회피.)
 <R2/2/2> feat(profile): classify+skip invalid account rows
         (spec 확장 — SnapshotSource.InvalidCount() 추가, atomic-safe.
          csvSnapshot — errInvalidRow sentinel + invalidf 헬퍼로 데이터
@@ -80,11 +86,13 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 
 아직 의도적으로 닫지 않은 것:
 
-- `AccountStream` full-coverage 픽스처 테스트 (multi-shard sequential,
-  EOF mid-row, malformed numeric, ctx cancel mid-stream) — R2/2 step 3.
 - multi-shard / multi-worker concurrency — R3 production wiring.
+  현재 streamShard 는 sequential. legacy 는 goroutine 풀 + GC trigger.
 - 4개 service main.go 의 wiring — R3.
 - `.pk`/`.vk` byte-equivalence 런타임 검증 — R3 와 함께 (G1 closing).
+- AccountID fr.Element 정규화 위치 결정 — R3/G1 (commitment
+  byte-equivalence 의 전제).
+- goroutine leak guard 테스트 — uber-go/goleak dep 도입 시점에.
 - 나머지 4개 model 회로 — R4+ (시장 신호 대기).
 
 발견 사항 (작업 중 surface된 것, 의사결정 보류):
@@ -183,8 +191,10 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
             ├── pricing.go
             ├── risk.go
             ├── snapshot.go                   (CexAssets + AccountStream + invalid 분류 done)
-            ├── snapshot_test.go              (CexAssets 6 + AccountStream happy 1 + invalid 3)
-            └── testdata/happy/               (cex_assets_info.csv + user_shard.csv 헤더 + 2 data rows)
+            ├── snapshot_test.go              (CexAssets 6 + AccountStream happy 1 + invalid 3 + coverage 5)
+            └── testdata/
+                ├── happy/                    (cex_assets_info.csv + user_shard.csv 헤더 + 2 rows)
+                └── multi_shard/              (cex_assets_info.csv + a.csv + b.csv)
 ```
 
 ## Deferred Work
@@ -195,7 +205,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | `CexAssets()` 픽스처 테스트 (happy + tamper) | ✅ done | R2 / G5 (step 1 follow-up) |
 | CSV ETL absorb — AccountStream happy-path | ✅ done | R2 / G5 (step 2 / sub 1) |
 | invalid-account 분류 (skip+log+counter) | ✅ done | R2 / G5 (step 2 / sub 2) |
-| `AccountStream` 픽스처 테스트 (full coverage) | pending | R2 / G5 (step 2 / sub 3) |
+| `AccountStream` 픽스처 테스트 (full coverage) | ✅ done | R2 / G5 (step 2 / sub 3) |
 | AccountID fr.Element 정규화 위치 결정 | pending | R3 / G1 + G2 |
 | 4개 service rewiring + `.pk`/`.vk` byte-equivalence 검증 | pending | R3 / G1 + G2 + G6 |
 | AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
@@ -215,36 +225,38 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-권장 다음 슬라이스:
+**R2 종료**. snapshot ETL 흡수 완료, 15개 테스트 통과, byte-equivalence
+회귀 가능성 차단. 다음 단계는 R3 (service rewiring + .pk/.vk 검증).
+
+권장 다음 슬라이스 (R3 진입):
 
 ```text
-R2/2 step 3 — AccountStream 픽스처 full coverage.
-step 1/2 의 sanity-level 테스트를 확장. 케이스:
-  (a) multi-shard sequential — testdata/multi_shard/ 신규, 두 shard
-      에서 valid + invalid 섞임. 합산 InvalidCount, 순서 보장.
-  (b) ctx cancel mid-stream — context 가 close 되면 채널이 닫히고
-      goroutine 누수가 없음 (goleak 가능).
-  (c) malformed numeric — 한 행에서 float overflow → invalid.
-  (d) per-asset collateral 합 uint64 overflow — safeAddU64 의
-      false 경로 — invalid.
-  (e) shard 의 한 행이 컬럼 부족 (fatal). 채널은 close, valid
-      행은 그 시점까지 yield, invalidCount 는 그 시점 값.
-  (f) goroutine leak guard (optional) — runtime.NumGoroutine
-      비교 또는 t.Cleanup 으로 ctx 취소 확인.
+R3 step 1 — AccountID fr.Element 정규화 위치 결정 (G1 의 전제).
 
-design note: testdata/multi_shard/ 는 happy fixture 와 평행 구조로
-하되, 두 user shard CSV 가 lexical sort 결과를 결정한다 (`a.csv`,
-`b.csv`). cex_assets_info.csv 는 동일.
+이 결정 없이 R3 G1 (byte-equivalence) 을 시작할 수 없다. legacy
+src/utils/utils.go:553 가 `new(fr.Element).SetBytes(id).Marshal()`
+round-trip 으로 commitment-ready ID 를 만든다. zkpor 는 현재
+passthrough — 약 절반의 SHA256 ID 가 modulus 이상이라 commitment
+가 깨진다.
 
-그 다음 R3 진입.
+3개 후보 (HANDOFF 발견 사항 참조):
+  (a) snapshot 어댑터 — legacy 와 가장 유사, gnark dep 가 snapshot
+      층으로 들어옴.
+  (b) identity provider — DeriveAccountID 가 정규화도 책임. 그러나
+      identity 는 derivation 용이고 정규화는 다른 의미.
+  (c) witness builder — snapshot/identity 가 "raw" 책임만, witness
+      builder 가 circuit-ready 표현으로 변환. 가장 클린한 분리지만
+      witness builder 가 아직 wiring 안 됨.
+
+debate 모드로 (a)/(b)/(c) trade-off 정리 후 선택. step 2 (decide
++ implement) 와 step 3 (service main.go wiring 4개) 로 이어진다.
 ```
 
 목표 / 범위 제외:
 
-- 다음 슬라이스 (R2/2 step 3): AccountStream 픽스처 테스트만 — impl
-  파일은 minimal change (필요 시 multi-shard listener 가시화 정도).
-- 같은 commit 에 넣지 않을 것: 서비스 main.go 변경, `.pk`/`.vk`
-  검증 (모두 R3), fr.Element 정규화 결정 (R3/G1 와 함께).
+- 다음 슬라이스 (R3 step 1): 결정 + 짧은 decision note. impl 은 step 2.
+- R2 잔여물 (multi-shard concurrency, goroutine leak guard) 은 R3
+  production wiring 옆에서 자연스럽게 처리.
 
 ## Required Commands
 
