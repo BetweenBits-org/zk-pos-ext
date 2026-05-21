@@ -103,15 +103,16 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
   실패한다. 코드는 defense-in-depth 로 보존 (`convertFloatStrToUint64`
   가 넓은 정수로 바뀌면 다시 살아남). R2/1f 테스트는 실제 도달 가능한
   uint64 overflow 경로를 검증.
-- **AccountID bn254 fr.Element 정규화 위치 미결정**. legacy
-  `src/utils/utils.go:520` 는 `new(fr.Element).SetBytes(id).Marshal()`
+- **AccountID bn254 fr.Element 정규화 위치 미결정 → G13 (R3 step 1)**.
+  legacy `src/utils/utils.go:520` 는 `new(fr.Element).SetBytes(id).Marshal()`
   round-trip 으로 입력을 field modulus 이하로 reduce 한 뒤 commitment 에
   넣는다. zkpor `AccountStream` 은 현재 raw 32-byte hex-decode 만 한다
   (`identity.DeriveAccountID` 도 passthrough). SHA256-derived ID 의
   약 절반이 field modulus 이상이므로 commitment byte-equivalence 가
   깨진다. 정규화 위치 후보: (a) snapshot 어댑터 (legacy 와 동일),
   (b) identity provider (의미적으로 깔끔), (c) witness builder
-  (snapshot/identity 가 "raw" 책임만). R3/G1 closing 전에 결정 필요.
+  (snapshot/identity 가 "raw" 책임만). R3 step 1 에서 결정, step 2 에서
+  impl. PRODUCTION_ROADMAP G13 참조.
 
 ## Non-Negotiable Rules
 
@@ -206,8 +207,11 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | CSV ETL absorb — AccountStream happy-path | ✅ done | R2 / G5 (step 2 / sub 1) |
 | invalid-account 분류 (skip+log+counter) | ✅ done | R2 / G5 (step 2 / sub 2) |
 | `AccountStream` 픽스처 테스트 (full coverage) | ✅ done | R2 / G5 (step 2 / sub 3) |
-| AccountID fr.Element 정규화 위치 결정 | pending | R3 / G1 + G2 |
-| 4개 service rewiring + `.pk`/`.vk` byte-equivalence 검증 | pending | R3 / G1 + G2 + G6 |
+| Setup smoke test (Compile + Setup) | pending | R3 step 0 |
+| AccountID fr.Element 정규화 위치 결정 (G13) | pending | R3 step 1 |
+| Constraint Architecture alpha wiring (Define hook) | pending | R3 step 2 |
+| G1 byte-equivalence 절차 합의 + 실행 | pending | R3 step 3 |
+| 4개 service rewiring + ValueScale assert + Scheme freeze | pending | R3 step 4 / G2 + G6 |
 | AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
 | 두 번째 customer profile | awaits signal | R4 / G12 |
 | 두 번째 model 회로 구현 | awaits signal | R5 |
@@ -226,36 +230,43 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 4. 다음 슬라이스 진입.
 
 **R2 종료**. snapshot ETL 흡수 완료, 15개 테스트 통과, byte-equivalence
-회귀 가능성 차단. 다음 단계는 R3 (service rewiring + .pk/.vk 검증).
+회귀 가능성 차단. R3 는 PRODUCTION_ROADMAP.md 에 5 sub-slice 로
+분해되어 있다 (step 0..4). 아래 권장은 그 순서를 따른다.
 
-권장 다음 슬라이스 (R3 진입):
+권장 다음 슬라이스 — **R3 step 0 (Setup smoke)**:
 
 ```text
-R3 step 1 — AccountID fr.Element 정규화 위치 결정 (G1 의 전제).
+회로 IR 검증을 alpha wiring / byte-equivalence 작업 전에 한 번 돌린다.
+프로덕션 변경 0, 테스트 한 건만 추가.
 
-이 결정 없이 R3 G1 (byte-equivalence) 을 시작할 수 없다. legacy
-src/utils/utils.go:553 가 `new(fr.Element).SetBytes(id).Marshal()`
-round-trip 으로 commitment-ready ID 를 만든다. zkpor 는 현재
-passthrough — 약 절반의 SHA256 ID 가 modulus 이상이라 commitment
-가 깨진다.
+산출물:
+  zkpor/core/solvency/tier_3bucket/circuit/setup_test.go
+    - NewBatchCreateUserCircuit(50, AssetCounts, 700) 인스턴스
+    - frontend.Compile(BN254, r1cs.NewBuilder, ...)
+    - groth16.Setup(r1cs)
+    - 에러 없음 확인 + NbConstraints 출력 (정확 비교는 step 3)
 
-3개 후보 (HANDOFF 발견 사항 참조):
-  (a) snapshot 어댑터 — legacy 와 가장 유사, gnark dep 가 snapshot
-      층으로 들어옴.
-  (b) identity provider — DeriveAccountID 가 정규화도 책임. 그러나
-      identity 는 derivation 용이고 정규화는 다른 의미.
-  (c) witness builder — snapshot/identity 가 "raw" 책임만, witness
-      builder 가 circuit-ready 표현으로 변환. 가장 클린한 분리지만
-      witness builder 가 아직 wiring 안 됨.
+가치: 회로 코드의 compile-time 결함을 R3 step 2 (alpha wiring) 진입
+전에 노출. R3 어디서 막히는지 디버깅 비용 절감.
 
-debate 모드로 (a)/(b)/(c) trade-off 정리 후 선택. step 2 (decide
-+ implement) 와 step 3 (service main.go wiring 4개) 로 이어진다.
+같은 commit 에 넣지 않을 것: alpha wiring, fr.Element 정규화, legacy
+비교 hash. 그건 step 1/2/3.
+```
+
+그 다음 진입:
+
+```text
+R3 step 1 — G13 (fr.Element 정규화 위치) debate + decision note.
+R3 step 2 — alpha wiring + step 1 결정 적용.
+R3 step 3 — G1 절차 합의 + byte-equivalence 검증 실행.
+R3 step 4 — 4 service main.go rewiring + G2 + G6 closure.
 ```
 
 목표 / 범위 제외:
 
-- 다음 슬라이스 (R3 step 1): 결정 + 짧은 decision note. impl 은 step 2.
-- R2 잔여물 (multi-shard concurrency, goroutine leak guard) 은 R3
+- 다음 슬라이스 (R3 step 0): Compile + Setup 한 번. 회로/spec/profile
+  코드 0 변경.
+- R2 잔여물 (multi-shard concurrency, goroutine leak guard) 은 R3 step 4
   production wiring 옆에서 자연스럽게 처리.
 
 ## Required Commands

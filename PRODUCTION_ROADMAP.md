@@ -44,10 +44,13 @@ Exit criteria:
 Exit criteria:
 
 - `go build ./zkpor/... && go vet ./zkpor/...` 통과.
-- 같은 입력에 대해 신구 회로의 R1CS constraint 수 일치 확인 (구조 동일).
-- `.pk`/`.vk` byte-equivalence 검증 (G1 closed).
+- legacy `circuit/` 와 zkpor `core/solvency/tier_3bucket/circuit/` 가
+  line-by-line port 형태로 대응 (구조 동일).
+- 회로 IR 컴파일 (`frontend.Compile` 성공) 검증과 `.pk`/`.vk`
+  byte-equivalence (G1 closure) 는 **R3 step 0 / step 3 으로 carry**.
+  R1 자체는 코드 port 완료 시점에서 마감.
 
-Blocking gates: G1.
+Blocking gates: (없음 — G1 은 R3 step 3 에서 closure).
 
 ### Stage R2 — CSV ETL absorb
 
@@ -70,27 +73,113 @@ Exit criteria:
 
 Blocking gates: G5.
 
-### Stage R3 — Service rewiring
+### Stage R3 — 회로/Setup 검증 + Service rewiring
 
-목표: 4개 서비스(`src/witness`, `src/prover`, `src/userproof`,
-`src/verifier`) 의 `main.go` 가 `zkpor/profile/binance` 어댑터를 사용하도록
-재배선한다. legacy `src/utils` import 제거.
+목표: R1 에서 carry 된 G1 (byte-equivalence) 을 닫고, Constraint
+Architecture (`c1⊕c2⊕c3⊕c4 ⊕ L[k] ⊕ alpha(profile)`) 의 **alpha
+layer wiring** 을 회로 코드에 반영한 뒤, 4개 서비스 (`src/witness`,
+`src/prover`, `src/userproof`, `src/verifier`) 의 `main.go` 를
+`zkpor/profile/binance` 어댑터로 재배선한다.
+
+R3 는 5 sub-slice 로 나뉜다. 각 step 는 자체 commit 단위.
+
+#### R3 step 0 — Setup smoke (수준 A)
+
+목표: `frontend.Compile + groth16.Setup` 이 zkpor tier_3bucket 회로에서
+에러 없이 끝나는지 확인. 회로 IR 결함을 alpha wiring / byte-equivalence
+작업 전에 잡는다.
+
+산출물:
+
+- `zkpor/core/solvency/tier_3bucket/circuit/setup_test.go` — BatchShape
+  (예: `{50, 700}`) 인스턴스로 Compile + Setup 호출.
+- `oR1cs.GetNbConstraints()` 출력 (legacy 와 fuzzy 비교; 정확 일치는
+  step 3 의 G1 closure 단계).
+
+Exit criteria:
+
+- Setup smoke test 통과.
+- 회로 코드 외 변경 0.
+
+#### R3 step 1 — AccountID fr.Element 정규화 위치 결정 (G13 closure)
+
+목표: legacy 는 `new(fr.Element).SetBytes(id).Marshal()` round-trip 으로
+ID 를 commitment-ready 형태로 normalize 한다. zkpor 는 현재 passthrough.
+SHA256-derived ID 약 절반이 modulus 이상이라 byte-equivalence 가 깨진다.
+정규화를 (a) snapshot 어댑터 / (b) identity provider / (c) witness builder
+중 어디에 둘지 결정한다.
+
+산출물:
+
+- 결정 노트 (commit 메시지 또는 short ADR) 에 채택 layer + 근거 기록.
+- Decision Gate Register 의 G13 status: `deferred → closed`.
+
+Exit criteria:
+
+- G13 closed.
+- impl 은 step 2 로 carry.
+
+#### R3 step 2 — alpha wiring + fr.Element 적용
+
+목표: Constraint Architecture 의 alpha layer 를 회로 코드에 반영.
+`BatchCreateUserCircuit.Define(api)` 가 `ConstraintModule.Define(api, ctx)`
+를 호출하는 hook 을 추가한다. R3 step 1 결정대로 fr.Element 정규화를
+선택된 layer 에 적용.
+
+산출물:
+
+- `Define()` 가 module hook 호출 (또는 wrapper circuit 이 module 합성).
+- `NewBatchCreateUserCircuit` (또는 외부 builder) 가 module 을 받는 형태.
+- 선택된 layer 에 fr.Element 정규화 코드 추가.
+- noopModule 로 회귀 없음 확인 (step 0 의 `NbConstraints` 와 동일).
+
+Exit criteria:
+
+- Setup smoke (step 0) 가 alpha wiring 적용 후에도 통과.
+- noopModule 인 경우 constraint 수 변동 0.
+
+#### R3 step 3 — G1 검증 절차 합의 + 실행
+
+목표: G1 (trusted-setup byte-equivalence) 의 검증 방법을 합의하고
+실행한다. 두 후보:
+
+- (a) legacy `circuit/` 의 R1CS hash 와 zkpor `core/solvency/tier_3bucket/
+  circuit/` 의 R1CS hash 비교.
+- (b) legacy `.pk` SHA256 과 zkpor `.pk` SHA256 비교.
+
+산출물:
+
+- Decision Gate Register G1 entry: `deferred → closed`.
+- 합의된 절차에 따라 zkpor 회로의 R1CS / `.pk` / `.vk` 가 legacy 와
+  byte-equivalent 임을 입증하는 테스트 또는 ad-hoc 스크립트.
+
+Exit criteria:
+
+- G1 closed.
+- 합의된 비교 산출물이 byte-equivalent.
+
+#### R3 step 4 — 4 service main.go rewiring (R3 본체)
+
+목표: step 0..3 까지 닫힌 회로 + 새 `.vk` 명명으로 4개 서비스 wire-up.
+`src/witness`, `src/prover`, `src/userproof`, `src/verifier` 의 `main.go`
+가 `zkpor/profile/binance` 어댑터를 사용하도록 재배선. legacy `src/utils`
+import 제거. `ValueScale` invariant assert (G6). `AccountIDProvider.
+Scheme()` v1 freeze (G2).
 
 산출물:
 
 - 4개 서비스가 `zkpor/profile/binance` import 만으로 동작.
-- 서비스 startup에서 `ValueScale` invariant assert (G6 closed).
-- `AccountIDProvider.Scheme()` 가 customer 자체 derivation 정식으로 freeze
-  (G2 closed).
+- 서비스 startup `ValueScale` assert (G6 closed).
+- `AccountIDProvider.Scheme()` v1 freeze (G2 closed).
+- `.vk` 파일이 새 명명 규약(`zkpor.tier_3bucket.<shape>.vk`) 으로 생성.
 
 Exit criteria:
 
 - sample data 기준 end-to-end PoR 생성·검증 통과 (witness → proof →
   verifier).
-- `.vk` 파일이 새 명명 규약(`zkpor.tier_3bucket.<shape>.vk`) 으로 생성.
-- legacy `.pk`/`.vk` 와 byte-equivalent (G1 재확인).
+- G2, G6 closed.
 
-Blocking gates: G2, G6.
+Blocking gates: G1 (step 3), G2 (step 4), G6 (step 4), G13 (step 1).
 
 ### Stage R4 — Second customer profile (deferred, awaits signal)
 
@@ -176,7 +265,7 @@ Blocking gates: G4, G10.
 
 | Gate | Status | Blocker stage | 결정 / 현재 marker | Next action |
 |---|---|---|---|---|
-| **G1** trusted-setup byte-equivalence 검증 방법 | deferred | R1 | 미정. 후보: legacy R1CS 출력 hash 비교 또는 .pk SHA256 비교. | R1 진입 전 검증 절차 합의. |
+| **G1** trusted-setup byte-equivalence 검증 방법 + 실행 | deferred | R3 step 3 | 미정. 후보: (a) legacy 와 zkpor 의 R1CS hash 비교, (b) legacy 와 zkpor 의 `.pk` SHA256 비교. R3 step 0 (Setup smoke), step 1 (G13), step 2 (alpha wiring) 가 G1 의 전제. | R3 step 3 진입 시 (a)/(b) 중 합의 → 실행 → closed. |
 | **G2** AccountIDProvider scheme v1 freeze | deferred | R3 | `passthrough_hex.v0` 임시. customer-side derivation 가정. | R3 전 HMAC/salt 정식 derivation 채택 여부 결정. |
 | **G3** ConstraintModule 공개 API freeze | deferred | R3 후 | 현재 `ConstraintContext` 가 minimal surface. 두 번째 module 등장 시 확정. | 첫 비-noop module 등장 시 API surface 검토. |
 | **G4** catalog stability 선언 | deferred | R7 | 5-tier 잠정 확정. 회로 구현은 1/5. | 모든 model 구현 후 freeze. |
@@ -188,21 +277,23 @@ Blocking gates: G4, G10.
 | **G10** LegacyKeyName 폐기 일정 | deferred | R7 | 현재 호환 유지 (`BatchShape.LegacyKeyName()`). | catalog freeze 후 한 release에서 deprecate. |
 | **G11** core/circuit 추가 헬퍼 승격 규약 | deferred | R6 | rule-of-three — 3번째 model 등장 시 검토. | 세 번째 model 구현 시점. |
 | **G12** multi-customer profile 충돌 정책 | deferred | R4 | profile/<customer>/ 단일 패키지 가정. shape/.vk 공유 정책 미정. | 두 번째 customer 등장 시. |
+| **G13** AccountID fr.Element 정규화 위치 | deferred | R3 step 1 | legacy 는 snapshot 단계에서 `fr.Element.SetBytes/Marshal` round-trip 으로 normalize. zkpor 는 현재 passthrough → commitment byte-equivalence 깨짐. 후보: (a) snapshot 어댑터, (b) identity provider, (c) witness builder. | R3 step 1 에서 debate + 결정. impl 은 step 2. |
 
 ## Gate → Stage Dependency
 
 어떤 게이트가 어떤 stage를 막는지.
 
 ```text
-G1  --> R1 (trusted-setup byte-equivalence)
-G2  --> R3 (identity scheme freeze)
+G1  --> R3 step 3 (trusted-setup byte-equivalence)
+G2  --> R3 step 4 (identity scheme freeze)
 G3  --> R3+ (first non-noop module 등장 시)
 G4  --> R7 (catalog freeze)
 G5  --> R2 (RiskPolicy schema)
-G6  --> R3 (ValueScale assert)
+G6  --> R3 step 4 (ValueScale assert)
 G10 --> R7 (LegacyKeyName deprecate)
 G11 --> R6 (core/circuit promotion)
 G12 --> R4 (multi-customer .vk policy)
+G13 --> R3 step 1 (AccountID fr.Element normalization)
 
 (G7, G8, G9 는 R0 시점에 closed)
 ```
