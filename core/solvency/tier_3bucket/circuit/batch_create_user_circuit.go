@@ -13,6 +13,12 @@ import (
 // tier_3bucket model. Its constraint shape determines the trusted
 // setup; changing field layout or Define()'s constraint sequence
 // invalidates published .pk/.vk pairs.
+//
+// module is the unexported alpha-layer ConstraintModule hook. gnark's
+// frontend reflects only on exported, Variable-bearing fields, so this
+// field is invisible to Compile and adds no in-circuit cost when left
+// nil or set to a noop module. Wire customer/regulator-specific
+// constraints via SetConstraintModule before Compile.
 type BatchCreateUserCircuit struct {
 	BatchCommitment           Variable `gnark:",public"`
 	BeforeAccountTreeRoot     Variable
@@ -21,6 +27,19 @@ type BatchCreateUserCircuit struct {
 	AfterCEXAssetsCommitment  Variable
 	BeforeCexAssets           []CexAssetInfo
 	CreateUserOps             []CreateUserOperation
+
+	module tier3spec.ConstraintModule
+}
+
+// SetConstraintModule wires the alpha-layer ConstraintModule hook
+// invoked at the end of Define after every base constraint has been
+// emitted. Setting nil (the default) reverts to the no-hook shape used
+// during R3 step 0 — Compile yields the legacy NbConstraints baseline.
+//
+// Composing a non-nil module forks the trusted setup: the resulting
+// .pk/.vk pair is unique to the (tier_3bucket, module) pair.
+func (b *BatchCreateUserCircuit) SetConstraintModule(m tier3spec.ConstraintModule) {
+	b.module = m
 }
 
 // NewVerifyBatchCreateUserCircuit returns a circuit instance with only
@@ -110,6 +129,7 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 
 	userAssetsResults := make([][]Variable, len(b.CreateUserOps))
 	userAssetsQueries := make([][]Variable, len(b.CreateUserOps))
+	moduleUserOps := make([]tier3spec.CircuitUserOp, len(b.CreateUserOps))
 
 	for i := 0; i < len(b.CreateUserOps); i++ {
 		accountIndexHelper := corecircuit.AccountIndexToMerkleHelper(api, b.CreateUserOps[i].AccountIndex)
@@ -225,6 +245,14 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 		accountHash := poseidon.Poseidon(api, b.CreateUserOps[i].AccountIdHash, totalUserEquity, totalUserDebt, totalUserCollateralRealValue, userAssetsCommitment)
 		actualAccountTreeRoot := corecircuit.UpdateMerkleProof(api, accountHash, b.CreateUserOps[i].AccountProof[:], accountIndexHelper)
 		api.AssertIsEqual(actualAccountTreeRoot, b.CreateUserOps[i].AfterAccountTreeRoot)
+
+		moduleUserOps[i] = tier3spec.CircuitUserOp{
+			AccountIndex:            b.CreateUserOps[i].AccountIndex,
+			AccountIDHash:           b.CreateUserOps[i].AccountIdHash,
+			TotalUserEquity:         totalUserEquity,
+			TotalUserDebt:           totalUserDebt,
+			TotalUserCollateralReal: totalUserCollateralRealValue,
+		}
 	}
 
 	// Random-linear-combination check that user.Assets covers every non-zero
@@ -276,7 +304,57 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 	for i := 0; i < len(b.CreateUserOps)-1; i++ {
 		api.AssertIsEqual(b.CreateUserOps[i].AfterAccountTreeRoot, b.CreateUserOps[i+1].BeforeAccountTreeRoot)
 	}
+
+	if b.module != nil {
+		ctx := tier3spec.ConstraintContext{
+			BeforeCexAssets: toCircuitCexAssetView(b.BeforeCexAssets),
+			AfterCexAssets:  toCircuitCexAssetView(afterCexAssets),
+			UserOps:         moduleUserOps,
+			R:               r,
+		}
+		if err := b.module.Define(api, ctx); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// toCircuitCexAssetView translates the in-circuit CexAssetInfo slice
+// into the tier3spec.CircuitCexAsset view shape exposed to
+// ConstraintModule hooks. Field types match underneath
+// (corecircuit.Variable everywhere), so this is a flat copy — no
+// in-circuit constraints are emitted.
+func toCircuitCexAssetView(src []CexAssetInfo) []tier3spec.CircuitCexAsset {
+	out := make([]tier3spec.CircuitCexAsset, len(src))
+	for i := range src {
+		out[i] = tier3spec.CircuitCexAsset{
+			TotalEquity:               src[i].TotalEquity,
+			TotalDebt:                 src[i].TotalDebt,
+			BasePrice:                 src[i].BasePrice,
+			LoanCollateral:            src[i].LoanCollateral,
+			MarginCollateral:          src[i].MarginCollateral,
+			PortfolioMarginCollateral: src[i].PortfolioMarginCollateral,
+			LoanRatios:                toCircuitTierRatioView(src[i].LoanRatios),
+			MarginRatios:              toCircuitTierRatioView(src[i].MarginRatios),
+			PortfolioMarginRatios:     toCircuitTierRatioView(src[i].PortfolioMarginRatios),
+		}
+	}
+	return out
+}
+
+// toCircuitTierRatioView translates an in-circuit TierRatio slice into
+// the tier3spec.CircuitTierRatio view shape. Same flat-copy semantics
+// as toCircuitCexAssetView — no in-circuit constraints emitted.
+func toCircuitTierRatioView(src []TierRatio) []tier3spec.CircuitTierRatio {
+	out := make([]tier3spec.CircuitTierRatio, len(src))
+	for i := range src {
+		out[i] = tier3spec.CircuitTierRatio{
+			BoundaryValue:    src[i].BoundaryValue,
+			Ratio:            src[i].Ratio,
+			PrecomputedValue: src[i].PrecomputedValue,
+		}
+	}
+	return out
 }
 
 // copyTierRatios copies BoundaryValue / Ratio / PrecomputedValue from a

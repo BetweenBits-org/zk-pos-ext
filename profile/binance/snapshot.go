@@ -18,6 +18,7 @@ import (
 
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/shopspring/decimal"
 )
 
@@ -113,10 +114,15 @@ func safeAddU64(a, b, c uint64) (uint64, bool) {
 // account id, malformed numeric field) close the channel early after
 // logging — matching the spec's mid-stream error contract.
 //
-// AccountID handling: the raw 32-byte hex-decoded value is used as-is.
-// Legacy applies a bn254 fr.Element normalization round-trip; whether
-// that normalization belongs in this layer, the identity provider, or
-// the witness builder is a deferred decision tracked in HANDOFF.
+// AccountID handling: the raw 32-byte hex-decoded value is normalized
+// via a bn254 fr.Element SetBytes→Marshal round-trip inside
+// parseAccountRow. This mirrors legacy src/utils/utils.go:553 and
+// keeps AccountInfo.AccountID == userproof.AccountID == in-circuit
+// field input as a single canonical form. The normalization couples
+// this snapshot to bn254 — every model currently in
+// corespec.solvency_models.go is bn254, so the coupling is real but
+// not yet a conflict. It is an R6 helper-promotion candidate when a
+// second curve enters the catalog (see G13 in PRODUCTION_ROADMAP.md).
 func (c *csvSnapshot) AccountStream(ctx context.Context) (<-chan modelspec.AccountInfo, error) {
 	assets, err := c.CexAssets(ctx)
 	if err != nil {
@@ -253,6 +259,16 @@ func parseAccountRow(
 			"account id has %d bytes, want 32", len(accountID),
 		)
 	}
+	// bn254 fr.Element normalization — mirrors legacy
+	// src/utils/utils.go:553. About half of SHA256-derived 32-byte IDs
+	// exceed the bn254 modulus; without this round-trip the snapshot
+	// and the in-circuit field input would diverge byte-for-byte on
+	// roughly half of accounts. This single line keeps
+	// AccountInfo.AccountID == userproof.AccountID == circuit field
+	// input. The dependency on bn254 is intentional at this layer for
+	// G13 (R3 step 1 closure) — promote to a curve-agnostic helper in
+	// core/circuit/ when a second curve enters the catalog (R6 / G11).
+	accountID = new(fr.Element).SetBytes(accountID).Marshal()
 	account := modelspec.AccountInfo{
 		AccountIndex:    index,
 		AccountID:       accountID,

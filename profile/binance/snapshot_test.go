@@ -13,6 +13,7 @@ import (
 
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 )
 
 const happyFixtureDir = "testdata/happy"
@@ -393,12 +394,19 @@ func TestAccountStream_MultiShardSequential(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d accounts, want 2", len(got))
 	}
-	wantAID, _ := hex.DecodeString(
+	// Both a.csv (0xaa…aa) and b.csv (0xbb…bb) sit above the bn254
+	// modulus, so parseAccountRow's fr.Element normalization reduces
+	// them. Compute the expected post-reduction bytes via the same
+	// round-trip the snapshot uses — anything else would not be a
+	// regression check but a duplicated arithmetic claim.
+	rawAID, _ := hex.DecodeString(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	)
-	wantBID, _ := hex.DecodeString(
+	rawBID, _ := hex.DecodeString(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	)
+	wantAID := new(fr.Element).SetBytes(rawAID).Marshal()
+	wantBID := new(fr.Element).SetBytes(rawBID).Marshal()
 	if !bytes.Equal(got[0].AccountID, wantAID) {
 		t.Errorf("got[0].AccountID = %x, want a.csv id", got[0].AccountID)
 	}
@@ -519,5 +527,48 @@ func TestAccountStream_FatalColumnCount(t *testing.T) {
 	}
 	if c := src.InvalidCount(); c != 0 {
 		t.Errorf("InvalidCount = %d, want 0 (structural failure ≠ invalid row)", c)
+	}
+}
+
+// TestParseAccountRow_NormalizesAccountID drives parseAccountRow with
+// an AccountID that sits above the bn254 fr modulus (all-FF 32 bytes
+// ≈ 2^256, modulus ≈ 2^254) and asserts the row's AccountID is
+// reduced into canonical form. This is the R3 step 2 / G13 unit
+// check: a positive guard that fr.Element normalization is actually
+// applied at the snapshot adapter layer. Byte-equivalence against
+// legacy `src/utils/utils.go:553` output is verified by the
+// production-shape comparison in R3 step 3 (G1 closure), not here.
+func TestParseAccountRow_NormalizesAccountID(t *testing.T) {
+	rawIDHex := strings.Repeat("ff", 32)
+	rawID, err := hex.DecodeString(rawIDHex)
+	if err != nil {
+		t.Fatalf("hex decode raw id: %v", err)
+	}
+	wantID := new(fr.Element).SetBytes(rawID).Marshal()
+	if bytes.Equal(rawID, wantID) {
+		t.Fatal("test premise broken: raw id is already in canonical form")
+	}
+
+	// Minimal one-asset row: prelude + 6 zero asset columns + trailing.
+	// All-zero per-asset entries skip the AccountAsset emit path and
+	// keep TotalDebt == TotalCollateral == 0, so the account-level
+	// invariant passes regardless of asset content.
+	row := []string{
+		"0", rawIDHex,
+		"0.0", "0.0", "", "0.0", "0.0", "0.0",
+		"0.0",
+	}
+	assets := []modelspec.CexAssetInfo{
+		{Symbol: "btc", BasePrice: 0},
+	}
+	account, err := parseAccountRow(row, assets, 1, 0, pricing{})
+	if err != nil {
+		t.Fatalf("parseAccountRow: %v", err)
+	}
+	if bytes.Equal(account.AccountID, rawID) {
+		t.Fatalf("AccountID was not reduced: got raw %x", account.AccountID)
+	}
+	if !bytes.Equal(account.AccountID, wantID) {
+		t.Errorf("AccountID = %x, want %x", account.AccountID, wantID)
 	}
 }
