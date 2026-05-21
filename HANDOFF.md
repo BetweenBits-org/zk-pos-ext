@@ -31,7 +31,7 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 | `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
 | `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 + full-coverage 테스트 (multi-shard / ctx cancel / numeric overflow / collateral sum overflow / fatal column count) + AccountID 정규화. **`parseAccountRow` 에서 bn254 `fr.Element` SetBytes→Marshal round-trip 적용 (R3 step 2, G13 impl)** — legacy `src/utils/utils.go:553` 와 동일 layer. **R3 step 3 sample-corpus parity 통과** — legacy `ReadUserDataFromCsvFile` 과 zkpor `csvSnapshot.AccountStream` 이 sample_users0.csv (100 rows) 에서 90 valid AccountID byte-equal + 10 invalid 분류 parity. 17개 테스트 통과 (binance). multi-shard *concurrency* 는 여전히 R3 step 4 (현재는 sequential). 나머지 7개 어댑터는 constructor 형태 |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
-| docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`) | ✅ complete |
+| docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`, `zkpor/docs/02-module-architecture.md`) | ✅ complete |
 
 ## Current Implementation Snapshot
 
@@ -201,10 +201,11 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 
 1. `zkpor/core/spec/` 코드 (frozen 계약)
 2. `zkpor/docs/01-project-context.md`
-3. `zkpor/PRODUCTION_ROADMAP.md`
-4. `zkpor/AGENTS.md`, `zkpor/CLAUDE.md`
-5. `zkpor/HANDOFF.md` (이 문서 — 휘발성)
-6. `docs/*.md` (legacy 참고 자료)
+3. `zkpor/docs/02-module-architecture.md`
+4. `zkpor/PRODUCTION_ROADMAP.md`
+5. `zkpor/AGENTS.md`, `zkpor/CLAUDE.md`
+6. `zkpor/HANDOFF.md` (이 문서 — 휘발성)
+7. `docs/*.md` (legacy 참고 자료)
 
 ## Repository Map
 
@@ -221,7 +222,8 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
     ├── HANDOFF.md                            ← 이 문서 (현재 시점 인수인계)
     ├── PRODUCTION_ROADMAP.md                 ← Part 3 (stages + gates)
     ├── docs/
-    │   └── 01-project-context.md             ← Part 1 (컨셉/scope/guarantee)
+    │   ├── 01-project-context.md             ← Part 1 (컨셉/scope/guarantee)
+    │   └── 02-module-architecture.md         ← Module + Profile architecture lock
     ├── core/
     │   ├── spec/                             universal 인터페이스 + 상수 + 카탈로그
     │   │   ├── batch_shape.go
@@ -284,6 +286,13 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | core/circuit/ 추가 헬퍼 승격 | awaits signal | R6 / G11 |
 | 카탈로그 v1 freeze | awaits R7 | R7 / G4 |
 | 사용자-facing verification 분배 책임 (UI / 페이지) | deferred | post-V1 / customer SLA / G14 |
+| Module composition compatibility 검토 프로세스 (G16) | deferred | R5 candidate / 첫 multi-module composition |
+| `core/constraint_modules/noop/` promotion (universal noop 분리) | pending | R3 step 4 직후 또는 R4 진입 시 |
+| Composite 패턴 (`ComposeModules` 헬퍼) 도입 | pending | R5 candidate / 첫 N≥2 module deployment |
+| Param-as-public-input 규칙 closure | pending | R5 candidate / 첫 parameterized module |
+| Declarative `profile.toml` 첫 추출 | pending | R4 / 두 번째 customer 도입 |
+| profile descriptor schema v1 freeze | pending | R7 / G4 |
+| module 카탈로그 v1 list freeze | pending | R7 / G4 |
 
 ## Resume Actions
 

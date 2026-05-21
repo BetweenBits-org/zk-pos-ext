@@ -11,10 +11,11 @@
 |---:|---|---|
 | 1 | `zkpor/core/spec/solvency_models.go`, `zkpor/core/spec/batch_shape.go` 등 코드 | frozen 계약 (인터페이스 시그니처, 카탈로그 상수, 명명 규약). 코드와 문서가 어긋나면 코드가 source. |
 | 2 | `zkpor/docs/01-project-context.md` | 컨셉·scope·strong guarantee·preserve 결정. 계약 변경의 정합성 기준. |
-| 3 | `zkpor/PRODUCTION_ROADMAP.md` (이 문서) | stage·게이트·deferred work 의 source-of-truth. |
-| 4 | `zkpor/AGENTS.md`, `zkpor/CLAUDE.md` | agent contract 및 자동 로드 메모리. |
-| 5 | `zkpor/HANDOFF.md` | 현재 시점 인수인계. 휘발성 — 다른 source와 충돌 시 후순위. |
-| 6 | `docs/*.md` (legacy historical notes) | 참고. source 아님. |
+| 3 | `zkpor/docs/02-module-architecture.md` | ConstraintModule + Profile descriptor 의 architecture lock (composition / catalog / param 규약). |
+| 4 | `zkpor/PRODUCTION_ROADMAP.md` (이 문서) | stage·게이트·deferred work 의 source-of-truth. |
+| 5 | `zkpor/AGENTS.md`, `zkpor/CLAUDE.md` | agent contract 및 자동 로드 메모리. |
+| 6 | `zkpor/HANDOFF.md` | 현재 시점 인수인계. 휘발성 — 다른 source와 충돌 시 후순위. |
+| 7 | `docs/*.md` (legacy historical notes) | 참고. source 아님. |
 
 ## Scope Boundary
 
@@ -283,6 +284,13 @@ Exit criteria:
 - **Engine boundary**: 사용자-facing UI / web frontend / inclusion 검증
   페이지는 engine 밖, V1 scope 미포함 (`## Scope Boundary` 참조).
 
+부수 작업 (이 stage 안에서 또는 직후에 가능):
+
+- `core/constraint_modules/noop/` promotion — 현재
+  `profile/binance/constraint_noop.go` 의 noopModule 을 core 로 옮긴다.
+  rule-of-three 면제 (noop 은 universal). `docs/02-module-architecture.md`
+  §5 참조. 1 commit 분량.
+
 Blocking gates: G1 (step 3), G2 (step 4), G6 (step 4), G13 (step 1).
 
 ### Stage R4 — Second customer profile (deferred, awaits signal)
@@ -295,11 +303,19 @@ Blocking gates: G1 (step 3), G2 (step 4), G6 (step 4), G13 (step 1).
   risk, snapshot, constraint_noop or custom).
 - 해당 고객사가 채택할 model 결정 (Q3 답).
 - 두 고객사가 같은 model을 쓸 때 `.vk` 공유 정책 (G12 closed, Q7 답).
+- **Declarative profile.toml 첫 추출** — 두 customer 가 등장하면 자연스
+  러운 refactor trigger. asset list / batch shape / multipliers /
+  identity scheme ID / insolvent policy / source-type ID 를 toml 로
+  뽑는다. 어댑터 Go 코드는 여전히 존재 (procedural 부분). 단일-entry
+  registry pattern 도입 — 형태만 잡힌다. `docs/02-module-architecture.md`
+  §6 참조.
 
 Exit criteria:
 
 - 새 고객사 sample data로 end-to-end PoR 통과.
 - multi-customer 운영 시 `.vk` 공유/분리 정책 문서화.
+- 두 customer 의 declarative 데이터가 동일 toml 스키마 위에서 표현됨
+  (스키마 freeze 는 R7).
 
 Blocking gates: G12.
 
@@ -313,6 +329,16 @@ Blocking gates: G12.
 - 새 model 의 `zkpor/core/solvency/<id>/spec/` + `circuit/` + 도구.
 - 새 trusted setup ceremony 완료, `.pk`/`.vk` publish.
 - 두 model이 같은 `zkpor/core/circuit/` substrate를 공유 — 추상화 검증.
+
+부수 작업 (이 stage 의 트리거에 따라):
+
+- **Composite 패턴 첫 도입** — 두 model 중 한 customer 가 N module 을
+  요구하면 `core/constraint_modules/composite/` 신설 +
+  `ComposeModules([m1, m2, ...])` 헬퍼. `docs/02-module-architecture.md`
+  §2 의 spec 그대로 impl. 안 그러면 R6 으로 carry.
+- **Param-as-public-input 규칙 closure** — 첫 parameterized module 등장
+  시점에 `docs/02-module-architecture.md` §4 의 규칙을 spec/witness
+  builder 에 박는다. G3 의 ConstraintContext API freeze 와 동반.
 
 Exit criteria:
 
@@ -331,11 +357,19 @@ composition helper.
 - 세 번째 model 의 회로 구현.
 - 세 model 모두에 공통으로 적용 가능한 패턴이 `zkpor/core/circuit/` 으로 승격됨.
 - substrate API v1 잠정 정착.
+- **`core/constraint_modules/` 의 첫 본격 entry 들 promotion** — R4/R5
+  를 거치며 두 customer 이상에서 같은 module 패턴이 사용된 것이 있으
+  면, G11 의 자연 확장으로 module 도 core 라이브러리로 옮긴다. 후보
+  prefix: `regulator.<jurisdiction>.<rule>_v<v>`,
+  `business.<pattern>_v<v>`. `docs/02-module-architecture.md` §5
+  참조.
 
 Exit criteria:
 
 - 세 model 모두 `zkpor/core/circuit/` 새 헬퍼 호출 형태로 정리.
 - G11 closed.
+- `core/constraint_modules/` 에 noop 외 최소 1 entry 등록 (rule-of-three
+  통과한 module 한정).
 
 Blocking gates: G11.
 
@@ -349,11 +383,19 @@ stable 선언. 추가 model은 v2 카탈로그로 미룬다.
 - 5개 model 모두 회로·spec·trusted setup 완료 (혹은 일부 deprecated 처리).
 - `zkpor/core/spec/solvency_models.go` 가 v1 카탈로그로 freeze.
 - LegacyKeyName deprecate 일정 결정 (G10 closed).
+- **Profile descriptor schema v1 freeze** — R4 부터 emerging 한
+  profile.toml 의 필드·타입·버전 표기 확정. `docs/02-module-architecture.md`
+  §8 의 "lock 되지 않은 것" 중 schema 부분 closure.
+- **Module 카탈로그 freeze** — `core/constraint_modules/` 의 entry list
+  + ID prefix 규약 v1 확정. 신규 module 은 v2 로 미룸.
 
 Exit criteria:
 
 - 카탈로그 stability 선언 문서화.
 - 신규 model 제안은 v2 정의서로 격상.
+- profile descriptor v1 schema 문서화 (`docs/02-module-architecture.md`
+  업데이트 또는 신규 docs/03-...).
+- module 카탈로그 v1 list 확정.
 
 Blocking gates: G4, G10.
 
@@ -383,6 +425,7 @@ Blocking gates: G4, G10.
 | **G12** multi-customer profile 충돌 정책 | deferred | R4 | profile/<customer>/ 단일 패키지 가정. shape/.vk 공유 정책 미정. | 두 번째 customer 등장 시. |
 | **G13** AccountID fr.Element 정규화 위치 | closed | R3 step 1 | **(a) snapshot 어댑터** 채택. legacy `src/utils/utils.go:553` 와 동일 layer 에서 `new(fr.Element).SetBytes(id).Marshal()` round-trip. 근거: G1 byte-equivalence 비용 최저 (snapshot 출력 hex 직접 비교 가능), `AccountInfo.AccountID == userproof.AccountID == field input` 단일 형태 유지, R3 step 4 service rewire 시 호출 누락 위험 없음. 트레이드오프: `profile/binance/snapshot.go` 가 bn254 에 직접 결합 — 현재 카탈로그 5 model 전부 bn254 라 실질 충돌 없음, 두 번째 customer profile (R4) 등장 시 R6 helper 승격 후보로 carry. (b)/(c) 는 layering 더 깔끔하나 user-facing inconsistency / interface 확장 / 회귀 위험으로 기각. | impl: R3 step 2 (alpha wiring 과 동반). `AccountIDProvider.Scheme()` 명칭 갱신은 R3 step 4 (G2 closure) 동반. |
 | **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R4 진입) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
+| **G16** Module composition compatibility 검토 프로세스 | deferred | first multi-module composition (R5 candidate) | `docs/02-module-architecture.md` §1 의 add-only 원칙으로 composition 자체는 수학적으로 안전. 그러나 module 간 hidden assumption 충돌 (한 module 이 system 의 변수 의미를 전제, 다른 module 이 그걸 깸 → unsat) 가능. 방향 lock: (a) 각 module 의 doc/audit note 에 assumed invariants 명시 의무, (b) composition 등록 (= 새 `.vk` ceremony 시작) 전에 reviewer 가 invariant 호환성 검토, (c) 자동화는 future work. process detail (reviewer who, document where, fail-mode) 는 첫 multi-module 등장 시 채움. | 첫 multi-module composition customer 등장 시 process detail 확정 + 이 row 의 status `deferred → closed`. |
 
 ## Gate → Stage Dependency
 
@@ -400,6 +443,7 @@ G11 --> R6 (core/circuit promotion)
 G12 --> R4 (multi-customer .vk policy)
 G13 --> R3 step 1 (AccountID fr.Element normalization)
 G14 --> post-V1 / customer SLA (user-facing verification distribution)
+G16 --> R5 candidate (module composition compatibility process)
 
 (G7, G8, G9 는 R0 시점에 closed)
 ```
