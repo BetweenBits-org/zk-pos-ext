@@ -252,25 +252,34 @@ Exit criteria:
 - ✅ Sample-corpus AccountID byte-equivalence 90/90 pass + 10/10
   invalid 분류 parity (commit 1398e04).
 
-#### R3 step 4 — 4 service main.go rewiring (R3 본체)
+#### R3 step 4 — service rewiring via zkpor/cmd/* (R3 본체)
 
 목표: step 0..3 까지 닫힌 회로 + 새 `.vk` 명명으로 4개 서비스 wire-up.
-`src/witness`, `src/prover`, `src/userproof`, `src/verifier` 의 `main.go`
-가 `zkpor/profile/binance` 어댑터를 사용하도록 재배선. legacy `src/utils`
-import 제거. `ValueScale` invariant assert (G6). `AccountIDProvider.
-Scheme()` v1 freeze (G2).
+**legacy `src/witness`, `src/prover`, `src/userproof`, `src/verifier` 는
+직접 수정하지 않는다 (AGENTS.md "legacy 수정 금지" 정합)**. 대신
+`zkpor/cmd/{witness,prover,userproof,verifier}` 에 신규 entry 를 두고
+`zkpor/profile/binance` + `zkpor/core/solvency/tier_3bucket/...` 어댑터
+로 service 를 합성한다. legacy `src/` 는 untouched reference (trusted
+setup 그대로 유효) 로 보존되며, zkpor binary 가 점진적으로 대체한다.
+`ValueScale` invariant assert (G6). `AccountIDProvider.Scheme()` v1
+freeze (G2). 4 service 의 service-logic (witness/prover/model package)
+도 legacy 패키지를 import 하지 않고 zkpor 측에서 새로 합성한다 — legacy
+`src/utils` 에 있던 host-side 헬퍼 (native Poseidon 패킹, Merkle proof
+verify, CexCommitment 등) 은 zkpor 내 적절한 layer 로 추출·이식한다.
 
-**Slice 분해는 agent 자율**. step 4 는 한 commit 이 아니라 4 서비스
-별 commit (witness → prover → userproof → verifier, 또는 의존도 따라).
-agent 는 진입 시 분해를 HANDOFF Resume Actions 에 자기 슬라이스로
-박는다. 같은 commit 에 묶는 것은 import 경로 동시 교체 같은 사소한
-변경에 한정한다. 4 서비스 사이의 결합도 (DB 스키마 공유, file
-hand-off, witness→prover artifact 의존 등) 는 코드를 만져봐야 드러나
-므로 사전 분해를 박지 않는다.
+**Slice 분해는 agent 자율**. step 4 는 한 commit 이 아니라 service 별
++ host-helper 추출 commit (예: verifier → witness → prover → userproof,
+또는 의존도 따라). agent 는 진입 시 분해를 HANDOFF Resume Actions 에
+자기 슬라이스로 박는다. 같은 commit 에 묶는 것은 import 경로 동시
+교체 같은 사소한 변경에 한정한다. 4 서비스 사이의 결합도 (DB 스키마
+공유, file hand-off, witness→prover artifact 의존 등) 는 코드를
+만져봐야 드러나므로 사전 분해를 박지 않는다.
 
 산출물:
 
-- 4개 서비스가 `zkpor/profile/binance` import 만으로 동작.
+- `zkpor/cmd/{witness,prover,userproof,verifier}` 4 개 신규 binary —
+  legacy `src/utils` 또는 `src/{witness,prover,userproof,verifier}`
+  import 0.
 - 서비스 startup `ValueScale` assert (G6 closed).
 - `AccountIDProvider.Scheme()` v1 freeze (G2 closed).
 - `.vk` 파일이 새 명명 규약(`zkpor.tier_3bucket.<shape>.vk`) 으로 생성.

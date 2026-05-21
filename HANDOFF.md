@@ -308,34 +308,49 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 **R3 step 3 closed (G1)**. Tiny-shape R1CS L·R==O byte-equivalence
 (SHA256 `678eb23f…`) + sample-corpus AccountID 90/90 + invalid 10/10
 parity. 두 영구 회귀 테스트 (`-short` 에서 skip) 가 회로/snapshot
-양쪽의 legacy 정합성을 지속 가드. 다음은 R3 본체 — **4개 service
-main.go 를 zkpor 어댑터로 재배선** + G2 (Scheme rename) + G6
-(ValueScale assert) closure.
+양쪽의 legacy 정합성을 지속 가드. 다음은 R3 본체 — **`zkpor/cmd/*`
+신규 entry 4 개로 service 합성** + G2 (Scheme rename) + G6 (ValueScale
+assert) closure.
 
-권장 다음 슬라이스 — **R3 step 4 (service rewiring, agent 가 자율
+**Location 결정 (이번 진입 시 surface 됨)** — legacy `src/witness`,
+`src/prover`, `src/userproof`, `src/verifier` 는 직접 수정하지 않고
+untouched reference 로 보존. zkpor 측에 `zkpor/cmd/{witness,prover,
+userproof,verifier}` 신규 entry 를 만들어 점진 대체. PRODUCTION_ROADMAP
+R3 step 4 본문도 그에 맞춰 정렬됨.
+
+권장 다음 슬라이스 — **R3 step 4 / verifier 부터 (이번 agent 자율
 분해)**:
 
 ```text
-관여 서비스 (PRODUCTION_ROADMAP R3 step 4 참조):
-  - src/witness    : snapshot → AccountInfo stream → BatchCreateUserWitness
-  - src/prover     : witness file → groth16.Prove → proof file
-  - src/userproof  : per-user inclusion proof → DB 행
-  - src/verifier   : groth16.Verify → exit code
+첫 commit 후보 — verifier (출하 의존도 최저):
+  - zkpor/cmd/verifier/main.go 신규 entry. legacy
+    src/verifier/main.go 와 동일 CLI surface (-user / -hash /
+    proof_table 모드).
+  - in-circuit verify 측: zkpor 의 `BatchCreateUserCircuit` +
+    `NewVerifyBatchCreateUserCircuit` 사용. 새 `.vk` 명명 규약
+    (`zkpor.tier_3bucket.<shape>.vk`).
+  - host-side helper 의존 (-user / proof_table 양 모드 공통) —
+    legacy `src/utils` 의 native Poseidon 패킹 (UserAssetsCommitment),
+    Merkle proof verify, CexCommitment 가 필요. 다음 두 가지 옵션
+    중 선택 (verifier 슬라이스 진입 시 결정):
+      (a) 같은 commit 안에서 zkpor 내 host-side layer (예:
+         `zkpor/core/host/poseidon` 또는 `zkpor/profile/binance/
+         commitment.go` 등) 로 추출·이식.
+      (b) 별도 preparation commit 으로 추출 후 verifier 본체에서
+         사용. 다음 서비스 (witness/prover/userproof) 도 같은
+         helper 를 공유하므로 (b) 가 reuse 측면 유리.
 
-같은 commit 에 묶을 후보 (low-coupling 변경):
-  - 4 서비스 main.go 의 legacy `src/utils` import 제거,
-    `zkpor/profile/binance` + `zkpor/core/solvency/tier_3bucket/...`
-    import 으로 교체.
-  - `solver.RegisterHint(corecircuit.IntegerDivision)` 등록 — G1
-    의 의도적 제외 항목 (hint identifier divergence) 의 service-side
-    해소.
-  - ValueScale startup assert (G6 closure) — service init 에 한 줄.
-    `PriceMultiplier × BalanceMultiplier == ValueScale` 불변식.
+이후 commit 후보 (코드 만져본 뒤 의존도 따라 재정렬 가능):
+  - witness  — snapshot → AccountInfo stream → BatchCreateUserWitness.
+    zkpor/profile/binance 의 CexAssets + AccountStream 직접 호출.
+  - prover   — witness file → groth16.Prove → proof file. service-side
+    `solver.RegisterHint(corecircuit.IntegerDivision)` 등록 (G1
+    의 의도적 제외 항목 service-side 해소).
+  - userproof — per-user inclusion proof → DB 행. legacy DB schema
+    재사용 가능한지 검토 필요.
 
-분해 후보 (의존도/결합도가 코드를 만져봐야 드러나는 영역, 한 commit
-에 묶지 않는다):
-  - witness → prover artifact 의존 (file format / serialization
-    경계).
+분해 후보 (한 commit 에 묶지 않음 — 코드 만져봐야 드러나는 결합도):
+  - witness → prover artifact 의존 (file format / serialization 경계).
   - userproof 의 DB 스키마 — schema 변경이 필요한지, legacy 와
     공유 가능한지.
   - multi-shard concurrency (현재 sequential streamShard) — legacy
@@ -343,15 +358,18 @@ main.go 를 zkpor 어댑터로 재배선** + G2 (Scheme rename) + G6
     R3 step 4 안에 묶을지 별 슬라이스로 분리할지.
   - goroutine leak guard 테스트 (uber-go/goleak 도입 가치 평가).
 
-G2 closure (별도 commit 또는 service rewiring 동반):
+G2 closure (별도 commit 또는 첫 service rewiring 동반):
   - `AccountIDProvider.Scheme()` 의 v1 이름 결정. 현재 placeholder
     `passthrough_hex.v0` 가 G13 의 fr.Element 정규화 사실을 반영하지
     못함. 후보: `passthrough_hex_bn254_reduced.v0` 또는 그
     derivative. 한 번 freeze 되면 service / artifact 명명에 박힘.
 
-진입 시 agent 가 자기 슬라이스를 HANDOFF Resume Actions 에 박는다.
-4 서비스를 한 commit 에 묶지 않는다 — service-별 commit 분해가
-default. legacy + 신규의 결합도가 드러나는 순간 슬라이스 경계 재조정.
+G6 closure — `PriceMultiplier × BalanceMultiplier == ValueScale`
+startup assert. service init 한 줄. 첫 service (verifier) commit
+에 포함하거나 별도 commit.
+
+진입 시 agent 가 코드를 만져본 뒤 슬라이스 경계 재조정. 한 commit
+에 4 서비스를 묶지 않는다.
 ```
 
 그 다음 진입:
