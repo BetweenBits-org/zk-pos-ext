@@ -3,8 +3,11 @@ package binance
 import (
 	"context"
 	"encoding/csv"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -51,20 +54,265 @@ type csvSnapshot struct {
 // NewSnapshotCSV constructs a SnapshotSource backed by the legacy CSV
 // directory layout. CexAssets reads cex_assets_info.csv and the first
 // user-shard CSV's header on first call; the result is cached for the
-// lifetime of the returned source. AccountStream is still stubbed and
-// will be implemented in the R2 second sub-slice.
+// lifetime of the returned source. AccountStream walks every user
+// shard sequentially, yielding one AccountInfo per CSV data row.
 func NewSnapshotCSV(cfg SnapshotConfig) modelspec.SnapshotSource {
 	return &csvSnapshot{cfg: cfg}
 }
 
-// errAccountStreamPending marks the user-shard streaming path that has
-// not yet been migrated from legacy src/utils/utils.go.
-var errAccountStreamPending = errors.New(
-	"binance snapshot CSV AccountStream not yet implemented (R2 step 2)",
-)
+// accountStreamBuffer is the channel buffer size used by AccountStream.
+// Sized for the typical witness-builder consumer that pulls accounts in
+// batch-sized chunks (~700 by default) — a buffer of 1024 keeps the
+// producer from blocking inside a single batch fill.
+const accountStreamBuffer = 1024
 
+// AccountStream yields one AccountInfo per CSV data row across all
+// user-shard files in UserDataDir (sorted lexically, processed
+// sequentially in a single goroutine).
+//
+// Step 1 scope (happy-path): every successfully-parsed row is emitted
+// regardless of solvency invariants (TotalCollateral vs TotalDebt,
+// per-asset collateral vs equity). Invalid-account classification is
+// deferred to R2/2 step 2. Per-row parse failures (malformed hex
+// account id, malformed numeric field) close the channel early after
+// logging — matching the spec's mid-stream error contract.
+//
+// AccountID handling: the raw 32-byte hex-decoded value is used as-is.
+// Legacy applies a bn254 fr.Element normalization round-trip; whether
+// that normalization belongs in this layer, the identity provider, or
+// the witness builder is a deferred decision tracked in HANDOFF.
 func (c *csvSnapshot) AccountStream(ctx context.Context) (<-chan modelspec.AccountInfo, error) {
-	return nil, errAccountStreamPending
+	assets, err := c.CexAssets(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("binance snapshot: preload CexAssets: %w", err)
+	}
+	shards, err := listUserShards(c.cfg.UserDataDir)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan modelspec.AccountInfo, accountStreamBuffer)
+	go streamAccounts(ctx, shards, assets, pricing{}, out)
+	return out, nil
+}
+
+// streamAccounts walks shards sequentially, parsing each row into an
+// AccountInfo and pushing it onto out. Closes out on completion, ctx
+// cancellation, or shard-level error. Errors are logged at stderr
+// before the channel closes so callers can detect mid-stream failure.
+func streamAccounts(
+	ctx context.Context,
+	shards []string,
+	assets []modelspec.CexAssetInfo,
+	prov pricing,
+	out chan<- modelspec.AccountInfo,
+) {
+	defer close(out)
+	var globalIndex uint32
+	for _, path := range shards {
+		if err := streamShard(ctx, path, assets, prov, &globalIndex, out); err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("binance snapshot: stream %s: %v", path, err)
+			}
+			return
+		}
+	}
+}
+
+// streamShard reads one user-shard CSV, validating its header against
+// the same (len-3) % 6 == 0 rule used by readUserAssetOrder and
+// emitting one AccountInfo per data row. The shard's own asset count
+// is derived from its header; the cached assets slice supplies
+// per-asset BasePrice and tier ratios.
+func streamShard(
+	ctx context.Context,
+	path string,
+	assets []modelspec.CexAssetInfo,
+	prov pricing,
+	globalIndex *uint32,
+	out chan<- modelspec.AccountInfo,
+) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	header, err := r.Read()
+	if err != nil {
+		return fmt.Errorf("read header: %w", err)
+	}
+	if len(header) < 3 || (len(header)-3)%6 != 0 {
+		return fmt.Errorf("malformed header column count %d", len(header))
+	}
+	assetCount := (len(header) - 3) / 6
+	if assetCount > len(assets) {
+		return fmt.Errorf(
+			"shard has %d assets but cached snapshot has only %d slots",
+			assetCount, len(assets),
+		)
+	}
+	for {
+		row, err := r.Read()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read row at index %d: %w", *globalIndex, err)
+		}
+		account, err := parseAccountRow(row, assets, assetCount, *globalIndex, prov)
+		if err != nil {
+			return fmt.Errorf("parse row at index %d: %w", *globalIndex, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case out <- account:
+		}
+		*globalIndex++
+	}
+}
+
+// parseAccountRow converts a single CSV row into an AccountInfo. The
+// per-asset block layout mirrors legacy ReadUserDataFromCsvFile:
+// equity (j*6+2), debt (j*6+3), loan (j*6+5), margin (j*6+6),
+// portfolio_margin (j*6+7). Column j*6+4 (asset name in the header)
+// is intentionally not read. Per-asset values use the BalanceMultiplier
+// from the pricing provider (1e8 default, 1e2 for two-digit assets).
+// An AccountAsset entry is emitted only when equity or debt is non-zero,
+// matching legacy semantics.
+func parseAccountRow(
+	row []string,
+	assets []modelspec.CexAssetInfo,
+	assetCount int,
+	index uint32,
+	prov pricing,
+) (modelspec.AccountInfo, error) {
+	minCols := 2 + assetCount*6
+	if len(row) < minCols {
+		return modelspec.AccountInfo{}, fmt.Errorf(
+			"row has %d columns, want at least %d", len(row), minCols,
+		)
+	}
+	accountID, err := hex.DecodeString(row[1])
+	if err != nil {
+		return modelspec.AccountInfo{}, fmt.Errorf("hex decode account id %q: %w", row[1], err)
+	}
+	if len(accountID) != 32 {
+		return modelspec.AccountInfo{}, fmt.Errorf(
+			"account id has %d bytes, want 32", len(accountID),
+		)
+	}
+	account := modelspec.AccountInfo{
+		AccountIndex:    index,
+		AccountID:       accountID,
+		TotalEquity:     new(big.Int),
+		TotalDebt:       new(big.Int),
+		TotalCollateral: new(big.Int),
+	}
+	for j := range assetCount {
+		symbol := assets[j].Symbol
+		mult := prov.BalanceMultiplier(symbol)
+		equity, err := convertFloatStrToUint64(row[j*6+2], mult)
+		if err != nil {
+			return modelspec.AccountInfo{}, fmt.Errorf("asset %q equity: %w", symbol, err)
+		}
+		debt, err := convertFloatStrToUint64(row[j*6+3], mult)
+		if err != nil {
+			return modelspec.AccountInfo{}, fmt.Errorf("asset %q debt: %w", symbol, err)
+		}
+		loan, err := convertFloatStrToUint64(row[j*6+5], mult)
+		if err != nil {
+			return modelspec.AccountInfo{}, fmt.Errorf("asset %q loan: %w", symbol, err)
+		}
+		margin, err := convertFloatStrToUint64(row[j*6+6], mult)
+		if err != nil {
+			return modelspec.AccountInfo{}, fmt.Errorf("asset %q margin: %w", symbol, err)
+		}
+		pm, err := convertFloatStrToUint64(row[j*6+7], mult)
+		if err != nil {
+			return modelspec.AccountInfo{}, fmt.Errorf("asset %q portfolio margin: %w", symbol, err)
+		}
+		if equity == 0 && debt == 0 {
+			continue
+		}
+		account.Assets = append(account.Assets, modelspec.AccountAsset{
+			Index:           uint16(j),
+			Equity:          equity,
+			Debt:            debt,
+			Loan:            loan,
+			Margin:          margin,
+			PortfolioMargin: pm,
+		})
+		price := new(big.Int).SetUint64(assets[j].BasePrice)
+		addScaled(account.TotalEquity, equity, price)
+		addScaled(account.TotalDebt, debt, price)
+		account.TotalCollateral.Add(
+			account.TotalCollateral,
+			assetCollateralValue(loan, margin, pm, price, &assets[j]),
+		)
+	}
+	return account, nil
+}
+
+// addScaled accumulates (val * factor) into acc in place.
+func addScaled(acc *big.Int, val uint64, factor *big.Int) {
+	tmp := new(big.Int).SetUint64(val)
+	tmp.Mul(tmp, factor)
+	acc.Add(acc, tmp)
+}
+
+// percentageDivisor is the denominator used by the haircut math
+// (TierRatio.Ratio is a /100 percentage). Matches legacy
+// PercentageMultiplier verbatim.
+var percentageDivisor = big.NewInt(100)
+
+// assetCollateralValue mirrors legacy
+// src/utils/utils.go:CalculateAssetValueForCollateral. Each of the
+// three collateral types is priced (amount * BasePrice), passed
+// through its tier-ratio haircut table, and the three results summed.
+func assetCollateralValue(
+	loan, margin, pm uint64,
+	price *big.Int,
+	info *modelspec.CexAssetInfo,
+) *big.Int {
+	haircut := func(amount uint64, tiers []modelspec.TierRatio) *big.Int {
+		v := new(big.Int).SetUint64(amount)
+		v.Mul(v, price)
+		return haircutValue(v, tiers)
+	}
+	sum := haircut(loan, info.LoanRatios)
+	sum.Add(sum, haircut(margin, info.MarginRatios))
+	sum.Add(sum, haircut(pm, info.PortfolioMarginRatios))
+	return sum
+}
+
+// haircutValue applies a piecewise-linear haircut to value using
+// boundary cutoffs and precomputed cumulative haircuts. Mirrors legacy
+// CalculateAssetValueViaTiersRatio.
+//
+//	If value falls in tier i (value <= boundary[i]):
+//	  out = (value - boundary[i-1]) * ratio[i] / 100  +  precomputed[i-1]
+//	with boundary[-1] = precomputed[-1] = 0.
+//	If value exceeds the last boundary, out = precomputed[last].
+func haircutValue(value *big.Int, tiers []modelspec.TierRatio) *big.Int {
+	if len(tiers) == 0 {
+		return new(big.Int)
+	}
+	v := new(big.Int).Set(value)
+	for i, t := range tiers {
+		if v.Cmp(t.BoundaryValue) <= 0 {
+			if i > 0 {
+				v.Sub(v, tiers[i-1].BoundaryValue)
+			}
+			v.Mul(v, new(big.Int).SetUint64(uint64(t.Ratio)))
+			v.Quo(v, percentageDivisor)
+			if i > 0 {
+				v.Add(v, tiers[i-1].PrecomputedValue)
+			}
+			return v
+		}
+	}
+	return new(big.Int).Set(tiers[len(tiers)-1].PrecomputedValue)
 }
 
 // CexAssets returns the per-asset CEX totals slice indexed by
@@ -153,25 +401,27 @@ func loadCSVSnapshot(dir string) ([]modelspec.CexAssetInfo, error) {
 	return assets, nil
 }
 
-// readUserAssetOrder mirrors legacy
-// src/utils/utils.go:ParseAssetIndexFromUserFile. It picks the first
-// non-cex .csv file in dir (deterministic via filename sort), reads
-// only its header row, and decodes the column-i*6+4 positions into
-// lower-cased symbols.
-func readUserAssetOrder(dir string) ([]string, error) {
+// listUserShards returns the absolute paths of all per-shard user CSV
+// files in dir, sorted lexically for determinism. The cex_assets_info
+// file is excluded. Returns an error if dir is empty / unreadable / has
+// no user shards.
+func listUserShards(dir string) ([]string, error) {
+	if dir == "" {
+		return nil, errors.New("binance snapshot: UserDataDir is empty")
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("binance snapshot: read user data dir %q: %w", dir, err)
 	}
-	names := make([]string, 0, len(entries))
+	var paths []string
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".csv") || name == cexAssetsCSVName {
 			continue
 		}
-		names = append(names, name)
+		paths = append(paths, filepath.Join(dir, name))
 	}
-	if len(names) == 0 {
+	if len(paths) == 0 {
 		return nil, fmt.Errorf(
 			"binance snapshot: no user CSV files found in %q (expected at least one .csv besides %s)",
 			dir, cexAssetsCSVName,
@@ -179,8 +429,21 @@ func readUserAssetOrder(dir string) ([]string, error) {
 	}
 	// os.ReadDir already returns entries lexically sorted but be
 	// explicit so test fixtures with deliberate ordering remain stable.
-	sort.Strings(names)
-	path := filepath.Join(dir, names[0])
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// readUserAssetOrder mirrors legacy
+// src/utils/utils.go:ParseAssetIndexFromUserFile. It picks the first
+// non-cex .csv file in dir (deterministic via filename sort), reads
+// only its header row, and decodes the column-i*6+4 positions into
+// lower-cased symbols.
+func readUserAssetOrder(dir string) ([]string, error) {
+	shards, err := listUserShards(dir)
+	if err != nil {
+		return nil, err
+	}
+	path := shards[0]
 
 	f, err := os.Open(path)
 	if err != nil {

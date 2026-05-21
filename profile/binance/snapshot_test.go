@@ -1,6 +1,7 @@
 package binance
 
 import (
+	"bytes"
 	"context"
 	"math/big"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
 )
 
 const happyFixtureDir = "testdata/happy"
@@ -185,4 +187,68 @@ func loadFixture(t *testing.T, dir string) error {
 	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "test"})
 	_, err := src.CexAssets(context.Background())
 	return err
+}
+
+// TestAccountStream_HappyPath is the R2/2 step 1 smoke test. The
+// happy fixture has two data rows: a 3-asset row (btc + eth + doge,
+// debt-free, no collateral) and a 1-asset row (doge only). We assert
+// the channel yields exactly two AccountInfo records with sequential
+// AccountIndex values, correctly decoded AccountID bytes, and the
+// expected per-row Assets slice length. Heavier coverage (multi-shard,
+// mid-stream parse errors, invalid-account classification) lands in
+// R2/2 step 2 / step 3.
+func TestAccountStream_HappyPath(t *testing.T) {
+	src := NewSnapshotCSV(SnapshotConfig{
+		UserDataDir: happyFixtureDir,
+		SnapshotID:  "test",
+	})
+	ch, err := src.AccountStream(context.Background())
+	if err != nil {
+		t.Fatalf("AccountStream: unexpected start-up error: %v", err)
+	}
+	var got []modelspec.AccountInfo
+	for a := range ch {
+		got = append(got, a)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d accounts, want 2", len(got))
+	}
+
+	// Row 0: account id 0x11..11, all three assets populated with
+	// equity > 0 and debt = 0 → Assets has 3 entries.
+	if got[0].AccountIndex != 0 {
+		t.Errorf("row 0 AccountIndex = %d, want 0", got[0].AccountIndex)
+	}
+	wantID0 := bytes.Repeat([]byte{0x11}, 32)
+	if !bytes.Equal(got[0].AccountID, wantID0) {
+		t.Errorf("row 0 AccountID = %x, want %x", got[0].AccountID, wantID0)
+	}
+	if len(got[0].Assets) != 3 {
+		t.Errorf("row 0 Assets len = %d, want 3", len(got[0].Assets))
+	}
+
+	// Row 1: account id 0x22..22, only doge populated → Assets has 1
+	// entry with Index = 2.
+	if got[1].AccountIndex != 1 {
+		t.Errorf("row 1 AccountIndex = %d, want 1", got[1].AccountIndex)
+	}
+	wantID1 := bytes.Repeat([]byte{0x22}, 32)
+	if !bytes.Equal(got[1].AccountID, wantID1) {
+		t.Errorf("row 1 AccountID = %x, want %x", got[1].AccountID, wantID1)
+	}
+	if len(got[1].Assets) != 1 {
+		t.Fatalf("row 1 Assets len = %d, want 1", len(got[1].Assets))
+	}
+	if got[1].Assets[0].Index != 2 {
+		t.Errorf("row 1 doge asset Index = %d, want 2", got[1].Assets[0].Index)
+	}
+	// doge equity 50.0 with two-digit balance multiplier 1e2.
+	const wantDogeEquity uint64 = 50 * 100
+	if got[1].Assets[0].Equity != wantDogeEquity {
+		t.Errorf("row 1 doge equity = %d, want %d", got[1].Assets[0].Equity, wantDogeEquity)
+	}
+	// All zero collateral → TotalCollateral == 0.
+	if got[1].TotalCollateral.Sign() != 0 {
+		t.Errorf("row 1 TotalCollateral = %s, want 0", got[1].TotalCollateral)
+	}
 }
