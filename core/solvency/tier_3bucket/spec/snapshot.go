@@ -33,4 +33,17 @@ type SnapshotSource interface {
 	// in time (e.g. "2026-01-15T00:00:00Z" or an internal sequence
 	// number). Embedded in published artifacts for audit.
 	SnapshotID() string
+
+	// InvalidCount returns the number of source rows that were
+	// observed but classified as invalid (and therefore not yielded
+	// on AccountStream's channel). Implementations MUST update this
+	// counter monotonically while streaming and MUST make the value
+	// safe to read concurrently with the stream goroutine. After the
+	// AccountStream channel closes, the returned value is the final
+	// invalid count for the snapshot.
+	//
+	// Witness builders use this for sanity gates — e.g. asserting
+	// that valid + invalid == expected source row count — and for
+	// audit-trail metadata.
+	InvalidCount() uint64
 }

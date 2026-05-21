@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
@@ -49,6 +50,12 @@ type csvSnapshot struct {
 	once   sync.Once
 	assets []modelspec.CexAssetInfo
 	err    error
+
+	// invalidCount accumulates the number of source rows classified
+	// as invalid (collateral > equity, debt-uncovered, malformed
+	// data) during AccountStream. Read concurrently with the stream
+	// goroutine via the InvalidCount() method.
+	invalidCount atomic.Uint64
 }
 
 // NewSnapshotCSV constructs a SnapshotSource backed by the legacy CSV
@@ -65,6 +72,35 @@ func NewSnapshotCSV(cfg SnapshotConfig) modelspec.SnapshotSource {
 // batch-sized chunks (~700 by default) — a buffer of 1024 keeps the
 // producer from blocking inside a single batch fill.
 const accountStreamBuffer = 1024
+
+// errInvalidRow marks per-row data problems that the snapshot
+// classifies as "invalid account": the row is logged, increments
+// InvalidCount, and is skipped without being yielded on the channel.
+// Stream-fatal errors (column-count mismatch, IO failure) are
+// returned without this wrap so they propagate to streamShard's
+// channel-close path.
+var errInvalidRow = errors.New("invalid account row")
+
+// invalidf wraps an errInvalidRow with a formatted reason. Reserved
+// for per-row data problems; stream-fatal errors MUST NOT use it.
+func invalidf(format string, args ...any) error {
+	return fmt.Errorf(format+": %w", append(args, errInvalidRow)...)
+}
+
+// safeAddU64 returns a+b+c when the sum fits in uint64, and (0, false)
+// on overflow. Mirrors legacy SafeAdd but reports overflow instead of
+// panicking — overflow becomes an invalid-row classification.
+func safeAddU64(a, b, c uint64) (uint64, bool) {
+	s1 := a + b
+	if s1 < a {
+		return 0, false
+	}
+	s2 := s1 + c
+	if s2 < s1 {
+		return 0, false
+	}
+	return s2, true
+}
 
 // AccountStream yields one AccountInfo per CSV data row across all
 // user-shard files in UserDataDir (sorted lexically, processed
@@ -91,15 +127,17 @@ func (c *csvSnapshot) AccountStream(ctx context.Context) (<-chan modelspec.Accou
 		return nil, err
 	}
 	out := make(chan modelspec.AccountInfo, accountStreamBuffer)
-	go streamAccounts(ctx, shards, assets, pricing{}, out)
+	go c.streamAccounts(ctx, shards, assets, pricing{}, out)
 	return out, nil
 }
 
 // streamAccounts walks shards sequentially, parsing each row into an
 // AccountInfo and pushing it onto out. Closes out on completion, ctx
-// cancellation, or shard-level error. Errors are logged at stderr
-// before the channel closes so callers can detect mid-stream failure.
-func streamAccounts(
+// cancellation, or shard-level error. Fatal errors (header malformed,
+// CSV IO) are logged before the channel closes; per-row "invalid"
+// classifications are logged at the row level and counted via
+// c.invalidCount.
+func (c *csvSnapshot) streamAccounts(
 	ctx context.Context,
 	shards []string,
 	assets []modelspec.CexAssetInfo,
@@ -107,9 +145,9 @@ func streamAccounts(
 	out chan<- modelspec.AccountInfo,
 ) {
 	defer close(out)
-	var globalIndex uint32
+	var validIndex uint32
 	for _, path := range shards {
-		if err := streamShard(ctx, path, assets, prov, &globalIndex, out); err != nil {
+		if err := c.streamShard(ctx, path, assets, prov, &validIndex, out); err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				log.Printf("binance snapshot: stream %s: %v", path, err)
 			}
@@ -119,16 +157,17 @@ func streamAccounts(
 }
 
 // streamShard reads one user-shard CSV, validating its header against
-// the same (len-3) % 6 == 0 rule used by readUserAssetOrder and
-// emitting one AccountInfo per data row. The shard's own asset count
-// is derived from its header; the cached assets slice supplies
-// per-asset BasePrice and tier ratios.
-func streamShard(
+// the same (len-3) % 6 == 0 rule used by readUserAssetOrder. Each data
+// row is parsed via parseAccountRow; rows wrapped as errInvalidRow are
+// logged + counted + skipped (channel stays open), other errors close
+// the channel. validIndex increments only on successful yield, so
+// AccountInfo.AccountIndex is dense across the valid stream.
+func (c *csvSnapshot) streamShard(
 	ctx context.Context,
 	path string,
 	assets []modelspec.CexAssetInfo,
 	prov pricing,
-	globalIndex *uint32,
+	validIndex *uint32,
 	out chan<- modelspec.AccountInfo,
 ) error {
 	f, err := os.Open(path)
@@ -151,24 +190,32 @@ func streamShard(
 			assetCount, len(assets),
 		)
 	}
+	var rawIndex uint32
 	for {
 		row, err := r.Read()
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("read row at index %d: %w", *globalIndex, err)
+			return fmt.Errorf("read row at raw index %d: %w", rawIndex, err)
 		}
-		account, err := parseAccountRow(row, assets, assetCount, *globalIndex, prov)
+		account, err := parseAccountRow(row, assets, assetCount, *validIndex, prov)
 		if err != nil {
-			return fmt.Errorf("parse row at index %d: %w", *globalIndex, err)
+			if errors.Is(err, errInvalidRow) {
+				log.Printf("binance snapshot: skip row %d in %s: %v", rawIndex, path, err)
+				c.invalidCount.Add(1)
+				rawIndex++
+				continue
+			}
+			return fmt.Errorf("parse row at raw index %d: %w", rawIndex, err)
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case out <- account:
 		}
-		*globalIndex++
+		*validIndex++
+		rawIndex++
 	}
 }
 
@@ -180,6 +227,10 @@ func streamShard(
 // from the pricing provider (1e8 default, 1e2 for two-digit assets).
 // An AccountAsset entry is emitted only when equity or debt is non-zero,
 // matching legacy semantics.
+//
+// Errors with errInvalidRow attached classify the row as invalid —
+// streamShard logs, counts, and skips it. Errors without that wrap
+// are stream-fatal (e.g. column-count mismatch).
 func parseAccountRow(
 	row []string,
 	assets []modelspec.CexAssetInfo,
@@ -195,10 +246,10 @@ func parseAccountRow(
 	}
 	accountID, err := hex.DecodeString(row[1])
 	if err != nil {
-		return modelspec.AccountInfo{}, fmt.Errorf("hex decode account id %q: %w", row[1], err)
+		return modelspec.AccountInfo{}, invalidf("hex decode account id %q: %v", row[1], err)
 	}
 	if len(accountID) != 32 {
-		return modelspec.AccountInfo{}, fmt.Errorf(
+		return modelspec.AccountInfo{}, invalidf(
 			"account id has %d bytes, want 32", len(accountID),
 		)
 	}
@@ -214,26 +265,39 @@ func parseAccountRow(
 		mult := prov.BalanceMultiplier(symbol)
 		equity, err := convertFloatStrToUint64(row[j*6+2], mult)
 		if err != nil {
-			return modelspec.AccountInfo{}, fmt.Errorf("asset %q equity: %w", symbol, err)
+			return modelspec.AccountInfo{}, invalidf("asset %q equity: %v", symbol, err)
 		}
 		debt, err := convertFloatStrToUint64(row[j*6+3], mult)
 		if err != nil {
-			return modelspec.AccountInfo{}, fmt.Errorf("asset %q debt: %w", symbol, err)
+			return modelspec.AccountInfo{}, invalidf("asset %q debt: %v", symbol, err)
 		}
 		loan, err := convertFloatStrToUint64(row[j*6+5], mult)
 		if err != nil {
-			return modelspec.AccountInfo{}, fmt.Errorf("asset %q loan: %w", symbol, err)
+			return modelspec.AccountInfo{}, invalidf("asset %q loan: %v", symbol, err)
 		}
 		margin, err := convertFloatStrToUint64(row[j*6+6], mult)
 		if err != nil {
-			return modelspec.AccountInfo{}, fmt.Errorf("asset %q margin: %w", symbol, err)
+			return modelspec.AccountInfo{}, invalidf("asset %q margin: %v", symbol, err)
 		}
 		pm, err := convertFloatStrToUint64(row[j*6+7], mult)
 		if err != nil {
-			return modelspec.AccountInfo{}, fmt.Errorf("asset %q portfolio margin: %w", symbol, err)
+			return modelspec.AccountInfo{}, invalidf("asset %q portfolio margin: %v", symbol, err)
 		}
 		if equity == 0 && debt == 0 {
 			continue
+		}
+		// Per-asset solvency invariant: loan + margin + pm <= equity.
+		// Mirrors legacy line 615 (collateral sum > equity → invalid).
+		sumCollateral, ok := safeAddU64(loan, margin, pm)
+		if !ok {
+			return modelspec.AccountInfo{}, invalidf(
+				"asset %q collateral sum overflows uint64", symbol,
+			)
+		}
+		if sumCollateral > equity {
+			return modelspec.AccountInfo{}, invalidf(
+				"asset %q collateral %d > equity %d", symbol, sumCollateral, equity,
+			)
 		}
 		account.Assets = append(account.Assets, modelspec.AccountAsset{
 			Index:           uint16(j),
@@ -249,6 +313,14 @@ func parseAccountRow(
 		account.TotalCollateral.Add(
 			account.TotalCollateral,
 			assetCollateralValue(loan, margin, pm, price, &assets[j]),
+		)
+	}
+	// Account-level solvency invariant: TotalCollateral >= TotalDebt.
+	// Mirrors legacy line 634 (debt-uncovered account → invalid).
+	if account.TotalCollateral.Cmp(account.TotalDebt) < 0 {
+		return modelspec.AccountInfo{}, invalidf(
+			"account TotalCollateral %s < TotalDebt %s",
+			account.TotalCollateral, account.TotalDebt,
 		)
 	}
 	return account, nil
@@ -338,6 +410,8 @@ func (c *csvSnapshot) CexAssets(ctx context.Context) ([]modelspec.CexAssetInfo, 
 }
 
 func (c *csvSnapshot) SnapshotID() string { return c.cfg.SnapshotID }
+
+func (c *csvSnapshot) InvalidCount() uint64 { return c.invalidCount.Load() }
 
 // loadCSVSnapshot is the one-shot CSV → []CexAssetInfo absorber. It
 // fuses legacy ParseAssetIndexFromUserFile + ParseCexAssetInfoFromFile

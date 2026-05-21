@@ -251,4 +251,121 @@ func TestAccountStream_HappyPath(t *testing.T) {
 	if got[1].TotalCollateral.Sign() != 0 {
 		t.Errorf("row 1 TotalCollateral = %s, want 0", got[1].TotalCollateral)
 	}
+
+	if c := src.InvalidCount(); c != 0 {
+		t.Errorf("InvalidCount = %d, want 0", c)
+	}
+}
+
+// happyUserShardHeader mirrors the testdata/happy/user_shard.csv
+// header byte-for-byte. Used by invalid-classification tests that
+// build tampered shard CSVs row-by-row.
+const happyUserShardHeader = "rn,id,equity_btc,debt_btc,btc,loan_btc,margin_btc,pm_btc," +
+	"equity_eth,debt_eth,eth,loan_eth,margin_eth,pm_eth," +
+	"equity_doge,debt_doge,doge,loan_doge,margin_doge,pm_doge,sum"
+
+// userShardWithRows composes a user_shard.csv body from the canonical
+// header and the supplied data rows. Each row must already have the
+// correct 21-column shape.
+func userShardWithRows(rows ...string) string {
+	return happyUserShardHeader + "\n" + strings.Join(rows, "\n") + "\n"
+}
+
+// streamAll drains AccountStream into a slice, returning the source
+// (for InvalidCount) and the collected accounts.
+func streamAll(t *testing.T, dir string) (modelspec.SnapshotSource, []modelspec.AccountInfo) {
+	t.Helper()
+	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "test"})
+	ch, err := src.AccountStream(context.Background())
+	if err != nil {
+		t.Fatalf("AccountStream: unexpected start-up error: %v", err)
+	}
+	var got []modelspec.AccountInfo
+	for a := range ch {
+		got = append(got, a)
+	}
+	return src, got
+}
+
+// TestAccountStream_InvalidCollateralExceedsEquity verifies the
+// per-asset invariant: when loan+margin+pm > equity for any one asset,
+// the entire account row is classified invalid. Row 0 trips that on
+// btc; row 1 is debt-free and zero-collateral (valid). Stream should
+// yield only row 1, InvalidCount == 1.
+func TestAccountStream_InvalidCollateralExceedsEquity(t *testing.T) {
+	// btc: equity=1.0, debt=0, loan=0.5, margin=0.5, pm=0.5 →
+	// sumCollateral 1.5e8 > equity 1.0e8 → invalid.
+	invalidRow := "0,1111111111111111111111111111111111111111111111111111111111111111," +
+		"1.0,0.0,,0.5,0.5,0.5," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	validRow := "1,2222222222222222222222222222222222222222222222222222222222222222," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"2.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	dir := buildTamperedFixture(t, map[string]string{
+		"user_shard.csv": userShardWithRows(invalidRow, validRow),
+	})
+	src, got := streamAll(t, dir)
+	if len(got) != 1 {
+		t.Fatalf("got %d valid accounts, want 1", len(got))
+	}
+	if got[0].AccountIndex != 0 {
+		t.Errorf("valid row AccountIndex = %d, want 0 (dense numbering across valid)", got[0].AccountIndex)
+	}
+	if c := src.InvalidCount(); c != 1 {
+		t.Errorf("InvalidCount = %d, want 1", c)
+	}
+}
+
+// TestAccountStream_InvalidDebtUncovered verifies the account-level
+// invariant: a row whose per-asset checks pass but whose total
+// collateral falls below total debt is classified invalid.
+func TestAccountStream_InvalidDebtUncovered(t *testing.T) {
+	// btc: equity=1.0, debt=1.0, no collateral → per-asset check OK
+	// (collateral 0 ≤ equity 1e8), but account TotalCollateral=0
+	// < TotalDebt=6e16 → invalid.
+	invalidRow := "0,1111111111111111111111111111111111111111111111111111111111111111," +
+		"1.0,1.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	validRow := "1,2222222222222222222222222222222222222222222222222222222222222222," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"2.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	dir := buildTamperedFixture(t, map[string]string{
+		"user_shard.csv": userShardWithRows(invalidRow, validRow),
+	})
+	src, got := streamAll(t, dir)
+	if len(got) != 1 {
+		t.Fatalf("got %d valid accounts, want 1", len(got))
+	}
+	if c := src.InvalidCount(); c != 1 {
+		t.Errorf("InvalidCount = %d, want 1", c)
+	}
+}
+
+// TestAccountStream_InvalidMalformedHex verifies that a row whose
+// AccountID column fails hex decoding is classified invalid (was
+// stream-fatal in R2/2 step 1, now skipped + counted).
+func TestAccountStream_InvalidMalformedHex(t *testing.T) {
+	// id contains 'z' which is not a valid hex character.
+	invalidRow := "0,zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz," +
+		"1.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	validRow := "1,2222222222222222222222222222222222222222222222222222222222222222," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"2.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	dir := buildTamperedFixture(t, map[string]string{
+		"user_shard.csv": userShardWithRows(invalidRow, validRow),
+	})
+	src, got := streamAll(t, dir)
+	if len(got) != 1 {
+		t.Fatalf("got %d valid accounts, want 1", len(got))
+	}
+	if c := src.InvalidCount(); c != 1 {
+		t.Errorf("InvalidCount = %d, want 1", c)
+	}
 }
