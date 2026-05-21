@@ -8,6 +8,7 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
+1a0d820 test(circuit): add tier_3bucket Compile+Setup smoke (R3 step 0)
 cd50632 test(profile): full AccountStream fixture coverage
 a26a7d2 feat(profile): classify+skip invalid account rows
 d27cde7 feat(profile): stream user-shard rows into AccountStream
@@ -24,7 +25,7 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 | `zkpor/core/spec/*` | ✅ complete — 8 인터페이스/상수 파일 |
 | `zkpor/core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
-| `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). `.pk`/`.vk` byte-equivalence 런타임 검증 pending (R3 와 함께) |
+| `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). Compile+Setup smoke (tiny shape) 통과 — R3 step 0 closed. `.pk`/`.vk` byte-equivalence (production shape) 는 R3 step 3 (G1). |
 | `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
 | `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 + full-coverage 테스트 (multi-shard / ctx cancel / numeric overflow / collateral sum overflow / fatal column count). 15개 테스트 통과. multi-shard *concurrency* 는 여전히 R3 (현재는 sequential). 나머지 7개 어댑터는 constructor 형태 |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
@@ -35,6 +36,12 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 최근 작업 흐름:
 
 ```text
+<R3/0>   test(circuit): add tier_3bucket Compile+Setup smoke
+        (NewBatchCreateUserCircuit(5,50,2) → frontend.Compile +
+         groth16.Setup. tiny shape — IR-defect smoke 한 건. 8s compile
+         + 62s setup, NbConstraints=723790 (informational only). 정확
+         NbConstraints + byte-equivalence vs legacy 는 R3 step 3 (G1).
+         production 코드 변경 0.)
 <R2/2/3> test(profile): full AccountStream fixture coverage
         (5건 신규 — MultiShardSequential, CtxCancelCloses,
          InvalidNumericOverflow, InvalidCollateralSumOverflow,
@@ -207,7 +214,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | CSV ETL absorb — AccountStream happy-path | ✅ done | R2 / G5 (step 2 / sub 1) |
 | invalid-account 분류 (skip+log+counter) | ✅ done | R2 / G5 (step 2 / sub 2) |
 | `AccountStream` 픽스처 테스트 (full coverage) | ✅ done | R2 / G5 (step 2 / sub 3) |
-| Setup smoke test (Compile + Setup) | pending | R3 step 0 |
+| Setup smoke test (Compile + Setup) | ✅ done (tiny shape) | R3 step 0 |
 | AccountID fr.Element 정규화 위치 결정 (G13) | pending | R3 step 1 |
 | Constraint Architecture alpha wiring (Define hook) | pending | R3 step 2 |
 | G1 byte-equivalence 절차 합의 + 실행 | pending | R3 step 3 |
@@ -229,45 +236,51 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R2 종료**. snapshot ETL 흡수 완료, 15개 테스트 통과, byte-equivalence
-회귀 가능성 차단. R3 는 PRODUCTION_ROADMAP.md 에 5 sub-slice 로
-분해되어 있다 (step 0..4). 아래 권장은 그 순서를 따른다.
+**R3 step 0 closed**. tiny-shape Compile+Setup smoke 통과 — 회로 IR
+는 alpha wiring / byte-equivalence 작업의 기준선으로 신뢰 가능.
+다음은 G13 (AccountID fr.Element 정규화 위치) 결정.
 
-권장 다음 슬라이스 — **R3 step 0 (Setup smoke)**:
+권장 다음 슬라이스 — **R3 step 1 (G13 closure)**:
 
 ```text
-회로 IR 검증을 alpha wiring / byte-equivalence 작업 전에 한 번 돌린다.
-프로덕션 변경 0, 테스트 한 건만 추가.
+fr.Element 정규화를 어느 layer 에 둘지 합의 + 결정 노트만.
+impl 은 step 2 로 carry. 코드 0 변경.
 
 산출물:
-  zkpor/core/solvency/tier_3bucket/circuit/setup_test.go
-    - NewBatchCreateUserCircuit(50, AssetCounts, 700) 인스턴스
-    - frontend.Compile(BN254, r1cs.NewBuilder, ...)
-    - groth16.Setup(r1cs)
-    - 에러 없음 확인 + NbConstraints 출력 (정확 비교는 step 3)
+  decision note (commit message 또는 zkpor/docs/ ADR) — 채택 layer
+  + 근거 + step 2 영향 범위.
+  PRODUCTION_ROADMAP.md 의 Decision Gate Register G13:
+    deferred → closed.
 
-가치: 회로 코드의 compile-time 결함을 R3 step 2 (alpha wiring) 진입
-전에 노출. R3 어디서 막히는지 디버깅 비용 절감.
+후보 layer (PRODUCTION_ROADMAP R3 step 1 참고):
+  (a) snapshot 어댑터 — legacy 와 동일 위치. 어댑터가 "field-ready
+       AccountID" 를 책임짐.
+  (b) identity provider — DeriveAccountID 가 SetBytes round-trip 까지
+       포함. 의미적으로 깔끔.
+  (c) witness builder — snapshot/identity 는 raw 32 byte 만 보고
+       BatchCreateUserWitness 빌드 시점에 normalize.
 
-같은 commit 에 넣지 않을 것: alpha wiring, fr.Element 정규화, legacy
-비교 hash. 그건 step 1/2/3.
+근거 평가 축:
+  - byte-equivalence vs legacy commitment hash (G1 의 전제)
+  - layering: profile-agnostic 처리는 어디가 더 자연스러운가
+  - 테스트 가능성: 어디서 정규화 단위 테스트 작성이 쉬운가
+  - 미래 customer profile 영향: 정규화 책임을 owner 가 누가 갖는가
 ```
 
 그 다음 진입:
 
 ```text
-R3 step 1 — G13 (fr.Element 정규화 위치) debate + decision note.
-R3 step 2 — alpha wiring + step 1 결정 적용.
-R3 step 3 — G1 절차 합의 + byte-equivalence 검증 실행.
+R3 step 2 — alpha wiring + step 1 결정대로 fr.Element 정규화 적용.
+            noopModule 로 NbConstraints 회귀 0 확인 (step 0 baseline).
+R3 step 3 — G1 절차 합의 + byte-equivalence 검증 실행 (production shape).
 R3 step 4 — 4 service main.go rewiring + G2 + G6 closure.
+            multi-shard concurrency / goroutine leak guard 도 여기서 동반.
 ```
 
 목표 / 범위 제외:
 
-- 다음 슬라이스 (R3 step 0): Compile + Setup 한 번. 회로/spec/profile
-  코드 0 변경.
-- R2 잔여물 (multi-shard concurrency, goroutine leak guard) 은 R3 step 4
-  production wiring 옆에서 자연스럽게 처리.
+- 다음 슬라이스 (R3 step 1): 결정 노트만. 코드 0 변경, 새 테스트 0.
+- alpha wiring (Define hook 추가) 은 step 2 — 같은 commit 에 묶지 않는다.
 
 ## Required Commands
 
