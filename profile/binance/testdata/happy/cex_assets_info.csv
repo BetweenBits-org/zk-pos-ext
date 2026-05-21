@@ -1,0 +1,4 @@
+token,asset_usdt_price,collateral_vip_loan_ratio_tiers,collateral_margin_ratio_tiers,collateral_portfolio_margin_ratio_tiers
+btc,60000.0,"[0-100:90,100-1000:80,1000-5000:60]","[0-1000:85,1000-10000:70]","[0-500:95]"
+eth,3000.0,"[0-1000:85,1000-10000:70]","[0-2000:80]",
+doge,0.07,"[0-100000:50]","[0-50000:60]",
