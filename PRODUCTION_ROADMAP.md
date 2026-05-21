@@ -153,24 +153,41 @@ Exit criteria:
 - G13 closed.
 - impl 은 step 2 로 carry.
 
-#### R3 step 2 — alpha wiring + fr.Element 적용
+#### R3 step 2 — alpha wiring + fr.Element 적용 ✅ closed
 
 목표: Constraint Architecture 의 alpha layer 를 회로 코드에 반영.
 `BatchCreateUserCircuit.Define(api)` 가 `ConstraintModule.Define(api, ctx)`
 를 호출하는 hook 을 추가한다. R3 step 1 결정대로 fr.Element 정규화를
 선택된 layer 에 적용.
 
-산출물:
+산출물 (commit ccc3fe4):
 
-- `Define()` 가 module hook 호출 (또는 wrapper circuit 이 module 합성).
-- `NewBatchCreateUserCircuit` (또는 외부 builder) 가 module 을 받는 형태.
-- 선택된 layer 에 fr.Element 정규화 코드 추가.
-- noopModule 로 회귀 없음 확인 (step 0 의 `NbConstraints` 와 동일).
+- `BatchCreateUserCircuit` 에 unexported `module
+  tier3spec.ConstraintModule` 필드 + pointer-receiver
+  `SetConstraintModule` setter. gnark frontend 가 exported
+  Variable-bearing 필드만 reflect 하므로 module 필드는 Compile 에
+  비가시. 외부 wrapper circuit 합성 패턴은 채택하지 않음 — 같은 hook
+  계약을 단일 Circuit 타입 안에 둠으로써 service 가 `c.SetConstraintModule(m)`
+  한 줄로 alpha 를 갈아 끼울 수 있음.
+- Define() 끝 (모든 base 제약 emit 후) 에서 `module.Define(api, ctx)`
+  호출. ConstraintContext 는 per-user 총액 (Equity/Debt/CollateralReal)
+  을 user 루프 안에서 capture 한 `moduleUserOps` 슬라이스 + Before/After
+  CexAssets view + 공유 Rangechecker 로 구성. flat-copy helper 2개
+  (`toCircuitCexAssetView`, `toCircuitTierRatioView`) 가 in-circuit
+  타입 → spec view 타입 변환을 in-circuit 비용 0 으로 처리.
+- `profile/binance/snapshot.go::parseAccountRow` 에 bn254 fr.Element
+  SetBytes→Marshal round-trip 1줄. legacy `src/utils/utils.go:553` 와
+  동일 layer (G13 (a) 채택의 impl).
+- 회귀 가드 — `TestSetupSmoke_AlphaNoopBaseline` 가 nil-module +
+  noop-module 두 경로에서 `NbConstraints == 723790` 동일함을 assert.
+  `TestParseAccountRow_NormalizesAccountID` 가 all-FF 32-byte 입력 →
+  reduced output positive guard.
 
 Exit criteria:
 
-- Setup smoke (step 0) 가 alpha wiring 적용 후에도 통과.
-- noopModule 인 경우 constraint 수 변동 0.
+- ✅ Setup smoke (step 0 + alpha-baseline 둘 다) 통과 — NbConstraints
+  변동 0 (723790).
+- ✅ noopModule 인 경우 constraint 수 변동 0.
 
 #### R3 step 3 — G1 검증 절차 합의 + 실행
 
