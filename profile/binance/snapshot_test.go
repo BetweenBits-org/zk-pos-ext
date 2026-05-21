@@ -3,11 +3,13 @@ package binance
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
@@ -367,5 +369,155 @@ func TestAccountStream_InvalidMalformedHex(t *testing.T) {
 	}
 	if c := src.InvalidCount(); c != 1 {
 		t.Errorf("InvalidCount = %d, want 1", c)
+	}
+}
+
+// TestAccountStream_MultiShardSequential verifies the sequential walk
+// across user shards in lexical filename order. testdata/multi_shard/
+// has a.csv (1 valid row) + b.csv (1 valid row); the stream MUST
+// emit a.csv's account first (snapshot-global AccountIndex = 0), then
+// b.csv's (AccountIndex = 1). InvalidCount stays 0.
+func TestAccountStream_MultiShardSequential(t *testing.T) {
+	src := NewSnapshotCSV(SnapshotConfig{
+		UserDataDir: "testdata/multi_shard",
+		SnapshotID:  "test",
+	})
+	ch, err := src.AccountStream(context.Background())
+	if err != nil {
+		t.Fatalf("AccountStream: unexpected error: %v", err)
+	}
+	var got []modelspec.AccountInfo
+	for a := range ch {
+		got = append(got, a)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d accounts, want 2", len(got))
+	}
+	wantAID, _ := hex.DecodeString(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	)
+	wantBID, _ := hex.DecodeString(
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	)
+	if !bytes.Equal(got[0].AccountID, wantAID) {
+		t.Errorf("got[0].AccountID = %x, want a.csv id", got[0].AccountID)
+	}
+	if got[0].AccountIndex != 0 {
+		t.Errorf("got[0].AccountIndex = %d, want 0", got[0].AccountIndex)
+	}
+	if !bytes.Equal(got[1].AccountID, wantBID) {
+		t.Errorf("got[1].AccountID = %x, want b.csv id", got[1].AccountID)
+	}
+	if got[1].AccountIndex != 1 {
+		t.Errorf("got[1].AccountIndex = %d, want 1", got[1].AccountIndex)
+	}
+	if c := src.InvalidCount(); c != 0 {
+		t.Errorf("InvalidCount = %d, want 0", c)
+	}
+}
+
+// TestAccountStream_CtxCancelCloses verifies that canceling the
+// context closes the channel within a reasonable window. We do not
+// assert how many accounts are yielded before the cancel takes effect
+// — that depends on goroutine scheduling — only that the producer
+// observes ctx.Done() and exits cleanly.
+func TestAccountStream_CtxCancelCloses(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	src := NewSnapshotCSV(SnapshotConfig{
+		UserDataDir: happyFixtureDir,
+		SnapshotID:  "test",
+	})
+	ch, err := src.AccountStream(ctx)
+	if err != nil {
+		t.Fatalf("AccountStream: unexpected error: %v", err)
+	}
+	cancel()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return // channel closed → goroutine exited
+			}
+		case <-deadline.C:
+			t.Fatal("channel did not close within 2s after ctx cancel")
+		}
+	}
+}
+
+// TestAccountStream_InvalidNumericOverflow trips
+// convertFloatStrToUint64's uint64 overflow guard on the equity field
+// (raw value 2e11; scaled by default 1e8 multiplier = 2e19, above the
+// 1.844e19 uint64 max). The row is classified invalid.
+func TestAccountStream_InvalidNumericOverflow(t *testing.T) {
+	invalidRow := "0,1111111111111111111111111111111111111111111111111111111111111111," +
+		"200000000000.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	validRow := "1,2222222222222222222222222222222222222222222222222222222222222222," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"2.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	dir := buildTamperedFixture(t, map[string]string{
+		"user_shard.csv": userShardWithRows(invalidRow, validRow),
+	})
+	src, got := streamAll(t, dir)
+	if len(got) != 1 {
+		t.Fatalf("got %d valid accounts, want 1", len(got))
+	}
+	if c := src.InvalidCount(); c != 1 {
+		t.Errorf("InvalidCount = %d, want 1", c)
+	}
+}
+
+// TestAccountStream_InvalidCollateralSumOverflow trips safeAddU64's
+// false return — each of loan/margin/pm parses to 1e19 (within uint64
+// range), but the three summed exceed uint64.Max. Per-asset check
+// classifies the row invalid without panicking (vs. legacy SafeAdd).
+// equity=0 + debt>0 keeps the per-asset block live so the collateral
+// sum is actually evaluated.
+func TestAccountStream_InvalidCollateralSumOverflow(t *testing.T) {
+	invalidRow := "0,1111111111111111111111111111111111111111111111111111111111111111," +
+		"0.0,0.00000001,,100000000000.0,100000000000.0,100000000000.0," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	validRow := "1,2222222222222222222222222222222222222222222222222222222222222222," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"2.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	dir := buildTamperedFixture(t, map[string]string{
+		"user_shard.csv": userShardWithRows(invalidRow, validRow),
+	})
+	src, got := streamAll(t, dir)
+	if len(got) != 1 {
+		t.Fatalf("got %d valid accounts, want 1", len(got))
+	}
+	if c := src.InvalidCount(); c != 1 {
+		t.Errorf("InvalidCount = %d, want 1", c)
+	}
+}
+
+// TestAccountStream_FatalColumnCount verifies the stream-fatal path:
+// a data row with the wrong field count fails csv.Reader's
+// FieldsPerRecord check before parseAccountRow sees it. streamShard
+// returns a fatal error, streamAccounts closes the channel after the
+// already-buffered valid row drains. InvalidCount stays 0 because the
+// failure is structural, not per-row business invalidity.
+func TestAccountStream_FatalColumnCount(t *testing.T) {
+	validRow := "0,1111111111111111111111111111111111111111111111111111111111111111," +
+		"1.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0," +
+		"0.0,0.0,,0.0,0.0,0.0,0.0"
+	malformedRow := "1,2222,1.0" // only 3 fields vs header's 21
+	dir := buildTamperedFixture(t, map[string]string{
+		"user_shard.csv": userShardWithRows(validRow, malformedRow),
+	})
+	src, got := streamAll(t, dir)
+	if len(got) != 1 {
+		t.Fatalf("got %d valid accounts, want 1 (channel must close at malformed row)", len(got))
+	}
+	if c := src.InvalidCount(); c != 0 {
+		t.Errorf("InvalidCount = %d, want 0 (structural failure ≠ invalid row)", c)
 	}
 }
