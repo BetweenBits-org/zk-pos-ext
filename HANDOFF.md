@@ -8,8 +8,9 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
+ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
+3bc795c docs(context): capture mental-model decisions confirmed in debate
 8813999 feat(profile): absorb cex_assets_info.csv loader into binance snapshot
-e2e0f1c docs: shift paths to root-cwd perspective + refresh HANDOFF after init
 8aaf4c3 feat: scaffold zkpor engine — productization of Binance OSS PoR v2
 ```
 
@@ -23,7 +24,7 @@ e2e0f1c docs: shift paths to root-cwd perspective + refresh HANDOFF after init
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource, ConstraintModule, witness (BatchCreateUserWitness 등) |
 | `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). `.pk`/`.vk` byte-equivalence 런타임 검증 pending (R3 와 함께) |
 | `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
-| `zkpor/profile/binance/*` | ⚠ partial — `snapshot.go`의 `CexAssets()` 구현 완료 (cex_assets_info.csv + user CSV header 흡수, 캐싱). `AccountStream()`은 여전히 stub (`errAccountStreamPending`) — R2 step 2에서 사용자 shard 스트리밍 흡수. 나머지 7개 어댑터는 constructor 형태 |
+| `zkpor/profile/binance/*` | ⚠ partial — `snapshot.go`의 `CexAssets()` 구현 완료 + 픽스처 테스트 커버됨 (happy + 5 tamper). `AccountStream()`은 여전히 stub (`errAccountStreamPending`) — R2 step 2에서 사용자 shard 스트리밍 흡수. 나머지 7개 어댑터는 constructor 형태 |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
 | docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`) | ✅ complete |
 
@@ -32,6 +33,10 @@ e2e0f1c docs: shift paths to root-cwd perspective + refresh HANDOFF after init
 최근 작업 흐름:
 
 ```text
+<R2/1f> test(profile): cover CexAssets() happy + tamper fixtures
+        (single _test.go — happy + TwoDigitMultiplier + MissingSymbol
+         + MalformedHeader + NonMonotonicBoundary + BoundaryOverflow.
+         testdata/happy/ 베이스 + t.TempDir overlay 헬퍼.)
 <R2/1>  feat(profile): absorb cex_assets_info.csv loader into binance snapshot
         (CexAssets() 구현 — user CSV header → asset 순서, cex_assets_info.csv
          → BasePrice + 3 buckets × TierCount, reserved 슬롯으로 AssetCounts
@@ -61,11 +66,18 @@ e2e0f1c docs: shift paths to root-cwd perspective + refresh HANDOFF after init
 
 - 사용자 shard CSV 스트리밍 — R2 step 2 (`AccountStream` 현재
   `errAccountStreamPending` 반환).
-- `CexAssets()` happy-path/tamper 픽스처 테스트 — R2/1 후속 commit (
-  docs/scaffold → impl → tests 분리 원칙).
 - 4개 service main.go 의 wiring — R3.
 - `.pk`/`.vk` byte-equivalence 런타임 검증 — R3 와 함께 (G1 closing).
 - 나머지 4개 model 회로 — R4+ (시장 신호 대기).
+
+발견 사항 (작업 중 surface된 것, 의사결정 보류):
+
+- `parseTierRatios` 의 `MaxTierBoundary` 체크는 CSV 입력 경로에서
+  도달 불가능 — `uint64.Max · 1e16 ≈ 1.84e35` 가
+  `maxTierBoundary ≈ 3.32e35` 아래에 있어 uint64 변환이 항상 먼저
+  실패한다. 코드는 defense-in-depth 로 보존 (`convertFloatStrToUint64`
+  가 넓은 정수로 바뀌면 다시 살아남). R2/1f 테스트는 실제 도달 가능한
+  uint64 overflow 경로를 검증.
 
 ## Non-Negotiable Rules
 
@@ -144,7 +156,9 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
             ├── insolvent.go
             ├── pricing.go
             ├── risk.go
-            └── snapshot.go                   (★ errStubSnapshot — R2 작업)
+            ├── snapshot.go                   (CexAssets done + tested; AccountStream stub — R2/2)
+            ├── snapshot_test.go              (happy + 5 tamper fixtures)
+            └── testdata/happy/               (cex_assets_info.csv + user_shard.csv 베이스)
 ```
 
 ## Deferred Work
@@ -152,8 +166,8 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | Item | 상태 | track 위치 |
 |---|---|---|
 | CSV ETL absorb — CexAssets 부분 | ✅ done | R2 / G5 (step 1) |
+| `CexAssets()` 픽스처 테스트 (happy + tamper) | ✅ done | R2 / G5 (step 1 follow-up) |
 | CSV ETL absorb — AccountStream + invalid-account 처리 | pending | R2 / G5 (step 2) |
-| `CexAssets()` 픽스처 테스트 (happy + tamper) | pending | R2 / G5 (step 1 follow-up) |
 | 4개 service rewiring + `.pk`/`.vk` byte-equivalence 검증 | pending | R3 / G1 + G2 + G6 |
 | AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
 | 두 번째 customer profile | awaits signal | R4 / G12 |
@@ -175,26 +189,27 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 권장 다음 슬라이스:
 
 ```text
-R2/1 후속 — CexAssets() 픽스처 테스트.
-zkpor/profile/binance/testdata/ 아래 작은 cex_assets_info.csv +
-가짜 user CSV 헤더 fixture 를 두고 happy-path 와 tamper 케이스
-(missing symbol, malformed header, non-monotonic boundary,
-boundary overflow, two-digit multiplier) 를 single _test.go 로
-검증한다.
+R2/2 — AccountStream 흡수.
+legacy src/utils/utils.go:ReadUserDataFromCsvFile 의 핵심 의미
+(equity/debt/loan/margin/PM 파싱, ValueScale 적용, invalid-account
+분류, AccountInfo 채널화) 를 csvSnapshot.AccountStream(ctx) 으로
+흡수한다. user CSV 헤더 → asset 순서는 이미 CexAssets 경로에서
+검증됨 — AccountStream 은 그 동일 헤더 규약을 사용해 데이터 행을
+파싱한다. workers/GC 디테일은 production wiring 단계 (R3) 에서
+결정.
 
-그 다음 R2/2 — AccountStream 흡수.
-legacy ReadUserDataFromCsvFile 의 핵심 의미(equity/debt/loan/margin/
-PM 파싱, ValueScale 적용, invalid-account 분류, AccountInfo 채널화)를
-csvSnapshot.AccountStream(ctx) 으로 흡수. workers/GC 디테일은
-production wiring 단계(R3)에서 결정.
+R2/2 step 분리:
+  step 1 — happy-path 스트리밍 (단일 shard, 단일 worker).
+  step 2 — invalid-account 분류 (legacy AccountInfo.InvalidReason).
+  step 3 — 픽스처 테스트 (R2/1 패턴 재사용).
 ```
 
 목표 / 범위 제외:
 
-- 다음 슬라이스 (R2/1 후속): `CexAssets()` 단위 테스트만 — implementation
-  파일은 손대지 않음.
-- 같은 commit 에 넣지 않을 것: 사용자 CSV 스트리밍, invalid-account
-  분류 로직, 서비스 main.go 변경.
+- 다음 슬라이스 (R2/2 step 1): `AccountStream` happy-path 만 — invalid
+  분류와 multi-shard concurrency 는 별도 step.
+- 같은 commit 에 넣지 않을 것: 서비스 main.go 변경, `.pk`/`.vk`
+  검증 (모두 R3).
 
 ## Required Commands
 
