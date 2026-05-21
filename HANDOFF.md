@@ -96,9 +96,12 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 - multi-shard / multi-worker concurrency — R3 production wiring.
   현재 streamShard 는 sequential. legacy 는 goroutine 풀 + GC trigger.
 - 4개 service main.go 의 wiring — R3.
-- `.pk`/`.vk` byte-equivalence 런타임 검증 — R3 와 함께 (G1 closing).
-- AccountID fr.Element 정규화 위치 결정 — R3/G1 (commitment
-  byte-equivalence 의 전제).
+- `.pk`/`.vk` byte-equivalence 런타임 검증 — R3 step 3 (G1 closing).
+- AccountID fr.Element 정규화 **impl** — R3 step 2 (위치 결정 G13 은
+  closed, layer (a) snapshot 어댑터 채택; impl 은 alpha wiring 과
+  동반).
+- `AccountIDProvider.Scheme()` rename (정규화 사실 노출) — R3 step 4
+  (G2 closure 동반).
 - goroutine leak guard 테스트 — uber-go/goleak dep 도입 시점에.
 - 나머지 4개 model 회로 — R4+ (시장 신호 대기).
 
@@ -110,16 +113,18 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
   실패한다. 코드는 defense-in-depth 로 보존 (`convertFloatStrToUint64`
   가 넓은 정수로 바뀌면 다시 살아남). R2/1f 테스트는 실제 도달 가능한
   uint64 overflow 경로를 검증.
-- **AccountID bn254 fr.Element 정규화 위치 미결정 → G13 (R3 step 1)**.
-  legacy `src/utils/utils.go:520` 는 `new(fr.Element).SetBytes(id).Marshal()`
-  round-trip 으로 입력을 field modulus 이하로 reduce 한 뒤 commitment 에
-  넣는다. zkpor `AccountStream` 은 현재 raw 32-byte hex-decode 만 한다
-  (`identity.DeriveAccountID` 도 passthrough). SHA256-derived ID 의
-  약 절반이 field modulus 이상이므로 commitment byte-equivalence 가
-  깨진다. 정규화 위치 후보: (a) snapshot 어댑터 (legacy 와 동일),
-  (b) identity provider (의미적으로 깔끔), (c) witness builder
-  (snapshot/identity 가 "raw" 책임만). R3 step 1 에서 결정, step 2 에서
-  impl. PRODUCTION_ROADMAP G13 참조.
+- **G13 closed (R3 step 1) — AccountID bn254 fr.Element 정규화는
+  snapshot 어댑터에서 (a)**. legacy `src/utils/utils.go:553` 와 동일
+  layer 에 `new(fr.Element).SetBytes(id).Marshal()` round-trip 을 둠.
+  근거: G1 byte-equivalence 비용 최저 (snapshot 출력 hex 직접 비교),
+  user-facing `AccountInfo.AccountID == userproof.AccountID == field
+  input` 단일 형태, R3 step 4 service rewire 시 호출 누락 위험 없음.
+  트레이드오프: `profile/binance/snapshot.go` 가 bn254 에 직접
+  결합 — 5-tier catalog 모두 bn254 라 실질 충돌 없음, 두 번째 customer
+  profile 등장 시 R6 helper 승격 후보. (b)/(c) 는 layering 더 깔끔하나
+  user-facing inconsistency / interface 확장 / R3 step 4 회귀 위험으로
+  기각. **impl 은 R3 step 2 (alpha wiring 동반), Scheme rename 은
+  step 4 (G2)**. PRODUCTION_ROADMAP G13 참조.
 
 ## Non-Negotiable Rules
 
@@ -215,8 +220,8 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | invalid-account 분류 (skip+log+counter) | ✅ done | R2 / G5 (step 2 / sub 2) |
 | `AccountStream` 픽스처 테스트 (full coverage) | ✅ done | R2 / G5 (step 2 / sub 3) |
 | Setup smoke test (Compile + Setup) | ✅ done (tiny shape) | R3 step 0 |
-| AccountID fr.Element 정규화 위치 결정 (G13) | pending | R3 step 1 |
-| Constraint Architecture alpha wiring (Define hook) | pending | R3 step 2 |
+| AccountID fr.Element 정규화 위치 결정 (G13) | ✅ closed — (a) snapshot 어댑터 | R3 step 1 |
+| Constraint Architecture alpha wiring + fr.Element impl | pending | R3 step 2 |
 | G1 byte-equivalence 절차 합의 + 실행 | pending | R3 step 3 |
 | 4개 service rewiring + ValueScale assert + Scheme freeze | pending | R3 step 4 / G2 + G6 |
 | AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
@@ -236,51 +241,58 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 0 closed**. tiny-shape Compile+Setup smoke 통과 — 회로 IR
-는 alpha wiring / byte-equivalence 작업의 기준선으로 신뢰 가능.
-다음은 G13 (AccountID fr.Element 정규화 위치) 결정.
+**R3 step 1 closed (G13)**. AccountID fr.Element 정규화는 **(a) snapshot
+어댑터** 에서. impl 은 step 2 (alpha wiring 동반). 다음은 회로 Define
+에 ConstraintModule hook 을 박고 같은 commit 에서 snapshot 정규화를
+켜는 작업.
 
-권장 다음 슬라이스 — **R3 step 1 (G13 closure)**:
+권장 다음 슬라이스 — **R3 step 2 (alpha wiring + (a) impl)**:
 
 ```text
-fr.Element 정규화를 어느 layer 에 둘지 합의 + 결정 노트만.
-impl 은 step 2 로 carry. 코드 0 변경.
-
 산출물:
-  decision note (commit message 또는 zkpor/docs/ ADR) — 채택 layer
-  + 근거 + step 2 영향 범위.
-  PRODUCTION_ROADMAP.md 의 Decision Gate Register G13:
-    deferred → closed.
+  1) BatchCreateUserCircuit.Define(api) 가 ConstraintModule.Define(
+     api, ctx) 를 호출하는 hook 추가. 또는 외부 wrapper circuit 이
+     module 합성. NewBatchCreateUserCircuit (또는 외부 builder) 가
+     module 을 받는 형태.
+  2) profile/binance/snapshot.go::parseAccountRow 에 fr.Element
+     round-trip 1줄 + comment ("bn254-Poseidon contract 의 일부 —
+     다른 curve model 도입 시 적합 layer 로 옮길 것, R6 helper
+     승격 후보").
+  3) snapshot_test.go 에 AccountID 정규화 단위 테스트 1건 — modulus
+     이상 hex 입력 → reduced 출력 확인 (legacy 와 byte-equal 까지는
+     step 3 에서).
+  4) setup_test 가 alpha wiring 후에도 통과 — noopModule 일 경우
+     NbConstraints 가 step 0 baseline (723790) 과 동일함을 확인
+     (informational, exact 일치는 step 3 G1).
 
-후보 layer (PRODUCTION_ROADMAP R3 step 1 참고):
-  (a) snapshot 어댑터 — legacy 와 동일 위치. 어댑터가 "field-ready
-       AccountID" 를 책임짐.
-  (b) identity provider — DeriveAccountID 가 SetBytes round-trip 까지
-       포함. 의미적으로 깔끔.
-  (c) witness builder — snapshot/identity 는 raw 32 byte 만 보고
-       BatchCreateUserWitness 빌드 시점에 normalize.
+가치: G13 closure 의 impl 을 alpha wiring 과 같은 commit 으로 묶어
+회로 + 데이터 경로의 의미적 변화가 한 번에 review 됨. step 0 baseline
+회귀 가드로 신뢰.
 
-근거 평가 축:
-  - byte-equivalence vs legacy commitment hash (G1 의 전제)
-  - layering: profile-agnostic 처리는 어디가 더 자연스러운가
-  - 테스트 가능성: 어디서 정규화 단위 테스트 작성이 쉬운가
-  - 미래 customer profile 영향: 정규화 책임을 owner 가 누가 갖는가
+같은 commit 에 넣지 않을 것:
+- legacy 와 byte-equal 검증 (step 3 / G1).
+- Scheme() rename — `passthrough_hex_bn254_reduced.v0` 같은 명명
+  결정은 G2 와 묶여 step 4.
+- 4개 service rewiring — step 4.
 ```
 
 그 다음 진입:
 
 ```text
-R3 step 2 — alpha wiring + step 1 결정대로 fr.Element 정규화 적용.
-            noopModule 로 NbConstraints 회귀 0 확인 (step 0 baseline).
 R3 step 3 — G1 절차 합의 + byte-equivalence 검증 실행 (production shape).
+            legacy snapshot vs zkpor snapshot AccountID hex 비교 +
+            R1CS hash 또는 .pk SHA256 비교. G1 closure.
 R3 step 4 — 4 service main.go rewiring + G2 + G6 closure.
-            multi-shard concurrency / goroutine leak guard 도 여기서 동반.
+            Scheme() rename, ValueScale startup assert, multi-shard
+            concurrency / goroutine leak guard 동반.
 ```
 
 목표 / 범위 제외:
 
-- 다음 슬라이스 (R3 step 1): 결정 노트만. 코드 0 변경, 새 테스트 0.
-- alpha wiring (Define hook 추가) 은 step 2 — 같은 commit 에 묶지 않는다.
+- 다음 슬라이스 (R3 step 2): alpha hook + snapshot 정규화 + 작은
+  regression test. NbConstraints 회귀 0 확인.
+- byte-equivalence 검증 (legacy vs zkpor) 은 step 3. step 2 에는
+  넣지 않는다.
 
 ## Required Commands
 

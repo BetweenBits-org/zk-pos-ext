@@ -277,7 +277,7 @@ Blocking gates: G4, G10.
 | **G10** LegacyKeyName 폐기 일정 | deferred | R7 | 현재 호환 유지 (`BatchShape.LegacyKeyName()`). | catalog freeze 후 한 release에서 deprecate. |
 | **G11** core/circuit 추가 헬퍼 승격 규약 | deferred | R6 | rule-of-three — 3번째 model 등장 시 검토. | 세 번째 model 구현 시점. |
 | **G12** multi-customer profile 충돌 정책 | deferred | R4 | profile/<customer>/ 단일 패키지 가정. shape/.vk 공유 정책 미정. | 두 번째 customer 등장 시. |
-| **G13** AccountID fr.Element 정규화 위치 | deferred | R3 step 1 | legacy 는 snapshot 단계에서 `fr.Element.SetBytes/Marshal` round-trip 으로 normalize. zkpor 는 현재 passthrough → commitment byte-equivalence 깨짐. 후보: (a) snapshot 어댑터, (b) identity provider, (c) witness builder. | R3 step 1 에서 debate + 결정. impl 은 step 2. |
+| **G13** AccountID fr.Element 정규화 위치 | closed | R3 step 1 | **(a) snapshot 어댑터** 채택. legacy `src/utils/utils.go:553` 와 동일 layer 에서 `new(fr.Element).SetBytes(id).Marshal()` round-trip. 근거: G1 byte-equivalence 비용 최저 (snapshot 출력 hex 직접 비교 가능), `AccountInfo.AccountID == userproof.AccountID == field input` 단일 형태 유지, R3 step 4 service rewire 시 호출 누락 위험 없음. 트레이드오프: `profile/binance/snapshot.go` 가 bn254 에 직접 결합 — 현재 카탈로그 5 model 전부 bn254 라 실질 충돌 없음, 두 번째 customer profile (R4) 등장 시 R6 helper 승격 후보로 carry. (b)/(c) 는 layering 더 깔끔하나 user-facing inconsistency / interface 확장 / 회귀 위험으로 기각. | impl: R3 step 2 (alpha wiring 과 동반). `AccountIDProvider.Scheme()` 명칭 갱신은 R3 step 4 (G2 closure) 동반. |
 
 ## Gate → Stage Dependency
 
