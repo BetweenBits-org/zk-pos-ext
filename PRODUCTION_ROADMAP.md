@@ -9,12 +9,12 @@
 
 | 우선순위 | 문서 | 역할 |
 |---:|---|---|
-| 1 | `core/spec/solvency_models.go`, `core/spec/batch_shape.go` 등 코드 | frozen 계약 (인터페이스 시그니처, 카탈로그 상수, 명명 규약). 코드와 문서가 어긋나면 코드가 source. |
-| 2 | `docs/01-project-context.md` | 컨셉·scope·strong guarantee·preserve 결정. 계약 변경의 정합성 기준. |
-| 3 | `PRODUCTION_ROADMAP.md` (이 문서) | stage·게이트·deferred work 의 source-of-truth. |
-| 4 | `AGENTS.md`, `CLAUDE.md` | agent contract 및 자동 로드 메모리. |
-| 5 | `HANDOFF.md` | 현재 시점 인수인계. 휘발성 — 다른 source와 충돌 시 후순위. |
-| 6 | `../docs/*.md` (legacy historical notes) | 참고. source 아님. |
+| 1 | `zkpor/core/spec/solvency_models.go`, `zkpor/core/spec/batch_shape.go` 등 코드 | frozen 계약 (인터페이스 시그니처, 카탈로그 상수, 명명 규약). 코드와 문서가 어긋나면 코드가 source. |
+| 2 | `zkpor/docs/01-project-context.md` | 컨셉·scope·strong guarantee·preserve 결정. 계약 변경의 정합성 기준. |
+| 3 | `zkpor/PRODUCTION_ROADMAP.md` (이 문서) | stage·게이트·deferred work 의 source-of-truth. |
+| 4 | `zkpor/AGENTS.md`, `zkpor/CLAUDE.md` | agent contract 및 자동 로드 메모리. |
+| 5 | `zkpor/HANDOFF.md` | 현재 시점 인수인계. 휘발성 — 다른 source와 충돌 시 후순위. |
+| 6 | `docs/*.md` (legacy historical notes) | 참고. source 아님. |
 
 ## Stages
 
@@ -32,14 +32,14 @@ Exit criteria:
 
 ### Stage R1 — tier_3bucket 회로 이식
 
-목표: legacy `../circuit/batch_create_user_circuit.go` 와 `../circuit/utils.go`
-를 `core/solvency/tier_3bucket/circuit/` 로 이식한다.
+목표: legacy `circuit/batch_create_user_circuit.go` 와 `circuit/utils.go`
+를 `zkpor/core/solvency/tier_3bucket/circuit/` 로 이식한다.
 
 산출물:
 
-- `core/solvency/tier_3bucket/circuit/` 안에 BatchCreateUserCircuit + 회로
-  유틸리티가 자리잡고 `core/circuit/` 의 universal 헬퍼를 호출하는 형태.
-- legacy `../circuit/` 는 그대로 — 비교 reference로 보존.
+- `zkpor/core/solvency/tier_3bucket/circuit/` 안에 BatchCreateUserCircuit + 회로
+  유틸리티가 자리잡고 `zkpor/core/circuit/` 의 universal 헬퍼를 호출하는 형태.
+- legacy `circuit/` 는 그대로 — 비교 reference로 보존.
 
 Exit criteria:
 
@@ -51,16 +51,16 @@ Blocking gates: G1.
 
 ### Stage R2 — CSV ETL absorb
 
-목표: `../src/utils/utils.go` 의 `ParseUserDataSet` 패밀리(자산 카탈로그
-파싱, 사용자 CSV 파싱, RiskPolicy CSV 파싱)를 `profile/binance/snapshot.go`
-+ `profile/binance/risk.go` + `profile/binance/catalog.go` 로 흡수한다.
+목표: `src/utils/utils.go` 의 `ParseUserDataSet` 패밀리(자산 카탈로그
+파싱, 사용자 CSV 파싱, RiskPolicy CSV 파싱)를 `zkpor/profile/binance/snapshot.go`
++ `zkpor/profile/binance/risk.go` + `zkpor/profile/binance/catalog.go` 로 흡수한다.
 
 산출물:
 
-- `profile/binance/snapshot.go` 의 `errStubSnapshot` 제거. `AccountStream`,
+- `zkpor/profile/binance/snapshot.go` 의 `errStubSnapshot` 제거. `AccountStream`,
   `CexAssets` 가 실제 데이터 yield.
 - `RiskPolicy`, `AssetCatalog` 가 같은 CSV 출처에서 일관 구축.
-- sample data (`../src/sampledata/`) 로 end-to-end snapshot 로드 작동.
+- sample data (`src/sampledata/`) 로 end-to-end snapshot 로드 작동.
 
 Exit criteria:
 
@@ -72,9 +72,9 @@ Blocking gates: G5.
 
 ### Stage R3 — Service rewiring
 
-목표: 4개 서비스(`../src/witness`, `../src/prover`, `../src/userproof`,
-`../src/verifier`) 의 `main.go` 가 `zkpor/profile/binance` 어댑터를 사용하도록
-재배선한다. legacy `../src/utils` import 제거.
+목표: 4개 서비스(`src/witness`, `src/prover`, `src/userproof`,
+`src/verifier`) 의 `main.go` 가 `zkpor/profile/binance` 어댑터를 사용하도록
+재배선한다. legacy `src/utils` import 제거.
 
 산출물:
 
@@ -94,7 +94,7 @@ Blocking gates: G2, G6.
 
 ### Stage R4 — Second customer profile (deferred, awaits signal)
 
-목표: 첫 비-Binance 고객사 프로파일 도입. `profile/<customer>/` 추가.
+목표: 첫 비-Binance 고객사 프로파일 도입. `zkpor/profile/<customer>/` 추가.
 
 산출물:
 
@@ -117,9 +117,9 @@ Blocking gates: G12.
 
 산출물:
 
-- 새 model 의 `core/solvency/<id>/spec/` + `circuit/` + 도구.
+- 새 model 의 `zkpor/core/solvency/<id>/spec/` + `circuit/` + 도구.
 - 새 trusted setup ceremony 완료, `.pk`/`.vk` publish.
-- 두 model이 같은 `core/circuit/` substrate를 공유 — 추상화 검증.
+- 두 model이 같은 `zkpor/core/circuit/` substrate를 공유 — 추상화 검증.
 
 Exit criteria:
 
@@ -129,19 +129,19 @@ Exit criteria:
 
 ### Stage R6 — Third model + core/circuit 보강 (rule-of-three trigger)
 
-목표: 세 번째 model 구현 시점. 이때 처음으로 `core/circuit/` 에 추가 헬퍼
+목표: 세 번째 model 구현 시점. 이때 처음으로 `zkpor/core/circuit/` 에 추가 헬퍼
 승격 검토 (G11). 후보: RLC-based sum equality helper, account leaf
 composition helper.
 
 산출물:
 
 - 세 번째 model 의 회로 구현.
-- 세 model 모두에 공통으로 적용 가능한 패턴이 `core/circuit/` 으로 승격됨.
+- 세 model 모두에 공통으로 적용 가능한 패턴이 `zkpor/core/circuit/` 으로 승격됨.
 - substrate API v1 잠정 정착.
 
 Exit criteria:
 
-- 세 model 모두 `core/circuit/` 새 헬퍼 호출 형태로 정리.
+- 세 model 모두 `zkpor/core/circuit/` 새 헬퍼 호출 형태로 정리.
 - G11 closed.
 
 Blocking gates: G11.
@@ -154,7 +154,7 @@ stable 선언. 추가 model은 v2 카탈로그로 미룬다.
 산출물:
 
 - 5개 model 모두 회로·spec·trusted setup 완료 (혹은 일부 deprecated 처리).
-- `core/spec/solvency_models.go` 가 v1 카탈로그로 freeze.
+- `zkpor/core/spec/solvency_models.go` 가 v1 카탈로그로 freeze.
 - LegacyKeyName deprecate 일정 결정 (G10 closed).
 
 Exit criteria:

@@ -5,44 +5,45 @@
 
 ## Current State
 
-Latest implementation commit:
+Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
-de794a4 add IDR tokens with two digits (#97)
+8aaf4c3 feat: scaffold zkpor engine — productization of Binance OSS PoR v2
 ```
 
-(현재 zkpor/ 전체는 uncommitted local changes. 첫 commit이 아직 없음.)
+`zkpor/` 는 자체 git 저장소 (`zkpor/.git/`). parent (`zkmerkle-proof-of-solvency`)
+저장소는 `zkpor/` 를 untracked dir로 봄 — 두 저장소가 독립 운영된다.
 
 | 영역 | 상태 |
 |---|---|
-| `core/spec/*` | ✅ complete — 8 인터페이스/상수 파일 |
-| `core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
-| `core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource, ConstraintModule, witness (BatchCreateUserWitness 등) |
-| `core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). `.pk`/`.vk` byte-equivalence 런타임 검증 pending (R3 와 함께) |
-| `core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
-| `profile/binance/*` | ⚠ stubs — 8개 어댑터 constructor 존재. `snapshot.go`는 `errStubSnapshot` 반환 (R2에서 CSV loader 흡수) |
-| `../circuit/`, `../src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
-| docs (`AGENTS.md`, `CLAUDE.md`, `PRODUCTION_ROADMAP.md`, `docs/01-project-context.md`) | ✅ complete |
+| `zkpor/core/spec/*` | ✅ complete — 8 인터페이스/상수 파일 |
+| `zkpor/core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
+| `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource, ConstraintModule, witness (BatchCreateUserWitness 등) |
+| `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). `.pk`/`.vk` byte-equivalence 런타임 검증 pending (R3 와 함께) |
+| `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
+| `zkpor/profile/binance/*` | ⚠ stubs — 8개 어댑터 constructor 존재. `snapshot.go`는 `errStubSnapshot` 반환 (R2에서 CSV loader 흡수) |
+| `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
+| docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`) | ✅ complete |
 
 ## Current Implementation Snapshot
 
-최근 작업 흐름 (uncommitted):
+최근 작업 흐름:
 
 ```text
-methodology 적용 — AGENTS.md, project-context, production-roadmap, HANDOFF 정착
-catalog 정리 — binance_v2 → tier_3bucket 리네임 (model = math, profile = deployment)
-어댑터 통합 — profile/binance/ 단일 패키지로 모음
-core/spec/ + core/circuit/ + profile/binance/ 스켈레톤 구축
+8aaf4c3 feat: scaffold zkpor engine — productization of Binance OSS PoR v2
+        (root-commit: methodology docs, core/spec, core/circuit,
+         core/solvency catalog with tier_3bucket spec+circuit ported,
+         profile/binance adapter set)
 ```
 
 구현된 것:
 
-- 모든 universal 인터페이스 (`core/spec/`).
-- universal zk 헬퍼 (`core/circuit/`) — legacy `../circuit/utils.go` 에서
+- 모든 universal 인터페이스 (`zkpor/core/spec/`).
+- universal zk 헬퍼 (`zkpor/core/circuit/`) — legacy `circuit/utils.go` 에서
   Merkle/commitment/arithmetic 부분만 추출.
-- tier_3bucket model spec (`core/solvency/tier_3bucket/spec/`).
+- tier_3bucket model spec (`zkpor/core/solvency/tier_3bucket/spec/`).
 - Binance 어댑터 8개 (constructor 형태) — 단일 Go 패키지.
-- 5-tier 카탈로그 (`core/spec/solvency_models.go`).
+- 5-tier 카탈로그 (`zkpor/core/spec/solvency_models.go`).
 - 명명 규약: SolvencyModelID, BatchShape, key file naming, ConstraintModuleID.
 
 아직 의도적으로 닫지 않은 것:
@@ -56,9 +57,9 @@ core/spec/ + core/circuit/ + profile/binance/ 스켈레톤 구축
 
 작업 내내 어기면 안 되는 규칙.
 
-- **frozen 계약 경계 우선** — `core/spec/` 인터페이스 시그니처, 카탈로그
+- **frozen 계약 경계 우선** — `zkpor/core/spec/` 인터페이스 시그니처, 카탈로그
   상수, key file naming 은 versioned change 만.
-- **legacy 코드 직접 수정 금지** — `../circuit/`, `../src/` 는 reference.
+- **legacy 코드 직접 수정 금지** — `circuit/`, `src/` 는 reference.
 - **sum equality 는 모든 model에서 mandatory** — base PoR claim.
 - **ConstraintModule 은 add only** — base-circuit 제약 weaken/remove 금지.
 - **`PriceMultiplier × BalanceMultiplier == ValueScale` 불변식** — startup
@@ -70,62 +71,66 @@ core/spec/ + core/circuit/ + profile/binance/ 스켈레톤 구축
 
 ## Source Priority
 
-문서 충돌 시 우선순위. 자세한 내용은 `PRODUCTION_ROADMAP.md` 참조.
+문서 충돌 시 우선순위. 자세한 내용은 `zkpor/PRODUCTION_ROADMAP.md` 참조.
 
-1. `core/spec/` 코드 (frozen 계약)
-2. `docs/01-project-context.md`
-3. `PRODUCTION_ROADMAP.md`
-4. `AGENTS.md`, `CLAUDE.md`
-5. `HANDOFF.md` (이 문서 — 휘발성)
-6. `../docs/*.md` (legacy 참고 자료)
+1. `zkpor/core/spec/` 코드 (frozen 계약)
+2. `zkpor/docs/01-project-context.md`
+3. `zkpor/PRODUCTION_ROADMAP.md`
+4. `zkpor/AGENTS.md`, `zkpor/CLAUDE.md`
+5. `zkpor/HANDOFF.md` (이 문서 — 휘발성)
+6. `docs/*.md` (legacy 참고 자료)
 
 ## Repository Map
 
-```text
-zkpor/
-├── AGENTS.md                              ← agent contract (가장 먼저 읽음)
-├── CLAUDE.md                              ← Claude 자동 로드 메모리
-├── HANDOFF.md                             ← 이 문서 (현재 시점 인수인계)
-├── PRODUCTION_ROADMAP.md                  ← Part 3 (stages + gates) — root 격상
-├── docs/
-│   └── 01-project-context.md              ← Part 1 (컨셉/scope/guarantee)
-├── core/
-│   ├── spec/                              universal 인터페이스 + 상수 + 카탈로그
-│   │   ├── batch_shape.go
-│   │   ├── catalog.go                     (AssetCatalog interface)
-│   │   ├── constants.go
-│   │   ├── constraint_id.go
-│   │   ├── identity.go
-│   │   ├── insolvent.go
-│   │   ├── price.go
-│   │   └── solvency_models.go             (5-tier 카탈로그)
-│   ├── circuit/                           universal zk 헬퍼
-│   │   ├── arithmetic.go
-│   │   ├── commitment.go
-│   │   ├── constants.go
-│   │   └── merkle.go
-│   └── solvency/                          audited math 카탈로그
-│       ├── spot_simple/doc.go
-│       ├── merkle_classic/doc.go
-│       ├── over_collateral_simple/doc.go
-│       ├── tier_1bucket/doc.go
-│       └── tier_3bucket/                  (★ 유일 spec 구현)
-│           ├── doc.go
-│           └── spec/                      (types, risk, snapshot, constraint)
-└── profile/
-    └── binance/                           (★ 유일 customer profile)
-        ├── doc.go
-        ├── batch_shape.go
-        ├── catalog.go
-        ├── constraint_noop.go
-        ├── identity.go
-        ├── insolvent.go
-        ├── pricing.go
-        ├── risk.go
-        └── snapshot.go                    (★ errStubSnapshot — R2 작업)
+세션 cwd는 project root (`zkmerkle-proof-of-solvency/`).
 
-../circuit/, ../src/   (legacy Binance OSS PoR v2 — 수정 금지)
-../docs/               (legacy historical notes)
+```text
+zkmerkle-proof-of-solvency/                   (cwd — parent repo)
+├── circuit/                                  (legacy Binance OSS PoR v2 — 수정 금지)
+├── src/                                      (legacy Binance OSS PoR v2 — 수정 금지)
+├── docs/                                     (legacy historical notes)
+└── zkpor/                                    (★ 신규 엔진 — 자체 git 저장소)
+    ├── AGENTS.md                             ← agent contract (가장 먼저 읽음)
+    ├── CLAUDE.md                             ← Claude 자동 로드 메모리 (AGENTS.md redirect)
+    ├── HANDOFF.md                            ← 이 문서 (현재 시점 인수인계)
+    ├── PRODUCTION_ROADMAP.md                 ← Part 3 (stages + gates)
+    ├── docs/
+    │   └── 01-project-context.md             ← Part 1 (컨셉/scope/guarantee)
+    ├── core/
+    │   ├── spec/                             universal 인터페이스 + 상수 + 카탈로그
+    │   │   ├── batch_shape.go
+    │   │   ├── catalog.go                    (AssetCatalog interface)
+    │   │   ├── constants.go
+    │   │   ├── constraint_id.go
+    │   │   ├── identity.go
+    │   │   ├── insolvent.go
+    │   │   ├── price.go
+    │   │   └── solvency_models.go            (5-tier 카탈로그)
+    │   ├── circuit/                          universal zk 헬퍼
+    │   │   ├── arithmetic.go
+    │   │   ├── commitment.go
+    │   │   ├── constants.go
+    │   │   └── merkle.go
+    │   └── solvency/                         audited math 카탈로그
+    │       ├── spot_simple/doc.go
+    │       ├── merkle_classic/doc.go
+    │       ├── over_collateral_simple/doc.go
+    │       ├── tier_1bucket/doc.go
+    │       └── tier_3bucket/                 (★ 유일 spec+circuit 구현)
+    │           ├── doc.go
+    │           ├── spec/                     (types, risk, snapshot, constraint, witness)
+    │           └── circuit/                  (BatchCreateUserCircuit + helpers)
+    └── profile/
+        └── binance/                          (★ 유일 customer profile)
+            ├── doc.go
+            ├── batch_shape.go
+            ├── catalog.go
+            ├── constraint_noop.go
+            ├── identity.go
+            ├── insolvent.go
+            ├── pricing.go
+            ├── risk.go
+            └── snapshot.go                   (★ errStubSnapshot — R2 작업)
 ```
 
 ## Deferred Work
@@ -144,8 +149,10 @@ zkpor/
 
 다음 agent는 아래 순서로 이어간다.
 
-1. `AGENTS.md`, `docs/01-project-context.md`, `PRODUCTION_ROADMAP.md` 읽기.
-2. `git status` 로 워크트리 상태 확인 (현재 `zkpor/` 전체가 untracked).
+1. `zkpor/AGENTS.md`, `zkpor/docs/01-project-context.md`,
+   `zkpor/PRODUCTION_ROADMAP.md` 읽기.
+2. `git -C zkpor status` + `git -C zkpor log --oneline -10` 으로
+   zkpor 저장소 상태 확인.
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
@@ -153,7 +160,7 @@ zkpor/
 
 ```text
 R2 진입 — CSV ETL absorb 1단계.
-legacy ../src/utils/utils.go 의 ParseAssetIndexFromUserFile 와
+legacy src/utils/utils.go 의 ParseAssetIndexFromUserFile 와
 ParseCexAssetInfoFromFile 를 profile/binance/snapshot.go 의
 CexAssets(ctx) 구현으로 흡수한다 (AssetCatalog + RiskPolicy 도 같은
 CSV 출처에서 일관 구축).
@@ -171,8 +178,8 @@ CSV 출처에서 일관 구축).
 Start of work:
 
 ```bash
-git status
-git log --oneline -10
+git -C zkpor status
+git -C zkpor log --oneline -10
 ```
 
 Baseline 검증 (슬라이스마다 — project root에서 실행):

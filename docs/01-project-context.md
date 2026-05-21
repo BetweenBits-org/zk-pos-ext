@@ -58,7 +58,7 @@ zk 단독으로는 보장하지 않는 것 — 명시적으로 적는다.
 - **확장이 깨지지 않도록 지금 지켜야 할 것**:
   - `SolvencyModelID` · `BatchShape` · `ConstraintModuleID` 명명 규약.
   - Key file naming `zkpor.<model>.<shape>[.<module>].{pk,vk,r1cs}`.
-  - `core/spec/` 인터페이스 호환성 (추가 OK, 제거/변경은 versioned change).
+  - `zkpor/core/spec/` 인터페이스 호환성 (추가 OK, 제거/변경은 versioned change).
   - Model = math, Profile = deployment 분리. 한 쪽이 다른 쪽 이름을 흡수
     하지 않는다.
 
@@ -70,7 +70,7 @@ zk 단독으로는 보장하지 않는 것 — 명시적으로 적는다.
 | 목표 고객 (2차) | 한국·EU·일본 규제 spot 거래소 — spot_simple 모델로. |
 | 운영 형태 | managed SaaS — 엔진 통합 + 운영 컨설팅. 고객 인프라에 엔진 배포하되 운영은 우리. |
 | 핵심 SLA (잠정) | snapshot 입수 ~ proof publish 24h. customer onboarding 1~4개월. |
-| 통합 표면 | 고객은 `profile/<customer>/` 패키지를 구현 (어댑터 N개). 코어는 우리가 관리. |
+| 통합 표면 | 고객은 `zkpor/profile/<customer>/` 패키지를 구현 (어댑터 N개). 코어는 우리가 관리. |
 | Verifier 분배 | `.vk` + 명시적 model/shape/module ID. 검증은 고객사 또는 third-party가 자체 도구로 수행. |
 
 ## Product / Protocol Decisions To Preserve
@@ -94,7 +94,7 @@ zk 단독으로는 보장하지 않는 것 — 명시적으로 적는다.
 | Key file naming | `zkpor.<model>.<assetTier>_<usersPerBatch>[.<module>].{pk,vk,r1cs}` |
 | Legacy 호환 | `BatchShape.LegacyKeyName()` 가 기존 `zkpor50_700` 명명 유지. |
 | Identity 공개 | `AccountIDProvider.Scheme()` 으로 derivation 알고리즘 ID 공개. 사용자가 자기 ID 재현 가능해야. |
-| Adapter 패키지 | `profile/<customer>/` 는 **단일 Go 패키지**. 한 customer = 한 import. |
+| Adapter 패키지 | `zkpor/profile/<customer>/` 는 **단일 Go 패키지**. 한 customer = 한 import. |
 | 거래소명 분리 | 거래소 이름을 model id에 박지 않는다 (예: `tier_3bucket`, not `binance_v2`). |
 | Engine 스코프 | 엔진 프로그램만. 호스팅/UI/컴플라이언스 인증은 별도 product. |
 
