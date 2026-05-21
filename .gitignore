@@ -1,0 +1,39 @@
+# Go binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test & coverage output
+*.test
+*.out
+
+# Vendored deps (Go modules manage these; commit only if explicitly vendoring)
+vendor/
+
+# zk trusted setup & proof artifacts (very large — keygen output, e.g. zkpor50_700.pk is ~12GB)
+*.pk
+*.vk
+*.r1cs
+*.proof
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local config / secrets (per-developer overrides, never commit)
+.env
+.env.*
+*.local.json
+config.local.*
