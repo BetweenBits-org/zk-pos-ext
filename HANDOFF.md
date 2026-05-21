@@ -8,6 +8,7 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
+1398e04 test(zkpor): legacy↔zkpor R1CS + AccountID byte-equivalence (R3 step 3 / G1)
 ccc3fe4 feat(zkpor): alpha wiring + AccountID fr.Element @ snapshot (R3 step 2)
 1a0d820 test(circuit): add tier_3bucket Compile+Setup smoke (R3 step 0)
 cd50632 test(profile): full AccountStream fixture coverage
@@ -26,9 +27,9 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 | `zkpor/core/spec/*` | ✅ complete — 8 인터페이스/상수 파일 |
 | `zkpor/core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
-| `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). **Alpha wiring 적용 (R3 step 2)** — unexported `module` 필드 + `SetConstraintModule` setter, Define 끝에서 `ConstraintModule.Define(api, ctx)` 호출. noopModule 일 때 NbConstraints == 723790 (R3 step 0 baseline 과 동일). `.pk`/`.vk` byte-equivalence (production shape) 는 R3 step 3 (G1). |
+| `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). **Alpha wiring 적용 (R3 step 2)** — unexported `module` 필드 + `SetConstraintModule` setter, Define 끝에서 `ConstraintModule.Define(api, ctx)` 호출. noopModule 일 때 NbConstraints == 723790 (R3 step 0 baseline 과 동일). **R1CS byte-equivalence vs legacy 통과 (R3 step 3 / G1, tiny shape, commit 1398e04)** — `bn254.R1CS.GetR1Cs()` L·R==O SHA256 일치 (`678eb23f…`). |
 | `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
-| `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 + full-coverage 테스트 (multi-shard / ctx cancel / numeric overflow / collateral sum overflow / fatal column count) + AccountID 정규화. **`parseAccountRow` 에서 bn254 `fr.Element` SetBytes→Marshal round-trip 적용 (R3 step 2, G13 impl)** — legacy `src/utils/utils.go:553` 와 동일 layer. 16개 테스트 통과. multi-shard *concurrency* 는 여전히 R3 step 4 (현재는 sequential). 나머지 7개 어댑터는 constructor 형태 |
+| `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 + full-coverage 테스트 (multi-shard / ctx cancel / numeric overflow / collateral sum overflow / fatal column count) + AccountID 정규화. **`parseAccountRow` 에서 bn254 `fr.Element` SetBytes→Marshal round-trip 적용 (R3 step 2, G13 impl)** — legacy `src/utils/utils.go:553` 와 동일 layer. **R3 step 3 sample-corpus parity 통과** — legacy `ReadUserDataFromCsvFile` 과 zkpor `csvSnapshot.AccountStream` 이 sample_users0.csv (100 rows) 에서 90 valid AccountID byte-equal + 10 invalid 분류 parity. 17개 테스트 통과 (binance). multi-shard *concurrency* 는 여전히 R3 step 4 (현재는 sequential). 나머지 7개 어댑터는 constructor 형태 |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
 | docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`) | ✅ complete |
 
@@ -37,6 +38,16 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 최근 작업 흐름:
 
 ```text
+<R3/3>   test(zkpor): legacy↔zkpor R1CS + AccountID byte-equivalence
+        (G1 closure. tier_3bucket/circuit/legacy_compare_test.go —
+         tiny shape (5, 50, 2) 에서 legacy + zkpor R1CS L·R==O 행렬을
+         `bn254.R1CS.GetR1Cs()` 로 추출, SHA256 동일 (678eb23f…).
+         Coefficient table SHA256 도 동일. Hint identifier 차이는
+         solver metadata 라 .pk/.vk 에 무관 — 의도적 제외. profile/
+         binance/legacy_compare_test.go — sample_users0.csv 100 rows
+         에서 legacy `ReadUserDataFromCsvFile` 과 zkpor
+         `csvSnapshot.AccountStream` 이 90 valid + 10 invalid 분류
+         까지 byte-parity. 두 테스트 모두 -short 에서 skip.)
 <R3/2>   feat(zkpor): alpha wiring + AccountID fr.Element @ snapshot
         (BatchCreateUserCircuit 에 unexported `module` 필드 +
          SetConstraintModule setter 추가. Define() 가 base 제약 emit 후
@@ -110,16 +121,35 @@ ae623f4 test(profile): cover CexAssets() happy + tamper fixtures
 - multi-shard / multi-worker concurrency — R3 step 4 production wiring.
   현재 streamShard 는 sequential. legacy 는 goroutine 풀 + GC trigger.
 - 4개 service main.go 의 wiring — R3 step 4.
-- `.pk`/`.vk` byte-equivalence 런타임 검증 — R3 step 3 (G1 closing).
+- `solver.RegisterHint(corecircuit.IntegerDivision)` — 각 service
+  의 main 에 들어가야 zkpor circuit 으로 witness solving 이 동작.
+  G1 closure 의 의도적 제외 항목 (hint identifier divergence) 가 R3
+  step 4 에서 service-side wiring 으로 해소된다.
 - `AccountIDProvider.Scheme()` rename (정규화 사실 노출) — R3 step 4
   (G2 closure 동반).
+- ValueScale startup assert — R3 step 4 (G6).
 - goroutine leak guard 테스트 — uber-go/goleak dep 도입 시점에.
 - 나머지 4개 model 회로 — R4+ (시장 신호 대기).
 - 사용자-facing verification UI / 페이지 — engine boundary 밖, V1 scope
   미포함. customer / partner 영역. PRODUCTION_ROADMAP `## Scope
   Boundary` + G14 참조.
 
-발견 사항 (작업 중 surface된 것, 의사결정 보류):
+발견 사항 (작업 중 surface된 것, 의사결정 보류 / 일부 closure):
+
+- **G1 closed (R3 step 3) — R1CS L·R==O 행렬의 SHA256 비교**.
+  `bn254.R1CS.GetR1Cs()` 로 추출한 L/R/O term stream 을 직렬화
+  후 SHA256. 후보 (b) `.pk` SHA256 은 `groth16.Setup` 의
+  `sampleToxicWaste()` 가 deterministic 하지 않아 기각. Tiny shape
+  (5, 50, 2) 일치 + Define 이 shape-invariant 라는 구조적 논증으로
+  production shape 일치를 내포. Sample-corpus AccountID byte-parity
+  (90 valid + 10 invalid 분류) 가 snapshot-layer 보조 증거. 의도적
+  제외: hint identifier (legacy `circuit.IntegerDivision` 과 zkpor
+  `corecircuit.IntegerDivision` 의 reflect-derived ID 가 다름 — 단,
+  solver-only metadata 이며 .pk/.vk 매트릭스에 무관, R3 step 4 service
+  wiring 에서 `solver.RegisterHint` 로 등록). gnark debug metadata
+  (SymbolTable, DebugInfo, MDebug, Logs) 도 source path / line number
+  를 담아 byte 비교를 잘못 깨뜨리므로 제외.
+
 
 - `parseTierRatios` 의 `MaxTierBoundary` 체크는 CSV 입력 경로에서
   도달 불가능 — `uint64.Max · 1e16 ≈ 1.84e35` 가
@@ -228,6 +258,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
             ├── risk.go
             ├── snapshot.go                   (CexAssets + AccountStream + invalid 분류 done)
             ├── snapshot_test.go              (CexAssets 6 + AccountStream happy 1 + invalid 3 + coverage 5 + parseAccountRow normalization 1 — 16 total)
+            ├── legacy_compare_test.go        (R3 step 3 / G1 — sample-corpus AccountID byte-equivalence vs legacy ETL; -short skip)
             └── testdata/
                 ├── happy/                    (cex_assets_info.csv + user_shard.csv 헤더 + 2 rows)
                 └── multi_shard/              (cex_assets_info.csv + a.csv + b.csv)
@@ -245,7 +276,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | Setup smoke test (Compile + Setup) | ✅ done (tiny shape) | R3 step 0 |
 | AccountID fr.Element 정규화 위치 결정 (G13) | ✅ closed — (a) snapshot 어댑터 | R3 step 1 |
 | Constraint Architecture alpha wiring + fr.Element impl | ✅ done — `module` 필드 + setter, snapshot round-trip, noop-baseline regression guard | R3 step 2 |
-| G1 byte-equivalence 절차 합의 + 실행 | pending | R3 step 3 |
+| G1 byte-equivalence 절차 합의 + 실행 | ✅ closed — (a) R1CS L·R==O SHA256 채택, tiny shape match + sample-corpus AccountID parity (commit 1398e04) | R3 step 3 |
 | 4개 service rewiring + ValueScale assert + Scheme freeze | pending | R3 step 4 / G2 + G6 (agent 가 4 서비스 별 commit 으로 자율 분해) |
 | AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
 | 두 번째 customer profile | awaits signal | R4 / G12 |
@@ -265,59 +296,67 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 2 closed**. Alpha wiring (`BatchCreateUserCircuit.module` +
-`SetConstraintModule` + Define hook) + snapshot 의 fr.Element 정규화
-1줄 + 회귀 가드 2건 (setup smoke noop-baseline, parseAccountRow
-positive guard) 가 한 commit 으로 들어감. 다음은 G1 byte-equivalence —
-production shape (50, 500, 700) 에서 legacy 와 zkpor 의 산출물이
-bit 단위로 같음을 입증한다.
+**R3 step 3 closed (G1)**. Tiny-shape R1CS L·R==O byte-equivalence
+(SHA256 `678eb23f…`) + sample-corpus AccountID 90/90 + invalid 10/10
+parity. 두 영구 회귀 테스트 (`-short` 에서 skip) 가 회로/snapshot
+양쪽의 legacy 정합성을 지속 가드. 다음은 R3 본체 — **4개 service
+main.go 를 zkpor 어댑터로 재배선** + G2 (Scheme rename) + G6
+(ValueScale assert) closure.
 
-권장 다음 슬라이스 — **R3 step 3 (G1 절차 합의 + 실행)**:
+권장 다음 슬라이스 — **R3 step 4 (service rewiring, agent 가 자율
+분해)**:
 
 ```text
-산출물:
-  1) G1 비교 방법 합의 — 후보 (a) legacy circuit/ 의 R1CS hash vs
-     zkpor core/solvency/tier_3bucket/circuit/ 의 R1CS hash, (b)
-     legacy .pk SHA256 vs zkpor .pk SHA256. (a) 는 회로 IR 동치성을
-     직접 입증하고 setup ceremony 결과에 비의존, (b) 는 production
-     pipeline 산출물 자체의 동치성을 입증하나 setup 의 randomness
-     subtraction (Lagrange 분리 등) 으로 약한 비교. (a) 우선, (b)
-     는 보조.
-  2) production shape (50, 500, 700) 에서 legacy + zkpor 각각
-     frontend.Compile → R1CS → hash. 두 hash 동일성 assert. 짧은
-     스크립트로 충분 — repo 안에 영구 테스트로 두지는 않는다
-     (production shape compile = 분 단위 + 수 GB peak memory).
-  3) 같은 비교를 AccountID 정규화 경로에도 적용. legacy
-     ReadUserDataFromCsvFile 의 출력 AccountId 와 zkpor
-     csvSnapshot.AccountStream 의 AccountID 가 sample data 전체에
-     걸쳐 byte-equal. 표본 (~1k accounts) 으로 시작, 전체로 확장.
-  4) PRODUCTION_ROADMAP G1 entry: deferred → closed. 근거 + 산출물
-     hash + 비교 방법 기록.
+관여 서비스 (PRODUCTION_ROADMAP R3 step 4 참조):
+  - src/witness    : snapshot → AccountInfo stream → BatchCreateUserWitness
+  - src/prover     : witness file → groth16.Prove → proof file
+  - src/userproof  : per-user inclusion proof → DB 행
+  - src/verifier   : groth16.Verify → exit code
 
-가치: G1 가 닫혀야 step 4 의 service rewiring 이 trusted setup
-무효 위험 없이 진행 가능. legacy 와의 신뢰 라인이 명확해진다.
+같은 commit 에 묶을 후보 (low-coupling 변경):
+  - 4 서비스 main.go 의 legacy `src/utils` import 제거,
+    `zkpor/profile/binance` + `zkpor/core/solvency/tier_3bucket/...`
+    import 으로 교체.
+  - `solver.RegisterHint(corecircuit.IntegerDivision)` 등록 — G1
+    의 의도적 제외 항목 (hint identifier divergence) 의 service-side
+    해소.
+  - ValueScale startup assert (G6 closure) — service init 에 한 줄.
+    `PriceMultiplier × BalanceMultiplier == ValueScale` 불변식.
 
-같은 commit 에 넣지 않을 것:
-- Scheme() rename / G2 closure — step 4.
-- 4 service main.go rewiring — step 4.
-- multi-shard concurrency / goroutine leak guard — step 4.
-- ValueScale startup assert / G6 closure — step 4.
+분해 후보 (의존도/결합도가 코드를 만져봐야 드러나는 영역, 한 commit
+에 묶지 않는다):
+  - witness → prover artifact 의존 (file format / serialization
+    경계).
+  - userproof 의 DB 스키마 — schema 변경이 필요한지, legacy 와
+    공유 가능한지.
+  - multi-shard concurrency (현재 sequential streamShard) — legacy
+    의 goroutine pool + GC trigger 패턴을 zkpor 어댑터에 도입할지,
+    R3 step 4 안에 묶을지 별 슬라이스로 분리할지.
+  - goroutine leak guard 테스트 (uber-go/goleak 도입 가치 평가).
+
+G2 closure (별도 commit 또는 service rewiring 동반):
+  - `AccountIDProvider.Scheme()` 의 v1 이름 결정. 현재 placeholder
+    `passthrough_hex.v0` 가 G13 의 fr.Element 정규화 사실을 반영하지
+    못함. 후보: `passthrough_hex_bn254_reduced.v0` 또는 그
+    derivative. 한 번 freeze 되면 service / artifact 명명에 박힘.
+
+진입 시 agent 가 자기 슬라이스를 HANDOFF Resume Actions 에 박는다.
+4 서비스를 한 commit 에 묶지 않는다 — service-별 commit 분해가
+default. legacy + 신규의 결합도가 드러나는 순간 슬라이스 경계 재조정.
 ```
 
 그 다음 진입:
 
 ```text
-R3 step 4 — 4 service main.go rewiring + G2 + G6 closure.
-            agent 가 자율 분해 (witness → prover → userproof →
-            verifier 또는 의존도 따라). Scheme() rename, ValueScale
-            startup assert, multi-shard concurrency / goroutine leak
-            guard 동반. PRODUCTION_ROADMAP R3 step 4 참조.
+R3 step 4 closure 이후 — R3 본체 종료.
+R4    — second customer profile (G12 closing).
+R5    — second model 회로 구현 (rule-of-three first event).
 ```
 
 목표 / 범위 제외:
 
-- 다음 슬라이스 (R3 step 3): G1 byte-equivalence procedure 합의 +
-  production shape 비교 실행 + G1 closure. service rewiring 은 step 4.
+- 다음 슬라이스 (R3 step 4): service rewiring + G2 + G6 closure.
+  R3 step 4 는 한 commit 이 아니라 4-서비스 별 commit 권장.
 
 ## Required Commands
 

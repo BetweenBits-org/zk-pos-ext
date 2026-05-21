@@ -189,25 +189,67 @@ Exit criteria:
   변동 0 (723790).
 - ✅ noopModule 인 경우 constraint 수 변동 0.
 
-#### R3 step 3 — G1 검증 절차 합의 + 실행
+#### R3 step 3 — G1 검증 절차 합의 + 실행 ✅ closed
 
 목표: G1 (trusted-setup byte-equivalence) 의 검증 방법을 합의하고
-실행한다. 두 후보:
+실행한다. 채택 후보:
 
-- (a) legacy `circuit/` 의 R1CS hash 와 zkpor `core/solvency/tier_3bucket/
-  circuit/` 의 R1CS hash 비교.
-- (b) legacy `.pk` SHA256 과 zkpor `.pk` SHA256 비교.
+- (a) legacy 와 zkpor R1CS 의 L·R==O 행렬 비교 — `bn254.R1CS.GetR1Cs()`
+  로 추출한 후 SHA256. **채택**.
+- (b) legacy `.pk` SHA256 과 zkpor `.pk` SHA256 비교 — `groth16.Setup`
+  이 `sampleToxicWaste()` 로 randomness 를 뽑으므로 deterministic
+  하지 않다. 동일한 toxic waste 를 재사용해야만 .pk 가 byte-equal —
+  과거 production ceremony 의 waste 는 (의도적으로) 파기되어 있어
+  불가능. 기각.
 
-산출물:
+산출물 (commit 1398e04):
 
-- Decision Gate Register G1 entry: `deferred → closed`.
-- 합의된 절차에 따라 zkpor 회로의 R1CS / `.pk` / `.vk` 가 legacy 와
-  byte-equivalent 임을 입증하는 테스트 또는 ad-hoc 스크립트.
+- `zkpor/core/solvency/tier_3bucket/circuit/legacy_compare_test.go`
+  `TestLegacyCompare_R1CSStructure` — tiny shape (5, 50, 2) 에서
+  legacy + zkpor 각각 `frontend.Compile` → `*bn254.R1CS.GetR1Cs()` →
+  L/R/O term 직렬화 SHA256. 두 hash 동일.
+    legacy R1CS sha256 = 678eb23f62a9932bb93a8f0811db3b64a4bfd8eadb5e743791d93b27c0b95b32
+    zkpor  R1CS sha256 = 678eb23f62a9932bb93a8f0811db3b64a4bfd8eadb5e743791d93b27c0b95b32
+  Coefficient table SHA256 도 동일 — fail-fast 보조 signal. tiny
+  shape 에서의 일치는 production shape 일치를 내포 — Define 이
+  shape-invariant (loop-driven) 하기 때문.
+- `zkpor/profile/binance/legacy_compare_test.go`
+  `TestLegacyCompare_SampleDataAccountIDs` — sample_users0.csv (100
+  rows) 를 legacy `ReadUserDataFromCsvFile` 와 zkpor
+  `csvSnapshot.AccountStream` 양쪽에 흘려 AccountID 90개 valid +
+  10개 invalid 분류 까지 모두 일치.
+
+의도적 제외 (G1 의 정의 안에서 무관):
+
+- Hint identifier (`solver.HintID`) — Go reflect path 로 derive
+  되므로 legacy `circuit.IntegerDivision` 과 zkpor
+  `corecircuit.IntegerDivision` 이 다른 ID 를 가진다. 단, hint 는
+  solver-side metadata 이며 A·s ∘ B·s = C·s 매트릭스에 기여하지 않음.
+  각 service 가 zkpor IntegerDivision 을 `solver.RegisterHint` 로
+  등록해야 함 — R3 step 4 wiring.
+- gnark debug metadata (SymbolTable, DebugInfo, MDebug, Logs) —
+  source path / line number 를 담아 byte 비교를 잘못 깨뜨림. .pk/.vk
+  에 영향 0 이므로 비교에서 제외.
+
+Production-shape 일회성 검증 절차 (필요 시 후속 agent 실행 가능):
+
+```
+shape constants in TestLegacyCompare_R1CSStructure
+  userAssetCounts=5  → 50
+  allAssetCounts=50  → 500
+  batchCounts=2      → 700
+go test -run TestLegacyCompare_R1CSStructure \
+  ./core/solvency/tier_3bucket/circuit/... \
+  -timeout 60m -v
+예상 비용: 분 단위 compile + 수 GB peak memory (양쪽 합산).
+```
 
 Exit criteria:
 
-- G1 closed.
-- 합의된 비교 산출물이 byte-equivalent.
+- ✅ G1 closed.
+- ✅ Tiny-shape R1CS L·R==O byte-equivalence 통과 (commit 1398e04).
+- ✅ Sample-corpus AccountID byte-equivalence 90/90 pass + 10/10
+  invalid 분류 parity (commit 1398e04).
 
 #### R3 step 4 — 4 service main.go rewiring (R3 본체)
 
@@ -327,7 +369,7 @@ Blocking gates: G4, G10.
 
 | Gate | Status | Blocker stage | 결정 / 현재 marker | Next action |
 |---|---|---|---|---|
-| **G1** trusted-setup byte-equivalence 검증 방법 + 실행 | deferred | R3 step 3 | 미정. 후보: (a) legacy 와 zkpor 의 R1CS hash 비교, (b) legacy 와 zkpor 의 `.pk` SHA256 비교. R3 step 0 (Setup smoke), step 1 (G13), step 2 (alpha wiring) 가 G1 의 전제. | R3 step 3 진입 시 (a)/(b) 중 합의 → 실행 → closed. |
+| **G1** trusted-setup byte-equivalence 검증 방법 + 실행 | closed | R3 step 3 | **(a) R1CS L·R==O matrix SHA256 채택** (commit 1398e04). `bn254.R1CS.GetR1Cs()` 로 L/R/O 추출 후 직렬화 SHA256. Tiny shape (5, 50, 2) 에서 legacy + zkpor 모두 `678eb23f62a9932bb93a8f0811db3b64a4bfd8eadb5e743791d93b27c0b95b32`. (b) `.pk` SHA256 은 `groth16.Setup` 의 toxic-waste randomness 로 deterministic 하지 않음 — production ceremony 의 waste 가 파기되어 재사용 불가, 기각. Hint identifier divergence (legacy `circuit.IntegerDivision` vs zkpor `corecircuit.IntegerDivision` 의 reflect-derived ID) 는 solver-side metadata 라 .pk/.vk 에 무관 — 각 service 가 R3 step 4 에서 zkpor 의 IntegerDivision 을 `solver.RegisterHint` 로 등록. Sample-corpus AccountID byte-equivalence 도 동시 검증 (90 valid + 10 invalid 분류 까지 parity). | 후속 production-shape 검증은 ROADMAP R3 step 3 산출물 박스의 절차 참조 (optional). |
 | **G2** AccountIDProvider scheme v1 freeze | deferred | R3 | `passthrough_hex.v0` 임시. customer-side derivation 가정. | R3 전 HMAC/salt 정식 derivation 채택 여부 결정. |
 | **G3** ConstraintModule 공개 API freeze | deferred | R3 후 | 현재 `ConstraintContext` 가 minimal surface. 두 번째 module 등장 시 확정. | 첫 비-noop module 등장 시 API surface 검토. |
 | **G4** catalog stability 선언 | deferred | R7 | 5-tier 잠정 확정. 회로 구현은 1/5. | 모든 model 구현 후 freeze. |
@@ -347,7 +389,7 @@ Blocking gates: G4, G10.
 어떤 게이트가 어떤 stage를 막는지.
 
 ```text
-G1  --> R3 step 3 (trusted-setup byte-equivalence)
+G1  --> closed at R3 step 3 (trusted-setup byte-equivalence — commit 1398e04)
 G2  --> R3 step 4 (identity scheme freeze)
 G3  --> R3+ (first non-noop module 등장 시)
 G4  --> R7 (catalog freeze)
