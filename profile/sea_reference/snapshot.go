@@ -222,10 +222,13 @@ func parseAccountRow(
 	// fr.Element reduce — G13 universal convention.
 	accountID = new(fr.Element).SetBytes(accountID).Marshal()
 
+	// Spot deployment under T1 supplies TotalDebt = 0 — the per-user
+	// solvency assertion TotalEquity >= TotalDebt becomes trivial.
 	account := modelspec.AccountInfo{
 		AccountIndex: index,
 		AccountID:    accountID,
 		TotalEquity:  new(big.Int),
+		TotalDebt:    new(big.Int),
 	}
 	for j := range assetCount {
 		symbol := assets[j].Symbol

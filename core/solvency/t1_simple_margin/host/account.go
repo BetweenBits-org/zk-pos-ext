@@ -13,13 +13,16 @@ import (
 // verifier's -user mode reads it from disk and recomputes the leaf
 // to check inclusion against Root.
 //
-// Compared to t4_tiered_haircut_margin_3pool/host.UserConfig: drops TotalDebt +
-// TotalCollateral (spot users have no liabilities). Assets is the
-// spot 1-tuple. Root + AccountIdHash stay hex-encoded 32-byte values.
+// Compared to t4_tiered_haircut_margin_3pool/host.UserConfig: drops
+// TotalCollateral (T1 has no risk-weighted collateral). TotalDebt is
+// present so spot-vs-margin customers share one config schema —
+// spot writers supply TotalDebt = 0. Root + AccountIdHash stay hex-
+// encoded 32-byte values.
 type UserConfig struct {
 	AccountIndex  uint32
 	AccountIdHash string
 	TotalEquity   *big.Int
+	TotalDebt     *big.Int
 	Assets        []t1spec.AccountAsset
 	Root          string
 	Proof         [][]byte
@@ -28,37 +31,47 @@ type UserConfig struct {
 // AccountLeafHash returns the SMT leaf value for one user account in
 // the t1_simple_margin model:
 //
-//	Poseidon(AccountID, TotalEquity, 0, 0, AssetsCommitment)
+//	Poseidon(AccountID, TotalEquity, TotalDebt, 0, AssetsCommitment)
 //
 // AssetsCommitment is produced by ComputeUserAssetsCommitment with
 // the same assetCountTiers — the padded tier the user's asset slice
-// was sized to. Positions 3 and 4 are fixed zeros so the universal
-// core/tree empty-leaf hash (Poseidon(0,0,0,0,0)) applies unchanged
-// for untouched account slots — matches the in-circuit
-// account-leaf shape in t1_simple_margin/circuit. PoseidonBytes converts
-// nil byte slices to fr.Element{0,0,0,0}, so passing nil for the
-// fixed-zero positions is correct and allocation-free.
+// was sized to. Position 3 (TotalCollateral) is fixed zero so the
+// universal core/tree empty-leaf hash (Poseidon(0,0,0,0,0)) applies
+// unchanged for untouched account slots — matches the in-circuit
+// account-leaf shape in t1_simple_margin/circuit. PoseidonBytes
+// converts nil byte slices to fr.Element{0,0,0,0}, so passing nil for
+// position 3 is correct and allocation-free.
+//
+// Spot customers always have TotalDebt = 0, so slot 2 of the leaf
+// hash is effectively unused for them — same byte output as the
+// historical "spot-only" leaf without Debt.
 func AccountLeafHash(account *t1spec.AccountInfo, assetCountTiers []int) []byte {
 	assetsCommitment := ComputeUserAssetsCommitment(account.Assets, assetCountTiers)
+	var debtBytes []byte
+	if account.TotalDebt != nil {
+		debtBytes = account.TotalDebt.Bytes()
+	}
 	return poseidon.PoseidonBytes(
 		account.AccountID,
 		account.TotalEquity.Bytes(),
-		nil,
+		debtBytes,
 		nil,
 		assetsCommitment,
 	)
 }
 
 // PaddingAccounts pads a per-tier account slice up to a whole number
-// of batches (size usersPerBatch). Padding entries carry zero equity
-// and `assetKey` zero AccountAssets at indices [0..assetKey); their
-// AccountIndex is assigned sequentially starting from paddingStartIndex.
-// Returns the new paddingStartIndex (advanced by the number of padding
-// rows appended) and the extended account slice.
+// of batches (size usersPerBatch). Padding entries carry zero
+// equity / zero debt and `assetKey` zero AccountAssets at indices
+// [0..assetKey); their AccountIndex is assigned sequentially starting
+// from paddingStartIndex. Returns the new paddingStartIndex (advanced
+// by the number of padding rows appended) and the extended account
+// slice.
 //
-// Mirrors t4_tiered_haircut_margin_3pool/host.PaddingAccounts in shape; spot-typed
-// AccountInfo/AccountAsset and drops the debt/collateral big.Int
-// initialisation.
+// Mirrors t4_tiered_haircut_margin_3pool/host.PaddingAccounts in shape;
+// T1 drops TotalCollateral (no risk-weighted collateral). TotalDebt
+// is explicitly zeroed via big.Int{0} so AccountLeafHash doesn't
+// dereference a nil pointer.
 func PaddingAccounts(
 	accounts []t1spec.AccountInfo,
 	assetKey int,
@@ -75,6 +88,7 @@ func PaddingAccounts(
 		accounts = append(accounts, t1spec.AccountInfo{
 			AccountIndex: uint32(paddingStartIndex),
 			TotalEquity:  new(big.Int).SetInt64(0),
+			TotalDebt:    new(big.Int).SetInt64(0),
 			Assets:       assets,
 		})
 		paddingStartIndex++

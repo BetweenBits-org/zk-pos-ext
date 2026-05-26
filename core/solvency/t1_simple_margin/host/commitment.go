@@ -7,8 +7,8 @@
 //
 // Universal off-circuit helpers (e.g. Merkle proof verification) live
 // at zkpor/core/host. Anything t1_simple_margin-specific in layout
-// (the 1-tuple per-asset record, the 1-field-per-asset CEX packing)
-// belongs here.
+// (the 3-field per-asset record, the 1-field-per-asset CEX packing
+// with 192-bit (Equity, Debt, BasePrice) layout) belongs here.
 package host
 
 import (
@@ -19,16 +19,21 @@ import (
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
 
-// twoToThe64 == 2^64. Positional weight of TotalEquity in the
-// {TotalEquity * 2^64 + BasePrice} packing used by the per-asset CEX
-// commitment.
+// twoToThe64 == 2^64. Positional weight of TotalDebt in the
+// {TotalEquity * 2^128 + TotalDebt * 2^64 + BasePrice} packing used
+// by the per-asset CEX commitment.
 var twoToThe64 = new(big.Int).Lsh(big.NewInt(1), 64)
 
+// twoToThe128 == 2^128. Positional weight of TotalEquity in the
+// per-asset CEX commitment packing.
+var twoToThe128 = new(big.Int).Lsh(big.NewInt(1), 128)
+
 // ComputeUserAssetsCommitment returns the Poseidon commitment of one
-// user's per-asset 1-tuple sequence (Index, Equity), padded to the
-// smallest assetCountTiers entry that fits len(assets). Missing slots
-// are filled with zero-Equity entries at synthetic indices, so the
-// asset-index sequence is strictly increasing and dense up to the tier.
+// user's per-asset 3-tuple sequence (Index, Equity, Debt), padded to
+// the smallest assetCountTiers entry that fits len(assets). Missing
+// slots are filled with zero-Equity / zero-Debt entries at synthetic
+// indices, so the asset-index sequence is strictly increasing and
+// dense up to the tier.
 //
 // assetCountTiers MUST be sorted ascending and contain at least one
 // tier >= len(assets); the smallest such tier is selected.
@@ -36,10 +41,12 @@ var twoToThe64 = new(big.Int).Lsh(big.NewInt(1), 64)
 // Byte-equivalent to the in-circuit
 // `corecircuit.ComputeFlatUint64Commitment` over the same flat
 // sequence — circuit and host paths produce identical commitment
-// bytes for identical inputs.
+// bytes for identical inputs. The flat layout is 3 uint64 per asset
+// (Index, Equity, Debt) packed 3-per-field via the universal
+// commitment helper.
 func ComputeUserAssetsCommitment(assets []t1spec.AccountAsset, assetCountTiers []int) []byte {
 	flat := paddingAccountAssets(assets, assetCountTiers)
-	const fieldsPerAsset = 2
+	const fieldsPerAsset = 3
 	const valsPerField = 3
 
 	targetCounts := getAssetsCountOfUser(assets, assetCountTiers)
@@ -73,14 +80,16 @@ func ComputeUserAssetsCommitment(assets []t1spec.AccountAsset, assetCountTiers [
 
 // ComputeCexAssetsCommitment returns the Poseidon commitment over the
 // global per-asset state, padded to `capacity` slots. Each slot packs
-// {TotalEquity * 2^64 + BasePrice} into one 128-bit field element —
-// matches the in-circuit fillCexAssetCommitment in the t1_simple_margin
-// circuit package.
+// {TotalEquity * 2^128 + TotalDebt * 2^64 + BasePrice} into one
+// 192-bit field element (well under the bn254 modulus ~254 bits) —
+// matches the in-circuit fillCexAssetCommitment in the
+// t1_simple_margin circuit package.
 //
 // `capacity` is the per-deployment asset capacity (the value the
 // trusted setup ceremony baked in). Caller MAY supply cexAssetsInfo
 // shorter than capacity; helper pads with reserved entries
-// (TotalEquity=0, BasePrice=0). Panics if len(cexAssetsInfo) > capacity.
+// (TotalEquity=0, TotalDebt=0, BasePrice=0). Panics if
+// len(cexAssetsInfo) > capacity.
 func ComputeCexAssetsCommitment(cexAssetsInfo []t1spec.CexAssetInfo, capacity int) []byte {
 	if len(cexAssetsInfo) > capacity {
 		panic(fmt.Sprintf("ComputeCexAssetsCommitment: %d entries exceeds capacity %d",
@@ -89,10 +98,13 @@ func ComputeCexAssetsCommitment(cexAssetsInfo []t1spec.CexAssetInfo, capacity in
 	hasher := poseidon.NewPoseidon()
 	tmp := new(big.Int)
 	eq := new(big.Int)
+	dbt := new(big.Int)
 	for i := range capacity {
 		if i < len(cexAssetsInfo) {
 			eq.SetUint64(cexAssetsInfo[i].TotalEquity)
-			tmp.Mul(eq, twoToThe64)
+			dbt.SetUint64(cexAssetsInfo[i].TotalDebt)
+			tmp.Mul(eq, twoToThe128)
+			tmp.Add(tmp, new(big.Int).Mul(dbt, twoToThe64))
 			tmp.Add(tmp, new(big.Int).SetUint64(cexAssetsInfo[i].BasePrice))
 		} else {
 			tmp.SetInt64(0)
@@ -103,7 +115,8 @@ func ComputeCexAssetsCommitment(cexAssetsInfo []t1spec.CexAssetInfo, capacity in
 }
 
 // getAssetsCountOfUser returns the smallest tier in assetCountTiers
-// that is >= len(assets). Mirrors the t4_tiered_haircut_margin_3pool helper.
+// that is >= len(assets). Mirrors the t4_tiered_haircut_margin_3pool
+// helper.
 func getAssetsCountOfUser(assets []t1spec.AccountAsset, assetCountTiers []int) int {
 	count := len(assets)
 	for _, v := range assetCountTiers {
@@ -116,8 +129,8 @@ func getAssetsCountOfUser(assets []t1spec.AccountAsset, assetCountTiers []int) i
 
 // paddingAccountAssets converts a user's per-asset records into the
 // flat uint64 sequence consumed by ComputeUserAssetsCommitment:
-// {AssetIndex, Equity} per asset, with padding entries inserted at
-// synthetic indices in the gaps between real entries so the asset
+// {AssetIndex, Equity, Debt} per asset, with padding entries inserted
+// at synthetic indices in the gaps between real entries so the asset
 // index sequence is strictly increasing and dense up to targetCounts.
 // Panics if len(assets) > targetCounts.
 func paddingAccountAssets(assets []t1spec.AccountAsset, assetCountTiers []int) []uint64 {
@@ -125,7 +138,7 @@ func paddingAccountAssets(assets []t1spec.AccountAsset, assetCountTiers []int) [
 	if targetCounts < len(assets) {
 		panic("the target counts is less than the length of assets")
 	}
-	const fieldsPerAsset = 2
+	const fieldsPerAsset = 3
 	out := make([]uint64, targetCounts*fieldsPerAsset)
 	paddingCounts := targetCounts - len(assets)
 	currentPaddingCounts := 0
@@ -136,7 +149,7 @@ func paddingAccountAssets(assets []t1spec.AccountAsset, assetCountTiers []int) [
 			for j := currentAssetIndex; j < int(assets[i].Index); j++ {
 				currentPaddingCounts++
 				out[index*fieldsPerAsset] = uint64(j)
-				// Equity stays zero
+				// Equity and Debt stay zero
 				index++
 				if currentPaddingCounts >= paddingCounts {
 					break
@@ -145,6 +158,7 @@ func paddingAccountAssets(assets []t1spec.AccountAsset, assetCountTiers []int) [
 		}
 		out[index*fieldsPerAsset] = uint64(assets[i].Index)
 		out[index*fieldsPerAsset+1] = assets[i].Equity
+		out[index*fieldsPerAsset+2] = assets[i].Debt
 		index++
 		currentAssetIndex = int(assets[i].Index) + 1
 	}
