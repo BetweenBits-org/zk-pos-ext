@@ -587,12 +587,44 @@ R7 close 후 다음 갈래 (post-R7):
   가능 (현 procedural adapter 형태에서도 실행 가능).
 - **G15** — first production prove SLA 측정 후 GPU 가속 (ICICLE) 결정.
 
-### Stage R8 — Profile descriptor wiring + adapter cleanup
+### Stage R8 — Profile descriptor wiring + adapter cleanup (CLOSED)
 
 목표: R7 에서 freeze 된 `profile.toml` schema 를 service-startup 이
 *직접 consume*. profile/<customer>/ 의 declarative-only 어댑터를
 registry 패턴 + toml 값 주입 으로 대체. 핵심 동기: 새 customer 통합 시
 **toml + customer-specific procedural 코드** 만 작성하면 되도록.
+
+종결 (commit chain 78710d5 → 83cbfbe, 11 commits):
+
+- R8-A     identity + insolvent registry infrastructure
+- R8-B/1   declarative builders (model-blind half)
+- R8-B/2   snapshot connector registry (T1 + T4)
+- R8-B/3   constraint module registry (T1 + T4)
+- R8-C/1   keygen wiring
+- R8-C/2   witness wiring
+- R8-C/3   prover wiring
+- R8-D     verifier + userproof wiring + smoke.sh integration
+- R8-E/F   profile/{binance,sea_reference} cleanup + snapshot factory
+           carries PriceScaleProvider
+
+G17 closure: `core/host` (identity, insolvent) + `core/solvency/<model>/
+host` (snapshot connector, constraint module) own the four registry
+surfaces. ID format `<id>.v<version>`; missing or duplicate
+registrations panic at process start. Five v1 entries shipped:
+`passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`, `binance_csv.v1`,
+`sea_csv.v1`, plus the empty-ID noop fast path on both T1 and T4
+constraint registries.
+
+Service wiring: every cmd loads `profile.toml` via
+`declarative.Load(path)` and assembles adapters through
+`declarative.Build*` / `t4host.NewSnapshot` / `t4host.NewConstraintModule`
+(or T1 equivalents). `config.json` is reduced to deployment-secret
+(DB DSN, DbSuffix) + runtime-ops (TreeDB driver) + per-snapshot
+(CexAssetsInfo, ZkKeyName-via-keys-dir) fields.
+
+Verification: `go build`, `go vet`, `go test -short ./zkpor/...` —
+all 15 packages green at HEAD. Smoke run (docker MySQL) still
+manual; the harness is wired end-to-end through profile.toml.
 
 산출물:
 
@@ -684,7 +716,7 @@ R8-close  G17 closure + handoff/roadmap + docs/02 §6 갱신
 | **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R5 진입, model-first swap 이후) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
 | **G15** Prove-path GPU 가속 backend 채택 여부 | deferred | post-R3 step 4 / first production prove SLA | gnark README 가 ICICLE backend (Ingonyama) 통한 GPU 가속을 **공식 지원** — BN254 + Groth16 호환, 라벨 "Experimental". `.pk`/`.vk` byte-equivalence (G1) 와는 **직교** (accelerator 가 같은 ceremony 출력 사용 — R1CS/`.pk`/`.vk` 모두 그대로). 채택 시 audit 추가 surface = ICICLE backend 자체 (수학적 동치이지만 trust boundary 증가). 결정은 첫 production deployment 의 CPU prove 시간 측정 → 24h snapshot SLA 와 비교 후. pre-결정 작업: ICICLE 공식 docs 에서 (a) PoR-scale R1CS 의 speedup 벤치마크, (b) build/CUDA toolkit 요건, (c) GPU 없는 환경에서의 fallback 동작 확인. | 첫 production prove SLA 측정 시점에 surface. binding 하면 채택 검토 → closed, 그렇지 않으면 CPU 만 사용. |
 | **G16** Module composition compatibility 검토 프로세스 | deferred | first multi-module composition (R5 candidate) | `docs/02-module-architecture.md` §1 의 add-only 원칙으로 composition 자체는 수학적으로 안전. 그러나 module 간 hidden assumption 충돌 (한 module 이 system 의 변수 의미를 전제, 다른 module 이 그걸 깸 → unsat) 가능. 방향 lock: (a) 각 module 의 doc/audit note 에 assumed invariants 명시 의무, (b) composition 등록 (= 새 `.vk` ceremony 시작) 전에 reviewer 가 invariant 호환성 검토, (c) 자동화는 future work. process detail (reviewer who, document where, fail-mode) 는 첫 multi-module 등장 시 채움. | 첫 multi-module composition customer 등장 시 process detail 확정 + 이 row 의 status `deferred → closed`. |
-| **G17** Registry pattern v1 freeze (identity / insolvent / snapshot-connector / constraint-module) | deferred | R8 | R8 wiring 의 핵심 lock: 각 adapter category 의 registry 가 *어디서* 정의되고, ID prefix 가 *어떤 형식* 이며, 등록 = *engine 빌드 시점* 인지 *plugin 동적 로딩* 인지. 방향 lock (docs/02 §6.2 후보): (a) `core/host/` + `core/spec/` 안 in-process registry (build-time 등록만, plugin 동적 로딩 미채택 — 버전 깨짐 risk), (b) ID prefix 는 `<category>.<id>_v<version>` 형식 (예: `identity.passthrough_hex_bn254_reduced_v0`, `snapshot.binance_csv_v1`), (c) 등록 누락은 service-startup panic. 첫 registry 3개 (identity, insolvent, snapshot-connector) 가 R8-A 산출물; 이후 추가는 G11 rule-of-three 와 같은 governance. | R8 entry 시 (a)(b)(c) lock 후 첫 implementation 으로 prove. R8 close 시 `deferred → closed`. |
+| **G17** Registry pattern v1 freeze (identity / insolvent / snapshot-connector / constraint-module) | closed | R8 | **In-process build-time registries, ID format `<id>.v<version>`, missing/dup → panic** — locked in R8-A/B (commit chain 78710d5 → fc8325d). Four registry surfaces shipped: `core/host` owns identity + insolvent (model-blind universal contracts); `core/solvency/<model>/host` owns snapshot connector + constraint module (model-typed). Snapshot factory carries `(dir, snapshotID, capacity, PriceScaleProvider)` (R8-E surfaced the pricing tail). Builders in `profile/declarative/builders.go` map profile.toml fields → registry lookups; service startup panics on unknown / unregistered IDs. v1 entries: `passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`, `binance_csv.v1`, `sea_csv.v1`, plus the two model-typed noops (empty-string fast path). Further additions follow the same G11 rule-of-three governance. Detailed shape doc: `docs/02-module-architecture.md §6.2`. | — |
 
 ## Gate → Stage Dependency
 

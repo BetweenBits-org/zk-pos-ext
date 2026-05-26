@@ -8,7 +8,26 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
-R6-close docs(handoff+roadmap): close R6 — t1_simple_margin + Tn naming + G11
+R8-close docs(handoff+roadmap+02): close R8 — registry pattern + G17
+83cbfbe feat(zkpor): R8-E/F — profile cleanup + snapshot factory carries pricing
+950c728 feat(zkpor): R8-D — verifier + userproof wiring + smoke.sh full integration
+ad73d80 feat(zkpor): R8-C/3 — prover wiring (profile.toml-driven)
+469c019 feat(zkpor): R8-C/2 — witness wiring (profile.toml-driven)
+f427b21 feat(zkpor): R8-C/1 — keygen wiring (profile.toml-driven)
+fc8325d feat(zkpor): R8-B/3 — constraint module registry (T1 + T4)
+4369a91 feat(zkpor): R8-B/2 — snapshot connector registry (T1 + T4)
+d9d7135 feat(zkpor): R8-B/1 — declarative builders (model-blind half)
+78710d5 feat(zkpor): R8-A — registry infrastructure (identity + insolvent)
+64cb1af docs(roadmap+handoff+arch): add R8 stage — Profile wiring + adapter cleanup
+8f62d84 docs(handoff+roadmap+arch): close R7 — V1 catalog freeze 완료
+08cce42 feat(zkpor): R7-C — module 카탈로그 governance + empty v1 entries
+17429e4 feat(zkpor): R7-B — Profile descriptor schema v1 freeze (wiring carry)
+9388694 feat(zkpor): R7-A — catalog v1 freeze + LegacyKeyName 즉시 제거
+d2f0f06 docs(zkpor): R6.5 close — bw6 env fix + 4 model setup smoke baseline 기록
+0f208d2 docs(zkpor): T2/T3 close — 4 model catalog 구현 완료, R7 prep
+159f836 feat(zkpor): T2 — t2_static_haircut_margin 본체 + host
+5549fdb feat(zkpor): T3 — t3_tiered_haircut_margin_1pool 본체 + host
+44a47d9 feat(zkpor): R6 close — G11 closure (universal AccountLeafHash) + handoff/roadmap
 722a133 feat(zkpor): R6-B — t1_simple_margin host helpers + sea_reference debt=0 wire
 829e81c feat(zkpor): R6-A — t1_simple_margin spec + circuit (debt absorbed, spot superset)
 b0318e1 feat(zkpor): R6 prep — 04-solvency-models docs + Tn naming v1 (5→4 model, versioned change)
@@ -55,22 +74,22 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 |---|---|
 | `zkpor/core/spec/*` | ✅ complete — engine 표준만 잔존. **`AssetCounts=500` 제거 (E refactor, 1d5571b)** — profile capacity 였으므로 `AssetCatalog.Capacity()` 가 단일 진실원, R5 `profile.toml` 슬롯과 정합. |
 | `zkpor/core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
-| `zkpor/core/host/*` | ✅ off-circuit (native) universal 헬퍼 — `VerifyMerkleProof` (Poseidon BN254 SMT, legacy parity). R3 step 4 prep (commit 5f98fdd) |
+| `zkpor/core/host/*` | ✅ off-circuit (native) universal 헬퍼 — `VerifyMerkleProof` (Poseidon BN254 SMT, legacy parity). **R8-A: identity + insolvent registries** (78710d5) — `IdentitySchemePassthroughHexBN254ReducedV0` + `InsolventActionDropAndLogV0` self-register via init(). G17 closure. |
 | `zkpor/core/tree/*` | ✅ bsmt depth-28 SMT wrapper + `EmptyAccountLeafHash` (Poseidon(0,0,0,0,0)). memory/redis 백엔드. **default=memory, redis=opt-in** (A0 결정: snapshot-SoT 와 정합). witness + userproof 공유 (commit c96018d) |
-| `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host/*` | ✅ off-circuit model-specific 헬퍼 — `ComputeUserAssetsCommitment` + `ComputeCexAssetsCommitment(slice, capacity)` (5f98fdd + E refactor 1d5571b) + `AccountLeafHash` + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (32b9334; **DecodeBatchWitness 가 capacity 를 witness 의 BeforeCexAssets 길이로 자기-기술**, E refactor) + 공유 `UserConfig` 타입 (4e85757). 모두 legacy byte-equivalence/round-trip 테스트 통과 |
+| `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host/*` | ✅ off-circuit model-specific 헬퍼 — `ComputeUserAssetsCommitment` + `ComputeCexAssetsCommitment(slice, capacity)` + `AccountLeafHash` + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` + 공유 `UserConfig` 타입. **R8-B/2: snapshot connector registry** (4369a91) — factory signature `(dir, id, capacity, PriceScaleProvider)` (pricing tail added R8-E). **R8-B/3: constraint module registry** (fc8325d) — empty ID returns universal noop. 모두 legacy byte-equivalence/round-trip 테스트 통과 |
 | `zkpor/store/*` | ✅ gorm 영속화 계층 — `Open` + `ConvertMySQLErr` + 3 모델 (`BatchWitness` 78acd39, `Proof` + witness 상태머신 메서드 16f36bd, `UserProof` b7e57e6) + **`ProofStore.ListAllInOrder()` (A4, f1ba54a)** for verifier DB 직접 읽기 경로. 단일 instance DB-poll (`ClaimOldestByStatus` 트랜잭션) 채택 — Redis BLPOP 큐는 multi-worker scaling 시 follow-up. PostgreSQL adapter 는 slice D (deferred) |
-| `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service — legacy `src/verifier` 의 zkpor-native 대체 (3-mode CLI: batch / -user / -hash). src/utils + legacy circuit import 0. `UserConfig` 는 t4_tiered_haircut_margin_3pool/host 공유 타입 (4e85757). **DB 직접 읽기 모드 추가 (A4, f1ba54a)** — `MysqlDataSource` 설정 시 proof.csv hop 제거, `ProofStore.ListAllInOrder` 로 직접 ingest. **AssetCapacity config (E)**. **per-asset equity<debt 가 panic → warning** (A5 d7c23f3) — t4_tiered_haircut_margin_3pool 은 자산별 차용 허용 |
-| `zkpor/cmd/witness/*` | ✅ R3 step 4 service — snapshot → BatchCreateUserWitness → DB (commit 5332f40). **G6 closure 동반** (`PriceMultiplier × BalanceMultiplier == ValueScale` startup assert). `AssetCapacity` config (E refactor). `BeforeCexAssets` slice 가 snapshot 길이로 sizing. `accountTree.Commit(nil)` (pruning off; A5 fix d7c23f3). `-dump-final-cex <path>` smoke harness 플래그. 핵심 경로 only — multi-worker 병렬 / DB resume / tree rollback 은 follow-up |
-| `zkpor/cmd/prover/*` | ✅ R3 step 4 service — DB-poll Published → groth16.Prove+Verify → proof 테이블 (commit 8045c37). **G1 hint closure** (`solver.RegisterHint(corecircuit.IntegerDivision)`). idempotent persist + lazy snarkParams cache. Decode self-infers capacity from witness data (E). Redis BLPOP 큐 / -rerun 모드는 follow-up |
-| `zkpor/cmd/userproof/*` | ✅ R3 step 4 service — self-contained tree 재구축 (witness redis 의존 제거) → per-account inclusion proof → DB (commit fdf4a63). 동일 padding 으로 root parity. `AssetCapacity` config (E refactor). `-dump-user-index/-dump-user-path` smoke harness 플래그. 핵심 경로 only — multi-worker 병렬 / -memory_tree 플래그 / resume 은 follow-up |
-| `zkpor/cmd/keygen/*` | ✅ **새 service (A3, 1d5b2e9)** — zkpor-native trusted setup. `binance.NewBatchShape()` (override 가능) 와 `-asset-capacity` 플래그로 (userAssetCounts, assetCapacity, batchCounts) 회로 compile + groth16.Setup. StandardKeyName 파일 (`zkpor.t4_tiered_haircut_margin_3pool.<tier>_<users>.{pk,vk,r1cs}`), `-legacy-names` 옵션. Tiny smoke (5,5,10): 286k constraints, ~21s, .pk 113MB. |
+| `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service (legacy `src/verifier` 의 zkpor-native 대체, 3-mode CLI: batch / -user / -hash). DB 직접 읽기 모드 (A4). per-asset equity<debt warning (A5). **R8-D (950c728)**: profile.toml-driven — `-profile <toml>` + `-keys-dir <path>` (batch) + `-asset-capacity` override. config.json 슬림 (DB + DbSuffix + ProofTable + CexAssetsInfo). tiers/stems/capacity 는 declarative builder + resolveFromProfile 로 derive. |
+| `zkpor/cmd/witness/*` | ✅ R3 step 4 service — snapshot → BatchCreateUserWitness → DB. **R8-C/2 (469c019)**: profile.toml-driven — `-profile` + `-user-data-dir` + `-snapshot-id` + `-asset-capacity` flags. G6 invariant assert는 declarative.BuildPricing 안. snapshot은 `t4host.NewSnapshot(connectorID, dir, id, cap, pricing)`. config.json 슬림 (DB + DbSuffix + TreeDB). 핵심 경로 only — multi-worker 병렬 / DB resume / tree rollback 은 follow-up. |
+| `zkpor/cmd/prover/*` | ✅ R3 step 4 service — DB-poll Published → groth16.Prove+Verify → proof 테이블. G1 hint closure (`solver.RegisterHint`). **R8-C/3 (ad73d80)**: profile.toml-driven — `-profile` + `-keys-dir`. `buildResolved(prof, keysDir)` 가 (tiers, stems) 도출. config.json 은 DB-only. Redis BLPOP 큐 / -rerun 모드는 follow-up. |
+| `zkpor/cmd/userproof/*` | ✅ R3 step 4 service — self-contained tree 재구축 → per-account inclusion proof → DB. **R8-D (950c728)**: profile.toml-driven (witness 와 같은 flag 세트). config.json 슬림 (DB + DbSuffix + TreeDB). 핵심 경로 only — multi-worker 병렬 / -memory_tree 플래그 / resume 은 follow-up. |
+| `zkpor/cmd/keygen/*` | ✅ zkpor-native trusted setup. **R8-C/1 (f427b21)**: profile.toml-driven — `-profile <toml>` + `-asset-capacity <N>` override. model 분기 (T1/T4 newCircuit). 더 이상 binance.NewBatchShape 직접 호출 안 함. Tiny smoke (5,5,10): 286k constraints, ~21s, .pk 113MB. |
 | `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
 | `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음. **Alpha wiring (R3 step 2)** + **R1CS byte-equivalence vs legacy (R3 step 3 / G1)**. **A5 fix d7c23f3** — `SetBatchCreateUserCircuitWitness` 의 padding UserAssetInfo entries 가 legacy 처럼 6개 collateral 필드를 명시적 0 으로 초기화 (이전엔 nil 이라 gnark `can't set fr.Element with <nil>` 실패). |
 | `zkpor/core/solvency/t1_simple_margin/{spec,circuit,host}/*` | ✅ **R4 + R5-0 done** — spec/circuit (R4) + host helpers (R5-0): `ComputeUserAssetsCommitment` (2-field per asset) + `ComputeCexAssetsCommitment(slice, capacity)` (TotalEquity×2^64+BasePrice 1-field per asset) + `AccountLeafHash` (5-input zero-padded) + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (capacity self-describing) + `UserConfig` (no debt/collateral fields). NbConstraints=33,306 at tiny shape. RiskPolicy 부재. |
 | `zkpor/core/solvency/{t1_simple_margin,t2_static_haircut_margin,t3_tiered_haircut_margin_1pool}/` | ⏸ doc.go only — 카탈로그 reserved. R6 (3rd model) rule-of-three 대기. |
-| `zkpor/profile/sea_reference/*` | ✅ **R5-1 + R5-2 done** — 두 번째 customer profile (hypothetical SEA spot-only 거래소). 7 어댑터: `catalog` (capacity-aware), `pricing` (uniform default scales), `identity` (same `passthrough_hex_bn254_reduced.v0` scheme as binance — universal contract), `insolvent`, `batch_shape` (single {50, 1000} default + same `ZKPOR_BATCH_SHAPE_OVERRIDE` env), `constraint_noop` (spot-typed), `snapshot` (spot 단순 CSV ETL: `rn,id,<asset>,...,sum` + `cex_assets_info.csv` symbol/usdt_price/total_equity). testdata/happy fixture 포함. 14 단위 테스트 통과. |
-| `zkpor/profile/declarative/*` | ✅ **R5-3 done** — `profile.toml` schema (struct + Load + Validate) + 두 customer 의 sample 인스턴스 (`profile/binance/binance.toml` t4_tiered_haircut_margin_3pool, `profile/sea_reference/sea_reference.toml` t1_simple_margin). dep: `github.com/pelletier/go-toml/v2` (parent go.mod). 5 테스트 통과. **service-startup 에서 toml 을 consume 하는 wiring 은 별도 슬라이스 — R7 freeze 전 candidate**. |
-| `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료. **G2 closed** (Scheme `passthrough_hex_bn254_reduced.v0`). **G13 closed** (snapshot AccountID fr.Element 정규화). `NewCatalog(orderedSymbols, capacity)` (E refactor — capacity 가 catalog 인스턴스 필드). `SnapshotConfig.AssetCapacity` 추가. `NewBatchShape()` 가 `ZKPOR_BATCH_SHAPE_OVERRIDE` env var 지원 (A1 11f2d0a). multi-shard concurrency 는 여전히 sequential (follow-up) |
+| `zkpor/profile/sea_reference/*` | ✅ **R8-E/F (83cbfbe)**: dead-code adapters 6개 + profile_test.go 제거. 남은 파일: `snapshot.go` (T1 spot ETL, `sea_csv.v1` 등록), `snapshot_test.go`, `snapshot_connector_test.go`, `helpers_test.go`, `sea_reference.toml`, `doc.go`, `testdata/happy`. SnapshotConfig 에 `Pricing` 필드 추가. |
+| `zkpor/profile/declarative/*` | ✅ **R5-3 + R7-B + R8-B/1 (d9d7135)** — `profile.toml` schema (v1 FROZEN) + builders.go: `BuildIdentity` / `BuildInsolvent` (host registry lookup) + `BuildBatchShape` + `BuildBatchShapeProvider(model, shapes)` (model-typed wrapper, R8-C/2 추가) + `BuildPricing` (G6 invariant assert) + `BuildCatalog`. Validate 가 빈 identity.scheme / insolvent.action / snapshot.source_type 거부. 20+ tests. |
+| `zkpor/profile/binance/*` | ✅ **R8-E (83cbfbe)**: dead-code adapters 7개 + identity_test/batch_shape_test 제거. 남은 파일: `snapshot.go` (T4 ETL, `binance_csv.v1` 등록), `snapshot_test.go`, `snapshot_connector_test.go`, `legacy_compare_test.go` (G1), `helpers_test.go`, `binance.toml`, `doc.go`, `testdata/`. SnapshotConfig 에 `Pricing` 필드 — nil 거부. `streamAccounts` / `readCexAssetsCSV` 가 외부에서 받은 PriceScaleProvider 사용. |
 | `zkpor/deploy/` | ✅ **smoke MySQL fixture (A2, 1d5b2e9)** — `docker-compose.yml` 단일 컨테이너 (mysql:8.0, healthcheck, 영속 볼륨). Memory tree 라 Redis 컨테이너 불필요. 사용: `docker compose -f deploy/docker-compose.yml up -d` |
 | `zkpor/scripts/` | ✅ **end-to-end smoke 하네스 (A5, d7c23f3)** — `smoke.sh` 가 docker compose → keygen (캐시) → witness → prover → verifier(batch) → userproof → verifier(-user) 순으로 전체 파이프라인 실행. R3 step 4 exit criteria 검증 완료. |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
@@ -721,7 +740,41 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 4 + R4 + R5 + R6 + R7 종결**. V1 catalog freeze 완료.
+**R3 step 4 + R4 + R5 + R6 + R7 + R8 종결**. V1 catalog freeze + profile wiring 완료.
+
+R8 산출물 (commit chain 78710d5 → 83cbfbe, 11 slices):
+
+- **R8-A** (78710d5) — `core/host` 안 identity + insolvent 두 registry.
+  G17 lock 의 (a)/(b)/(c) 적용: in-process build-time, `<id>.v<version>`
+  ID format, missing/dup → panic. 첫 entry `passthrough_hex_bn254_reduced.v0`
+  + `drop_and_log.v0` self-register.
+- **R8-B/1** (d9d7135) — `profile/declarative/builders.go` 의 model-blind 절반:
+  `BuildIdentity`, `BuildInsolvent`, `BuildBatchShape`, `BuildPricing` (G6
+  invariant assert 내장), `BuildCatalog`. universal pricing/catalog 구현이
+  declarative 에 inline.
+- **R8-B/2** (4369a91) — `core/solvency/<model>/host` 안 snapshot connector
+  registry (T1 + T4 각각). factory signature `(dir, id, capacity)` —
+  R8-E 에서 `PriceScaleProvider` tail 추가. binance_csv.v1 + sea_csv.v1
+  self-register.
+- **R8-B/3** (fc8325d) — constraint module registry per model. 빈 ID 는
+  universal noop fast-path. v1 catalog 에 non-noop entry 0개 (R7-C 정합).
+- **R8-C/1..3** (f427b21 → 469c019 → ad73d80) — keygen + witness + prover
+  service-startup 가 `declarative.Load(profile) → builders` 로 wiring.
+  config.json 슬림화: DB DSN + (TreeDB / per-snapshot) 만 남음.
+- **R8-D** (950c728) — verifier + userproof + smoke.sh 풀 통합. verifier 의
+  ZkKeyName/AssetsCountTiers/AssetCapacity 가 `-keys-dir` + profile.toml 로
+  derive.
+- **R8-E/F** (83cbfbe) — profile/binance + profile/sea_reference 의 dead
+  adapter 15개 제거. snapshot factory signature 가 PriceScaleProvider 받도록
+  확장; snapshot ETL 이 그 provider 사용. 두 profile 에 `helpers_test.go`
+  (declarative-built testPricing) 추가.
+- **R8-close** — G17 deferred→closed, docs/02 §6.2 (registry pattern)
+  신설, ROADMAP §R8 종결 마킹, HANDOFF.md 갱신 (이 슬라이스).
+
+**G17 closed**: 네 가지 adapter category (identity, insolvent, snapshot
+connector, constraint module) 의 registry 패턴이 v1 frozen. 새 customer
+통합 비용 = `<customer>.toml` 작성 + (필요 시) snapshot ETL 코드만.
+
 
 R3 step 4 산출물: 4 services + 3 gate (G1/G2/G6) + AssetCounts
 재배치 (E) + end-to-end smoke (A5) — `scripts/smoke.sh` 풀 파이프
@@ -802,15 +855,17 @@ T1 R1CS sha256: `d2df98c8969280900ac36424358454af5a223b331839b9f2080cbc548aebe0b
 남은 R7 entry 항목: profile descriptor schema freeze + module 카탈로그
 freeze 만.
 
-R6 후 carry (3rd model 또는 R7 freeze 직전 promote):
+R6 후 carry (3rd model 또는 후속 promote):
 
 - `PowersOfSixteenBits` (양 model `circuit/constants.go`)
 - R1CS hash test helpers (양 model `setup_test.go`)
-- `parseShapeOverride` (양 profile `batch_shape.go`)
+- ~~`parseShapeOverride` (양 profile `batch_shape.go`)~~ — **R8-B/1 에서
+  `profile/declarative/builders.go` 로 promote 완료**.
 - `convertFloatStrToUint64` + `errInvalidRow`/`invalidf` 패턴 (양
-  profile `snapshot.go`)
-- Identity DeriveAccountID 64-hex → fr.Element body (양 profile
-  `identity.go`)
+  profile `snapshot.go`) — 여전히 profile-local. snapshot 자체가
+  customer-specific 이라 큰 부담 아님.
+- ~~Identity DeriveAccountID 64-hex → fr.Element body~~ — **R8-A 에서
+  `core/host/identity_passthrough.go` 로 promote 완료**.
 
 R6 후 surface 된 환경 이슈 (별 슬라이스 후보):
 
@@ -822,35 +877,7 @@ R6 후 surface 된 환경 이슈 (별 슬라이스 후보):
   backend/groth16/bn254 명시 import, 또는 module cache 의 bw6 패키지
   복원. 별 슬라이스 (R6.5 env fix) 로 처리.
 
-다음 슬라이스 갈래 (post-R7) — agent 가 선택 (또는 user 와 합의):
-
-**갈래 R8 — Profile wiring + adapter cleanup (RECOMMENDED, 다음 자연 stage)**:
-
-```text
-R7 에서 freeze 된 profile.toml schema 를 service-startup 이 직접 consume.
-profile/<customer>/ 의 declarative 가능 어댑터 7개 (batch_shape, catalog,
-constraint_noop, identity, insolvent, pricing, risk) 를 registry 패턴 +
-toml 값 주입 으로 대체. profile/<customer>/ 에 procedural-only
-(snapshot.go) + tests + doc.go + customer.toml 만 남음.
-
-산출물 (자세한 내용 PRODUCTION_ROADMAP §R8):
-  - Registry infrastructure (identity / insolvent / snapshot-connector)
-  - declarative builders (BuildCatalog / BuildBatchShape / BuildPricing 등)
-  - 5 services (cmd/*) 의 startup wiring: LoadProfile(path) → 어댑터 조립
-  - profile/binance + profile/sea_reference cleanup
-  - G17 (registry pattern v1 freeze) closure
-
-작업 분해 예 (~6-8 슬라이스):
-  R8-A  registry infrastructure (identity, insolvent, snapshot connector)
-  R8-B  declarative builders
-  R8-C  service-startup wiring — keygen + witness + prover
-  R8-D  service-startup wiring — verifier + userproof + smoke.sh
-  R8-E  profile/binance cleanup
-  R8-F  profile/sea_reference cleanup + sea_reference smoke 동등성 검증
-  R8-close  G17 closure + handoff/roadmap
-
-후속 customer 통합 비용 = toml 작성 + (필요 시) custom snapshot 코드만.
-```
+다음 슬라이스 갈래 (post-R8) — agent 가 선택 (또는 user 와 합의):
 
 **갈래 V1-PROD — Production deployment (R8 후 자연 다음)**:
 

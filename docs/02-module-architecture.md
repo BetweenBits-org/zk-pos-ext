@@ -255,6 +255,86 @@ tests, doc.go) + customer.toml 만 남음. 신규 customer 추가 비용 = toml
 R8 의 G17 (registry pattern v1 freeze) 가 ID prefix 형식 (`<category>.<id>_v<v>`)
 + 등록 누락 = service-startup panic policy 까지 명시 lock.
 
+## 6.2 Registry pattern v1 (G17 closure, R8)
+
+R8 에서 profile descriptor wiring 이 활성화되면서 네 가지 adapter
+카테고리가 in-process registry 패턴으로 통일됨. registry 자체는
+"build-time 등록 + lookup → factory 호출" 형태이며 plugin 동적
+로딩은 채택하지 않는다 (engine 빌드 시점에 모든 entry 가 binary
+안에 link 되어 있어야 함).
+
+**ID format**: `<id>.v<version>` (e.g. `passthrough_hex_bn254_reduced.v0`,
+`drop_and_log.v0`, `binance_csv.v1`, `sea_csv.v1`). version suffix 가
+identifier 안에 박혀 있어서 derivation 의미를 바꾸는 변경은 새
+registry key 가 됨 — 기존 published artifact 와 silently 충돌하지
+않는다.
+
+**Layer ownership**:
+
+| Category | Registry location | Model-typed? | v1 entries |
+|---|---|---|---|
+| Identity scheme | `core/host` | no — universal contract | `passthrough_hex_bn254_reduced.v0` |
+| InvalidAccountPolicy | `core/host` | no — universal contract | `drop_and_log.v0` |
+| Snapshot connector | `core/solvency/<model>/host` | yes — `SnapshotSource` per model | `binance_csv.v1` (T4), `sea_csv.v1` (T1) |
+| ConstraintModule | `core/solvency/<model>/host` | yes — `ConstraintContext` per model | (none) — empty ID returns engine-default noop without lookup |
+
+**Factory signatures**:
+
+- Identity: `func() spec.AccountIDProvider`. Provider's `Scheme()`
+  MUST equal the registry key (audit invariant — verified on lookup).
+- Insolvent: `func() spec.InvalidAccountPolicy`. Stateless policies
+  shared across goroutines.
+- Snapshot (per model): `func(userDataDir, snapshotID string,
+  assetCapacity int, pricing spec.PriceScaleProvider)
+  <model>spec.SnapshotSource`. The pricing tail argument was added in
+  R8-E when removing the per-profile in-package `pricing` struct
+  surfaced it as a missing input.
+- Constraint module (per model): `func() <model>spec.ConstraintModule`.
+  Module's `ID()` MUST equal the registry key.
+
+**Registration site**: `init()` in the package that owns the
+implementation. For universal entries that's `core/host/<entry>.go`;
+for customer-specific snapshot connectors it's
+`profile/<customer>/snapshot.go`. cmd binaries blank-import every
+profile they want to support (or that their toml may reference) so
+each profile's `init()` runs at process start.
+
+**Failure modes**:
+
+- Empty ID at registration → panic with package-qualified message.
+- Nil factory at registration → panic.
+- Duplicate registration → panic (single-owner invariant).
+- Unknown ID at lookup → panic listing registered IDs (the
+  diagnostic helper `RegisteredXxx()` exists on every registry).
+- For identity + constraint module: factory returns a value whose
+  `Scheme()` / `ID()` mismatches the registry key → panic. Catches
+  cut-and-paste mistakes in audit metadata.
+
+**Adding a new entry**: drop a new file under the owning package
+with an `init()` that calls the registry's `Register*` function with
+a fresh `<id>.v<version>` key. For snapshot connectors / constraint
+modules whose IDs are referenced from `profile.toml`, the toml's
+`[snapshot].source_type` or `[constraint].module` value must be the
+exact registry key. `declarative.Validate()` catches empty strings
+at the schema layer; registry lookup catches unknown IDs at service
+startup.
+
+**Layering rationale**: identity + insolvent are model-blind
+universal vocabulary — `core/host` owns them. Snapshot connector and
+constraint module are model-typed (the returned interface and its
+context differ between T1 spot and T4 margin), so each model's host
+package owns its own table. `profile/declarative` sees only universal
+fields — its `BuildIdentity` / `BuildInsolvent` cross the model
+boundary by name lookup, while `BuildSnapshot` / `BuildConstraintModule`
+are intentionally absent (service main code dispatches on
+`profile.Model` and calls the right model-host directly).
+
+**v1 catalog**: the four entries above. Further additions follow
+G11 rule-of-three governance — a derivation / policy / connector
+that appears in three independent customer integrations is promoted
+to the engine; one-off customer-local entries stay under the
+customer's profile package and are documented in their `<customer>.toml`.
+
 ## 6.1 Multi-customer `.vk` 공유 정책 (G12 closure)
 
 두 customer (또는 더 많은) profile 이 같은 model 을 쓸 때 trusted-
