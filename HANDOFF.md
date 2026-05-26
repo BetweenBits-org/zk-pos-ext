@@ -8,14 +8,20 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
+3dae8da docs(strategy): realign R4/R5 to SEA spot-first + market context zoom-in
+3c691cb feat(zkpor): close G2 — AccountIDProvider scheme v1 freeze
+fdf4a63 feat(zkpor): zkpor/cmd/userproof — R3 step 4 core-path service
+b7e57e6 feat(zkpor/store): user-proof model (userproof prep)
+4e85757 refactor(zkpor): UserConfig → tier_3bucket/host shared type (userproof prep)
+8045c37 feat(zkpor): zkpor/cmd/prover — R3 step 4 core-path service + G1 hint closure
+16f36bd feat(zkpor/store): proof model + witness state-machine methods (prover prep)
+5332f40 feat(zkpor): zkpor/cmd/witness — R3 step 4 core-path service + G6 closure
+78acd39 feat(zkpor/store): batch witness model + MySQL connection helper
+32b9334 feat(zkpor): tier_3bucket host — AccountLeafHash + PaddingAccounts + Encode/DecodeBatchWitness
+c96018d feat(zkpor/core/tree): SMT account tree wrapper + empty-leaf hash
+ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 9f889ad feat(zkpor): zkpor/cmd/verifier — first R3 step 4 service
 5f98fdd feat(zkpor): extract off-circuit host helpers (R3 step 4 prep)
-d80d1a9 docs(roadmap): plate-hold G15 — Prove-path GPU acceleration (ICICLE)
-8899e05 docs(handoff+roadmap): align R3 step 4 to zkpor/cmd/*, pin verifier-first slice
-c9c9135 docs(architecture): lock ConstraintModule composition + per-stage R4-R7 hooks
-fcd6740 docs(handoff+roadmap): close G1 (R3 step 3), frame step 4 entry
-1398e04 test(zkpor): legacy↔zkpor R1CS + AccountID byte-equivalence (R3 step 3 / G1)
-ccc3fe4 feat(zkpor): alpha wiring + AccountID fr.Element @ snapshot (R3 step 2)
 8aaf4c3 feat: scaffold zkpor engine — productization of Binance OSS PoR v2
 ```
 
@@ -27,12 +33,17 @@ ccc3fe4 feat(zkpor): alpha wiring + AccountID fr.Element @ snapshot (R3 step 2)
 | `zkpor/core/spec/*` | ✅ complete — 8 인터페이스/상수 파일 |
 | `zkpor/core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
 | `zkpor/core/host/*` | ✅ off-circuit (native) universal 헬퍼 — `VerifyMerkleProof` (Poseidon BN254 SMT, legacy parity). R3 step 4 prep (commit 5f98fdd) |
-| `zkpor/core/solvency/tier_3bucket/host/*` | ✅ off-circuit model-specific 헬퍼 — `ComputeUserAssetsCommitment` + `ComputeCexAssetsCommitment`, legacy byte-equivalence 테스트 통과. R3 step 4 prep (commit 5f98fdd) |
-| `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service — legacy `src/verifier` 의 zkpor-native 대체 (3-mode CLI: batch / -user / -hash). src/utils + legacy circuit import 0. proof-table end-to-end 검증은 witness+prover 착지 후 (artifact 의존) |
+| `zkpor/core/tree/*` | ✅ bsmt depth-28 SMT wrapper + `EmptyAccountLeafHash` (Poseidon(0,0,0,0,0)). memory/redis 백엔드. witness + userproof 공유 (commit c96018d) |
+| `zkpor/core/solvency/tier_3bucket/host/*` | ✅ off-circuit model-specific 헬퍼 — `ComputeUserAssetsCommitment` + `ComputeCexAssetsCommitment` (5f98fdd) + `AccountLeafHash` + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (32b9334) + 공유 `UserConfig` 타입 (4e85757). 모두 legacy byte-equivalence/round-trip 테스트 통과 |
+| `zkpor/store/*` | ✅ gorm 영속화 계층 — `Open` + `ConvertMySQLErr` + 3 모델 (`BatchWitness` 78acd39, `Proof` + witness 상태머신 메서드 16f36bd, `UserProof` b7e57e6). 단일 instance DB-poll (`ClaimOldestByStatus` 트랜잭션) 채택 — Redis BLPOP 큐는 multi-worker scaling 시 follow-up |
+| `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service — legacy `src/verifier` 의 zkpor-native 대체 (3-mode CLI: batch / -user / -hash). src/utils + legacy circuit import 0. `UserConfig` 는 tier_3bucket/host 공유 타입 (4e85757). proof-table end-to-end 검증은 witness+prover artifact 의존 |
+| `zkpor/cmd/witness/*` | ✅ R3 step 4 service — snapshot → BatchCreateUserWitness → DB (commit 5332f40). **G6 closure 동반** (`PriceMultiplier × BalanceMultiplier == ValueScale` startup assert). 핵심 경로 only — multi-worker 병렬 / DB resume / tree rollback 은 follow-up |
+| `zkpor/cmd/prover/*` | ✅ R3 step 4 service — DB-poll Published → groth16.Prove+Verify → proof 테이블 (commit 8045c37). **G1 hint closure** (`solver.RegisterHint(corecircuit.IntegerDivision)`). idempotent persist + lazy snarkParams cache. Redis BLPOP 큐 / -rerun 모드는 follow-up |
+| `zkpor/cmd/userproof/*` | ✅ R3 step 4 마지막 service — self-contained tree 재구축 (witness redis 의존 제거) → per-account inclusion proof → DB (commit fdf4a63). 동일 padding 으로 root parity. 핵심 경로 only — multi-worker 병렬 / -memory_tree 플래그 / resume 은 follow-up |
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
 | `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). **Alpha wiring 적용 (R3 step 2)** — unexported `module` 필드 + `SetConstraintModule` setter, Define 끝에서 `ConstraintModule.Define(api, ctx)` 호출. noopModule 일 때 NbConstraints == 723790 (R3 step 0 baseline 과 동일). **R1CS byte-equivalence vs legacy 통과 (R3 step 3 / G1, tiny shape, commit 1398e04)** — `bn254.R1CS.GetR1Cs()` L·R==O SHA256 일치 (`678eb23f…`). |
 | `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved. **`spot_simple` 은 R4 model-first 우선순위 (SEA GTM driver, `docs/01-project-context.md` SEA zoom-in 참조)**. 나머지는 rule-of-three 대기. |
-| `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 + full-coverage 테스트 (multi-shard / ctx cancel / numeric overflow / collateral sum overflow / fatal column count) + AccountID 정규화. **`parseAccountRow` 에서 bn254 `fr.Element` SetBytes→Marshal round-trip 적용 (R3 step 2, G13 impl)** — legacy `src/utils/utils.go:553` 와 동일 layer. **R3 step 3 sample-corpus parity 통과** — legacy `ReadUserDataFromCsvFile` 과 zkpor `csvSnapshot.AccountStream` 이 sample_users0.csv (100 rows) 에서 90 valid AccountID byte-equal + 10 invalid 분류 parity. 17개 테스트 통과 (binance). multi-shard *concurrency* 는 여전히 R3 step 4 (현재는 sequential). 나머지 7개 어댑터는 constructor 형태 |
+| `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 + full-coverage 테스트. **`parseAccountRow` 에서 bn254 `fr.Element` SetBytes→Marshal round-trip (R3 step 2, G13 impl)**. **R3 step 3 sample-corpus parity 통과**. **G2 closure (commit 3c691cb)** — `identity.Scheme()` 가 `passthrough_hex_bn254_reduced.v0` 로 freeze 됨, `DeriveAccountID` 도 fr.Element 정규화 적용해 snapshot 출력과 byte-equal. `identity_test.go` 4건 (Scheme freeze + below-modulus passthrough + above-modulus reduces + 입력 가드 panic). multi-shard concurrency 는 여전히 sequential (witness 슬라이스 follow-up). 나머지 7개 어댑터는 constructor 형태 |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
 | docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`, `zkpor/docs/02-module-architecture.md`) | ✅ complete |
 
@@ -41,6 +52,48 @@ ccc3fe4 feat(zkpor): alpha wiring + AccountID fr.Element @ snapshot (R3 step 2)
 최근 작업 흐름:
 
 ```text
+<R3/4h>  feat(zkpor): close G2 — AccountIDProvider scheme v1 freeze
+        (binance.identity.Scheme() = "passthrough_hex_bn254_reduced.v0".
+         DeriveAccountID 가 hex-decode 후 BN254 fr.Element
+         SetBytes→Marshal — snapshot G13 정규화와 동일 출력. 과거
+         placeholder 는 hex passthrough 라 절반 입력에서 leaf hash
+         와 어긋났음. identity_test.go 4건 신규: Scheme freeze +
+         below/above modulus + 입력 가드 panic.)
+<R3/4g>  feat(zkpor): zkpor/cmd/userproof — R3 step 4 마지막 service
+        (self-contained tree 재구축 — witness redis 상태 의존 제거.
+         동일 padding 으로 root parity. tree.Set 모든 leaf (real+
+         padding) → tree.GetProof real-only → UserProof + 임베디드
+         UserConfig JSON. dbBatchSize 100. main_test 2건 — tier 보호
+         + buildUserProofRow Config round-trip via tier3host.UserConfig.)
+<R3/4f>  feat(zkpor/store): user-proof model + refactor UserConfig
+        (store.UserProof gorm 모델 + UserProofStore. UserConfig 가
+         tier_3bucket/host 공유 타입으로 이동 — userproof writer +
+         verifier -user reader 단일 소스, base64 hop 제거. verifier
+         도 tier3host.UserConfig 직접 import.)
+<R3/4e>  feat(zkpor): zkpor/cmd/prover — R3 step 4 service + G1 hint closure
+        (DB-poll ClaimOldestByStatus Published→Received 트랜잭션 →
+         DecodeBatchWitness → SetBatchCreateUserCircuitWitness →
+         groth16.Prove + Verify → proof 테이블 + witness Finished.
+         solver.RegisterHint(corecircuit.IntegerDivision) — G1 의
+         의도적 제외 항목 service-side 해소. snarkParams lazy cache
+         per tier. idempotent persist (GetByBatchNumber 사전 probe).
+         Redis BLPOP 큐 / -rerun 모드는 multi-worker 시 follow-up.
+         main_test 2건 — loadConfig round-trip + proof metadata JSON
+         shape.)
+<R3/4d>  feat(zkpor/store): proof model + witness 상태머신 메서드
+        (store.Proof gorm 모델 + ProofStore (CreateTable / Create /
+         GetByBatchNumber). witness 측 ClaimOldestByStatus (트랜잭션
+         atomic flip) + LatestByStatus + MarkStatus 추가.)
+<R3/4c>  feat(zkpor): zkpor/cmd/witness + 의존 — R3 step 4 service + G6 closure
+        (3-commit 묶음: c96018d core/tree (bsmt depth-28 wrapper +
+         EmptyAccountLeafHash) + 32b9334 tier3host (AccountLeafHash
+         + PaddingAccounts + Encode/DecodeBatchWitness, 모두 legacy
+         byte-equivalence) + 78acd39 store (BatchWitness gorm 모델 +
+         MySQL error sentinel translation) + 5332f40 cmd/witness 본체.
+         witness 가 첫 PriceScaleProvider 소비자라 G6 startup assert
+         자연 call site. 핵심 경로: snapshot bucket → padding → tree
+         populate → batch loop (commit per height). multi-worker
+         병렬 / DB resume / tree rollback 은 follow-up.)
 <R3/4b>  feat(zkpor): zkpor/cmd/verifier — first R3 step 4 service
         (legacy src/verifier 의 zkpor-native 대체. 3-mode CLI:
          batch (proof-table groth16 검증 + 체이닝 + 최종 CEX
@@ -137,23 +190,54 @@ ccc3fe4 feat(zkpor): alpha wiring + AccountID fr.Element @ snapshot (R3 step 2)
 - 5-tier 카탈로그 (`zkpor/core/spec/solvency_models.go`).
 - 명명 규약: SolvencyModelID, BatchShape, key file naming, ConstraintModuleID.
 
-아직 의도적으로 닫지 않은 것:
+아직 의도적으로 닫지 않은 것 (R3 step 4 follow-ups 와 stage 미진입 항목):
 
-- multi-shard / multi-worker concurrency — R3 step 4 production wiring.
-  현재 streamShard 는 sequential. legacy 는 goroutine 풀 + GC trigger.
-- 4개 service main.go 의 wiring — R3 step 4.
-- `solver.RegisterHint(corecircuit.IntegerDivision)` — 각 service
-  의 main 에 들어가야 zkpor circuit 으로 witness solving 이 동작.
-  G1 closure 의 의도적 제외 항목 (hint identifier divergence) 가 R3
-  step 4 에서 service-side wiring 으로 해소된다.
-- `AccountIDProvider.Scheme()` rename (정규화 사실 노출) — R3 step 4
-  (G2 closure 동반).
-- ValueScale startup assert — R3 step 4 (G6).
-- goroutine leak guard 테스트 — uber-go/goleak dep 도입 시점에.
-- 나머지 4개 model 회로 — R4+ (시장 신호 대기).
-- 사용자-facing verification UI / 페이지 — engine boundary 밖, V1 scope
-  미포함. customer / partner 영역. PRODUCTION_ROADMAP `## Scope
-  Boundary` + G14 참조.
+R3 step 4 follow-ups (본체 서비스 4개 + G1/G2/G6 closure 는 모두 done):
+
+- **End-to-end sample-data smoke** — witness → prover → verifier(batch)
+  + userproof → verifier(-user) 전체 파이프라인을 sample data 로
+  통과시켜 R3 step 4 exit criteria 의 마지막 가드를 닫는다. 작은
+  스크립트로 묶을 후보.
+- **witness multi-worker 병렬 hashing** — 현재 sequential 단일 worker.
+  legacy 는 cpuCores-2 worker + 채널 동기화로 account hash 와 main
+  batch 루프 overlap.
+- **witness DB resume** — `BatchWitness.Latest()` (이미 store 에 존재)
+  를 읽어 currentBatchNumber 결정, 기존 batch 들 skip. 현재는 fresh
+  start only.
+- **witness tree rollback** — `accountTree.LatestVersion()` 이 DB
+  height 보다 앞서면 rollback. resume 과 동반.
+- **prover Redis BLPOP 큐 + multi-worker** — 현재 단일 instance DB-poll
+  `ClaimOldestByStatus`. multi-worker scaling 시 Redis 도입 + 큐 producer
+  (witness or dbtool) 결정.
+- **prover -rerun 모드** — `LatestByStatus(StatusReceived)` 로 claim
+  되었으나 finished 되지 못한 batch 회수. 현재는 within-process retry
+  만 idempotency probe 로 안전.
+- **userproof -memory_tree 플래그** — root-only 빠른 계산 ops 유틸.
+- **userproof multi-worker 병렬** — 현재 sequential GetProof + write.
+- **userproof resume** — `store.UserProofStore.Count()` (이미 추가됨)
+  로 written rows 건너뛰기. 핵심 경로 외.
+- **multi-shard concurrency** (snapshot adapter) — `binance.csvSnapshot.
+  streamShard` 는 여전히 sequential. legacy 는 goroutine 풀 + GC
+  trigger 패턴. R3 step 4 안에 묶지 않음.
+- **goroutine leak guard 테스트** — uber-go/goleak dep 도입 시점에.
+
+Stage 미진입:
+
+- **R4 — second model 회로 `spot_simple`** (SEA GTM driver, model-first
+  swap). docs/01-project-context.md SEA zoom-in 참조. customer signal
+  안 기다림.
+- **R5 — SEA reference customer profile** (Indonesia/Thailand 우선) +
+  declarative `profile.toml` 첫 추출 (G12 closing).
+- **R6 — third model + core/circuit 헬퍼 승격** (rule-of-three trigger,
+  G11).
+- **R7 — v1 catalog freeze**.
+
+Engine boundary 외 (V1 scope 미포함):
+
+- 사용자-facing verification UI / 페이지 — customer / partner 영역.
+  PRODUCTION_ROADMAP `## Scope Boundary` + G14 참조.
+- Prove-path GPU 가속 (ICICLE backend) — G15. 첫 production prove SLA
+  측정 후 결정.
 
 발견 사항 (작업 중 surface된 것, 의사결정 보류 / 일부 closure):
 
@@ -199,6 +283,47 @@ ccc3fe4 feat(zkpor): alpha wiring + AccountID fr.Element @ snapshot (R3 step 2)
   baseline) 과 noop-module 두 경로에서 NbConstraints == 723790 동일함을
   setup smoke 가 assert. trusted setup 분기 정책 (별도 module → 별도
   .pk/.vk pair) 은 spec docstring 에 이미 명시됨.
+
+- **G6 closed (R3 step 4) — ValueScale invariant assert at witness
+  startup** (commit 5332f40). `binance.NewPricing()` 의 default-symbol
+  경로에서 `PriceMultiplier × BalanceMultiplier == ValueScale` 위반 시
+  panic. witness 가 첫 PriceScaleProvider 소비자라 자연 call site.
+  per-symbol split (두-자리-자산) enumeration 은 `profile/binance` 자체
+  테스트 책임 — services 가 known-symbol list 를 들고 다니지 않음.
+- **G2 closed (R3 step 4) — `passthrough_hex_bn254_reduced.v0`** (commit
+  3c691cb). 이름 변경 + 함수 동작 정렬 동시에 — `DeriveAccountID` 가
+  hex-decode 후 fr.Element SetBytes/Marshal 적용해 snapshot G13
+  정규화와 byte-equal. 과거 placeholder `passthrough_hex.v0` 는 함수가
+  passthrough 였고 입력의 절반에서 (raw 32B > fr.Modulus) leaf hash 와
+  silently mismatch. Customer-side derivation (HMAC/salt) 정식화는 V2
+  이후 결정으로 보류.
+- **G1 hint identifier closure (R3 step 4) — service-side resolution**
+  (commit 8045c37). `solver.RegisterHint(corecircuit.IntegerDivision)`
+  를 prover 시작 시 호출. G1 byte-equivalence 가 의도적으로 제외한
+  hint identifier divergence (legacy `circuit.IntegerDivision` vs zkpor
+  `corecircuit.IntegerDivision` 의 reflect-derived ID) 의 solver-side
+  해소.
+- **gnark-crypto bn254 poseidon `Write` 가 ≥fr.Modulus() 입력을 silent
+  drop** (R3 step 4 prep 중 발견). `hash.Hash.Write` interface
+  contract 상 caller 가 error 무시하기 쉽고, legacy `src/utils.
+  VerifyMerkleProof` 도 무시함. 영향: Poseidon 으로 hash 하는 입력은
+  반드시 < fr.Modulus 여야 함 — production hash 출력은 항상 만족하지만
+  랜덤 byte (SHA-256 등) test fixture 는 fixture 측에서 top 3-bit 마스킹
+  필요. `core/host/merkle_test.go` 의 `modSafeBytes` 헬퍼가 그 패턴.
+- **DB-poll vs Redis BLPOP queue 결정 (R3 step 4 prover)** — 핵심 경로는
+  단일 instance DB-poll (`store.ClaimOldestByStatus` 트랜잭션) 채택.
+  legacy 는 Redis BLPOP + `GetAndUpdateBatchesWitnessByHeight` 쌍.
+  multi-worker scaling 시 Redis 재도입 + 큐 producer 결정. 결정 근거:
+  Redis dep 도입 비용 대비 단일 instance 환경에서 효익 없음, witness↔
+  prover 의 well-defined ordering 이 트랜잭션 한 번이면 만족.
+- **userproof self-contained tree 결정 (R3 step 4 userproof)** — legacy
+  는 witness 가 persistent (redis) 트리 쓰면 userproof 가 같은 트리
+  읽음 (cross-process state coupling). zkpor 는 snapshot + 동일 padding
+  으로 트리를 처음부터 재구축 (root parity 보장). 근거: redis 의존
+  없는 dev 환경에서도 동작, deployment topology 결정을 도구 안에 박지
+  않음. 비용: tree population 한 번 (~accounts 회 Set) — 그러나
+  userproof 의 dominant cost 는 어차피 GetProof + Marshal + DB write
+  per account 라 무시 가능.
 
 ## Non-Negotiable Rules
 
@@ -255,32 +380,66 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
     │   │   ├── insolvent.go
     │   │   ├── price.go
     │   │   └── solvency_models.go            (5-tier 카탈로그)
-    │   ├── circuit/                          universal zk 헬퍼
+    │   ├── circuit/                          universal in-circuit 헬퍼
     │   │   ├── arithmetic.go
     │   │   ├── commitment.go
     │   │   ├── constants.go
     │   │   └── merkle.go
+    │   ├── host/                             universal off-circuit 헬퍼
+    │   │   ├── merkle.go                     (VerifyMerkleProof, Poseidon BN254 path-bit walk)
+    │   │   └── merkle_test.go                (legacy parity + 5 tamper paths + mod-safe fixture)
+    │   ├── tree/                             bsmt depth-28 SMT wrapper
+    │   │   ├── tree.go                       (NewAccountTree memory/redis, EmptyAccountLeafHash)
+    │   │   └── tree_test.go                  (memory round-trip via corehost.VerifyMerkleProof)
     │   └── solvency/                         audited math 카탈로그
-    │       ├── spot_simple/doc.go
+    │       ├── spot_simple/doc.go            (★ R4 model-first priority — SEA GTM driver)
     │       ├── merkle_classic/doc.go
     │       ├── over_collateral_simple/doc.go
     │       ├── tier_1bucket/doc.go
-    │       └── tier_3bucket/                 (★ 유일 spec+circuit 구현)
+    │       └── tier_3bucket/                 (★ 유일 spec+circuit+host 구현)
     │           ├── doc.go
     │           ├── spec/                     (types, risk, snapshot, constraint, witness)
-    │           └── circuit/                  (BatchCreateUserCircuit + helpers)
+    │           ├── circuit/                  (BatchCreateUserCircuit + helpers)
+    │           └── host/                     (off-circuit, model-specific)
+    │               ├── commitment.go         (ComputeUserAssetsCommitment + ComputeCexAssetsCommitment)
+    │               ├── account.go            (AccountLeafHash + PaddingAccounts + UserConfig)
+    │               └── serialize.go          (Encode/DecodeBatchWitness — gob+s2)
+    ├── store/                                gorm 영속화 (cross-service 공유)
+    │   ├── store.go                          (Open + ConvertMySQLErr + sentinels)
+    │   ├── witness.go                        (BatchWitness 모델 + 상태머신)
+    │   ├── proof.go                          (Proof 모델)
+    │   ├── userproof.go                      (UserProof 모델)
+    │   └── store_test.go                     (MySQL 번호→sentinel 매핑)
+    ├── cmd/                                  zkpor-native service entries
+    │   ├── verifier/                         (batch / -user / -hash)
+    │   │   ├── config/config.go
+    │   │   ├── main.go
+    │   │   └── main_test.go
+    │   ├── witness/                          (snapshot → BatchCreateUserWitness → DB. G6 assert)
+    │   │   ├── config/config.go
+    │   │   ├── main.go
+    │   │   └── main_test.go
+    │   ├── prover/                           (DB-poll → groth16.Prove+Verify → DB. G1 hint register)
+    │   │   ├── config/config.go
+    │   │   ├── main.go
+    │   │   └── main_test.go
+    │   └── userproof/                        (self-contained tree → per-user proof → DB)
+    │       ├── config/config.go
+    │       ├── main.go
+    │       └── main_test.go
     └── profile/
         └── binance/                          (★ 유일 customer profile)
             ├── doc.go
             ├── batch_shape.go
             ├── catalog.go
             ├── constraint_noop.go
-            ├── identity.go
+            ├── identity.go                   (Scheme "passthrough_hex_bn254_reduced.v0" — G2 frozen)
+            ├── identity_test.go              (Scheme freeze + below/above modulus + 입력 panic)
             ├── insolvent.go
             ├── pricing.go
             ├── risk.go
             ├── snapshot.go                   (CexAssets + AccountStream + invalid 분류 done)
-            ├── snapshot_test.go              (CexAssets 6 + AccountStream happy 1 + invalid 3 + coverage 5 + parseAccountRow normalization 1 — 16 total)
+            ├── snapshot_test.go              (16 tests)
             ├── legacy_compare_test.go        (R3 step 3 / G1 — sample-corpus AccountID byte-equivalence vs legacy ETL; -short skip)
             └── testdata/
                 ├── happy/                    (cex_assets_info.csv + user_shard.csv 헤더 + 2 rows)
@@ -301,10 +460,21 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | Constraint Architecture alpha wiring + fr.Element impl | ✅ done — `module` 필드 + setter, snapshot round-trip, noop-baseline regression guard | R3 step 2 |
 | G1 byte-equivalence 절차 합의 + 실행 | ✅ closed — (a) R1CS L·R==O SHA256 채택, tiny shape match + sample-corpus AccountID parity (commit 1398e04) | R3 step 3 |
 | off-circuit host 헬퍼 추출 (Merkle verify + commitment) | ✅ done — `core/host` + `tier_3bucket/host`, legacy byte-equivalence | R3 step 4 prep |
-| service rewiring — verifier | ✅ done — `zkpor/cmd/verifier` (commit 9f889ad) | R3 step 4 |
-| service rewiring — witness / prover / userproof | pending — agent 가 service 별 commit 으로 분해 | R3 step 4 |
-| ValueScale assert (G6) + Scheme freeze (G2) | pending — witness/userproof 슬라이스 동반 (verifier 는 call site 없음) | R3 step 4 / G2 + G6 |
-| AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
+| service rewiring — verifier | ✅ done — `zkpor/cmd/verifier` (9f889ad) | R3 step 4 |
+| service rewiring — witness | ✅ done — `zkpor/cmd/witness` (5332f40) + 의존 (c96018d core/tree, 32b9334 tier3host, 78acd39 store) | R3 step 4 |
+| service rewiring — prover | ✅ done — `zkpor/cmd/prover` (8045c37) + store 확장 (16f36bd) | R3 step 4 |
+| service rewiring — userproof | ✅ done — `zkpor/cmd/userproof` (fdf4a63) + store 확장 (b7e57e6) + UserConfig refactor (4e85757) | R3 step 4 |
+| G1 hint identifier service-side closure (`solver.RegisterHint`) | ✅ done — prover 에서 등록 (8045c37) | R3 step 4 |
+| G6 ValueScale startup assert | ✅ closed — witness startup 에서 default-symbol 검사 (5332f40) | R3 step 4 / G6 |
+| G2 AccountIDProvider scheme v1 freeze | ✅ closed — `passthrough_hex_bn254_reduced.v0` + DeriveAccountID fr.Element 정규화 (3c691cb) | R3 step 4 / G2 |
+| End-to-end sample-data smoke (witness → prover → verifier + userproof → verifier -user) | pending — R3 step 4 exit criteria 의 마지막 가드 | R3 step 4 / follow-up |
+| witness multi-worker 병렬 hashing | pending | R3 step 4 follow-up |
+| witness DB resume + tree rollback | pending | R3 step 4 follow-up |
+| prover Redis BLPOP 큐 + multi-worker scaling | pending | R3 step 4 follow-up |
+| prover -rerun 모드 (claimed-but-not-finished 회수) | pending | R3 step 4 follow-up |
+| userproof multi-worker 병렬 + resume + -memory_tree 플래그 | pending | R3 step 4 follow-up |
+| snapshot multi-shard concurrency (`csvSnapshot.streamShard` sequential) | pending | R3 step 4 follow-up or R4 |
+| AccountIDProvider derivation 정식화 (HMAC/salt) | deferred (V2 candidate) | post-V1 |
 | Second model 회로 구현 — `spot_simple` (SEA GTM driver, model-first) | pending | **R4 (model-first swap)** |
 | Second customer profile — SEA reference (Indonesia/Thailand 우선) | pending | **R5 (was R4)** / G12 |
 | Third model + core/circuit/ 추가 헬퍼 승격 | awaits signal | R6 / G11 |
@@ -330,81 +500,98 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 4 진행 중 — verifier 착지**. off-circuit host 헬퍼 추출
-(`core/host` + `tier_3bucket/host`, commit 5f98fdd) 후 `zkpor/cmd/
-verifier` 가 legacy `src/verifier` 의 zkpor-native 대체로 착지
-(commit 9f889ad). 남은 3 service — **witness → prover → userproof**.
+**R3 step 4 본체 마감**. 4 services 모두 zkpor-native 로 착지, 3 gate
+모두 closed:
 
-**Location 결정 (확정)** — legacy `src/{witness,prover,userproof,
-verifier}` 는 직접 수정하지 않고 untouched reference. zkpor 측
-`zkpor/cmd/{witness,prover,userproof,verifier}` 신규 entry 로 점진
-대체. PRODUCTION_ROADMAP R3 step 4 본문 정렬 완료.
+- service: verifier (9f889ad) / witness (5332f40) / prover (8045c37) /
+  userproof (fdf4a63)
+- gate: G1 hint service-side (8045c37) / G6 ValueScale assert
+  (5332f40) / G2 Scheme freeze (3c691cb)
+- 지원 모듈: core/tree (c96018d) / core/host (5f98fdd) / tier_3bucket
+  /host (32b9334 + 4e85757) / store (78acd39 + 16f36bd + b7e57e6)
 
-권장 다음 슬라이스 — **R3 step 4 / witness**:
+다음 슬라이스 두 갈래 — agent 가 선택 (또는 user 와 합의):
 
-```text
-witness — snapshot → AccountInfo stream → BatchCreateUserWitness:
-  - zkpor/cmd/witness/main.go 신규 entry. legacy src/witness 의
-    zkpor-native 대체.
-  - zkpor/profile/binance 의 CexAssets + AccountStream 직접 호출
-    (snapshot ETL 은 이미 흡수 완료).
-  - tier_3bucket witness builder (BatchCreateUserWitness 등 spec/
-    witness.go) + SetBatchCreateUserCircuitWitness 사용.
-  - account tree (Merkle) 구축 — legacy 는 src/utils.NewAccountTree
-    (bnb-chain/zkbnb-smt). zkpor 어디로 둘지 진입 시 결정 (host?
-    별 adapter?). userproof 도 같은 tree 를 쓰므로 공유 설계.
-  - **G6 closure 자연 call site** — witness 는 raw float → uint64
-    스케일링에서 PriceMultiplier/BalanceMultiplier 를 실제 사용.
-    `PriceMultiplier × BalanceMultiplier == ValueScale` startup
-    assert 를 여기 넣는다.
-  - **G2 closure 후보** — witness 가 AccountIDProvider 를 통해 ID
-    를 다룬다면 `Scheme()` v1 이름 확정 (현재 placeholder
-    `passthrough_hex.v0` 가 G13 fr.Element 정규화를 반영 못함;
-    후보 `passthrough_hex_bn254_reduced.v0`). userproof 와 함께
-    확정해도 됨.
-
-이후 commit 후보 (코드 만져본 뒤 의존도 따라 재정렬 가능):
-  - prover   — witness file → groth16.Prove → proof file. service-side
-    `solver.RegisterHint(corecircuit.IntegerDivision)` 등록 (G1
-    의 의도적 제외 항목 service-side 해소).
-  - userproof — per-user inclusion proof → DB 행. legacy DB schema
-    재사용 가능한지 검토 필요.
-
-분해 후보 (한 commit 에 묶지 않음 — 코드 만져봐야 드러나는 결합도):
-  - witness → prover artifact 의존 (file format / serialization 경계).
-  - userproof 의 DB 스키마 — schema 변경이 필요한지, legacy 와
-    공유 가능한지.
-  - account tree 구축 코드의 위치 (witness + userproof 공유).
-  - multi-shard concurrency (현재 sequential streamShard) — legacy
-    의 goroutine pool + GC trigger 패턴을 zkpor 어댑터에 도입할지,
-    R3 step 4 안에 묶을지 별 슬라이스로 분리할지.
-  - goroutine leak guard 테스트 (uber-go/goleak 도입 가치 평가).
-
-verifier proof-table end-to-end 검증은 witness+prover 착지 후
-(prover artifact 의존). ROADMAP R3 step 4 exit criteria 참조.
-
-진입 시 agent 가 코드를 만져본 뒤 슬라이스 경계 재조정. 한 commit
-에 여러 서비스를 묶지 않는다.
-```
-
-그 다음 진입 (R4/R5 model-first swap 반영):
+**갈래 A — R3 step 4 exit criteria 의 마지막 가드 닫기**:
 
 ```text
-R3 step 4 closure 이후 — R3 본체 종료.
-R4    — second model 회로 구현: spot_simple (SEA GTM driver, model-first).
-        customer signal 기다리지 않음 — SEA 시장 조사로 spot_simple 이
-        80%+ fit 임이 이미 확정 (docs/01-project-context.md SEA zoom-in).
-R5    — second customer profile: SEA reference (Indonesia/Thailand 우선).
-        spot_simple 위에 어댑터 8개 + declarative profile.toml 첫 추출
-        (G12 closing).
-R6    — third model + core/circuit promotion (rule-of-three trigger).
-R7    — v1 catalog freeze.
+End-to-end sample-data smoke (R3 step 4 exit criteria 의 "sample data
+기준 CLI end-to-end PoR 생성·검증 통과"):
+
+  src/sampledata/ 또는 testdata 의 sample CSV 로 4 service 풀
+  파이프라인 1회 실행 + verify 통과:
+    1. zkpor/cmd/witness     (DB ↦ BatchWitness rows)
+    2. zkpor/cmd/prover      (DB BatchWitness → Proof rows)
+    3. zkpor/cmd/verifier    (batch 모드, proof_table.csv export 가
+                              필요 — dbtool 슬라이스 후보)
+    4. zkpor/cmd/userproof   (per-account UserProof + UserConfig JSON)
+    5. zkpor/cmd/verifier -user  (user_config.json 으로 inclusion 통과)
+
+  요건:
+  - MySQL fixture (Docker compose or sqlite-in-memory 대체) — 결정 필요
+  - .pk/.vk/.r1cs 파일 (keygen 실행 필요 — 첫 실행 비용 큼; 기존 legacy
+    artifact 재사용 vs 새 ceremony 실행)
+  - dbtool DB→proof_table.csv export — legacy 에서 포팅 필요할 수 있음
+  - 자동화 script (Makefile target 또는 shell)
+
+  의존 결정 — 위 요건들이 R3 step 4 의 자연 마감일지, 별도 stage(R3.5
+  ops automation) 로 뺄지. user 와 합의.
+
+R3 step 4 follow-ups (각각 별 슬라이스, 우선순위 user 결정):
+  - witness multi-worker 병렬 + DB resume + tree rollback
+  - prover Redis BLPOP 큐 + -rerun 모드
+  - userproof multi-worker + resume + -memory_tree 플래그
+  - snapshot multi-shard concurrency
 ```
 
-목표 / 범위 제외:
+**갈래 B — R4 진입 (SEA GTM driver model-first)**:
 
-- 다음 슬라이스 (R3 step 4): service rewiring + G2 + G6 closure.
-  R3 step 4 는 한 commit 이 아니라 4-서비스 별 commit 권장.
+```text
+spot_simple model spec + circuit 구현:
+
+  zkpor/core/solvency/spot_simple/{spec,circuit}/* 신규 구현. 현재는
+  doc.go only. tier_3bucket 의 spec/circuit/host 패턴을 reference 로
+  하되, spot_simple 의 단순한 (no tier table, no 3-bucket collateral)
+  수학을 가진다.
+
+  핵심 차이 (tier_3bucket vs spot_simple):
+    - per-user per-asset 5-tuple (Equity, Debt, Loan, Margin, PM) →
+      2-tuple (Equity, Debt). 단순.
+    - 3-bucket collateral haircut 사라짐.
+    - tier ratio table 사라짐.
+    - 하지만 sum equality + Merkle proof + AccountID + CexCommitment
+      구조는 동일 (universal).
+
+  검증 순서 (R3 와 유사한 sub-slice 구조 추천):
+    R4 step 0 — Compile + Setup smoke
+    R4 step 1 — alpha wiring (tier_3bucket 에서 패턴 검증됨, 재사용)
+    R4 step 2 — trusted setup ceremony + .pk/.vk publish
+
+  customer profile (SEA reference) 는 R5 — model 위에 어댑터 8개 +
+  declarative profile.toml 첫 추출.
+
+  R4 진입 전 권장:
+  - docs/01-project-context.md 의 SEA zoom-in 재확인
+  - tier_3bucket 의 4 layer 구조 (spec / circuit / host / cmd) 가
+    universal substrate 로 잘 작동하는지 audit (R6 의 core/circuit
+    promotion 후보 식별 시작)
+```
+
+**갈래 C — 작은 정리 작업** (low-risk, 언제든 가능):
+
+```text
+- core/constraint_modules/noop/ promotion (현재 profile/binance/
+  constraint_noop.go 에 있는 noopModule 을 universal layer 로). 1 commit.
+- HANDOFF + PRODUCTION_ROADMAP doc sweep (다음 큰 변경 직전 정렬).
+- goroutine leak guard (uber-go/goleak dep 도입 검토).
+```
+
+갈래 선택 기준 (suggested):
+- end-to-end smoke 없이는 R3 step 4 "끝났다" 라고 단언 못 함 → A 권장.
+- 단, A 가 MySQL fixture / keygen / dbtool 등 ops 의존이 많음. user
+  가 그 의존을 감수할 의향 있는지 사전 확인.
+- A 가 부담스럽다면 B (R4 spot_simple 진입) 가 다음 큰 가치 흐름.
+  R3 step 4 follow-ups 와 R4 는 병렬 가능 (다른 영역).
 
 ## Required Commands
 
@@ -430,10 +617,17 @@ go build ./...              # legacy + 신규 — legacy 영향 없음 확인
 # 예: sha256sum legacy/zkpor50_700.pk new/zkpor.tier_3bucket.50_700.pk
 ```
 
-End-to-end (R3 부터):
+End-to-end (R3 step 4 exit criteria — 아직 미마감, 갈래 A 진입 시 채움):
 
 ```bash
-# sample data 기준 PoR 생성·검증 (구체 절차는 R3 진입 시 결정)
+# 1) MySQL fixture 기동 (Docker compose or 동등) — TBD
+# 2) keygen 으로 .pk/.vk/.r1cs 생성 (or legacy artifact 재사용) — TBD
+# 3) cd zkpor/cmd/witness   && go run . (BatchWitness rows 쓰기)
+# 4) cd zkpor/cmd/prover    && go run . (Proof rows 쓰기)
+# 5) dbtool 로 proof_table.csv export — dbtool 슬라이스 후보
+# 6) cd zkpor/cmd/verifier  && go run . (batch 모드 verify 통과)
+# 7) cd zkpor/cmd/userproof && go run . (UserProof rows 쓰기)
+# 8) cd zkpor/cmd/verifier  && go run . -user (단일 사용자 inclusion)
 ```
 
 ## Commit Discipline

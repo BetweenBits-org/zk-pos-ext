@@ -456,7 +456,7 @@ Blocking gates: G4, G10.
 | **G3** ConstraintModule 공개 API freeze | deferred | R3 후 | 현재 `ConstraintContext` 가 minimal surface. 두 번째 module 등장 시 확정. | 첫 비-noop module 등장 시 API surface 검토. |
 | **G4** catalog stability 선언 | deferred | R7 | 5-tier 잠정 확정. 회로 구현은 1/5. | 모든 model 구현 후 freeze. |
 | **G5** RiskPolicy 데이터 schema | deferred | R2 | 현재 `cex_assets_info.csv` 형식 (legacy). | CSV 유지 vs JSON/YAML schema 도입 결정. |
-| **G6** ValueScale invariant assert 위치 | experimental | R3 | spec 명시되어 있으나 service 코드에서 assert 없음. | R3 wiring 시 startup assert 추가. |
+| **G6** ValueScale invariant assert 위치 | closed | R3 step 4 | **witness service startup assert** 채택 (commit 5332f40). `binance.NewPricing()` 의 default-symbol 경로에서 `PriceMultiplier × BalanceMultiplier == ValueScale` 위반 시 panic. witness 가 첫 PriceScaleProvider 소비자라 자연 call site. 두-자리-자산 경로 등 per-symbol split 은 `profile/binance` 자체 테스트 책임 (services 가 enumerate 하지 않음). | — |
 | **G7** InvalidAccountPolicy 운영 정책 | closed | R0 | drop + log (legacy 동등). | customer 요구 시 별도 정책. 변경 시 customer review. |
 | **G8** BatchShape v1 정착 (binance) | closed | R0 | `{50,700}` + `{500,92}` (Binance reference). | 다른 customer 시 별도 shape 정의. |
 | **G9** module ID 명명 규약 | closed | R0 | `<exchange>.<rule>_v<version>` 형식. filename-safe (lowercase, digits, dots, underscores). | — |
