@@ -8,6 +8,12 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
+8fb5b3f docs(zkpor): R5-4 — G12 closure (multi-customer .vk sharing policy)
+23566aa feat(zkpor): R5-3 — declarative profile.toml schema + two reference instantiations
+f41d36a feat(zkpor): R5-2 — sea_reference snapshot CSV adapter + happy fixture
+d2c7f9b feat(zkpor): R5-1 — sea_reference customer profile (6 adapters, no snapshot)
+e8eabed feat(zkpor): R5-0 — spot_simple host helpers (off-circuit emitter)
+20a1571 docs(handoff+roadmap): close R4 — spot_simple model audited + R5 next
 f511dcb feat(zkpor): R4-2 — spot_simple Setup smoke + ComputeFlatUint64Commitment fix
 466ef55 feat(zkpor): R4-1 — spot_simple circuit (BatchCreateUserCircuit + witness builder)
 e4dc0cb feat(zkpor): R4-0 — spot_simple spec package (model 2 entry)
@@ -54,8 +60,10 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 | `zkpor/cmd/keygen/*` | ✅ **새 service (A3, 1d5b2e9)** — zkpor-native trusted setup. `binance.NewBatchShape()` (override 가능) 와 `-asset-capacity` 플래그로 (userAssetCounts, assetCapacity, batchCounts) 회로 compile + groth16.Setup. StandardKeyName 파일 (`zkpor.tier_3bucket.<tier>_<users>.{pk,vk,r1cs}`), `-legacy-names` 옵션. Tiny smoke (5,5,10): 286k constraints, ~21s, .pk 113MB. |
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
 | `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음. **Alpha wiring (R3 step 2)** + **R1CS byte-equivalence vs legacy (R3 step 3 / G1)**. **A5 fix d7c23f3** — `SetBatchCreateUserCircuitWitness` 의 padding UserAssetInfo entries 가 legacy 처럼 6개 collateral 필드를 명시적 0 으로 초기화 (이전엔 nil 이라 gnark `can't set fr.Element with <nil>` 실패). |
-| `zkpor/core/solvency/spot_simple/{spec,circuit}/*` | ✅ **R4 done** — spec (types, snapshot, witness, constraint) + circuit (BatchCreateUserCircuit + Define + SetBatchCreateUserCircuitWitness) + setup smoke (NbConstraints=33,306 at tiny shape (5,10,2), R1CS sha256 baseline 기록). 5-input account leaf (`Poseidon(accountID, totalEquity, 0, 0, assetsCommitment)`) 로 substrate 의 universal `EmptyAccountLeafHash` 공유. RiskPolicy 부재 (doc 명시). |
+| `zkpor/core/solvency/spot_simple/{spec,circuit,host}/*` | ✅ **R4 + R5-0 done** — spec/circuit (R4) + host helpers (R5-0): `ComputeUserAssetsCommitment` (2-field per asset) + `ComputeCexAssetsCommitment(slice, capacity)` (TotalEquity×2^64+BasePrice 1-field per asset) + `AccountLeafHash` (5-input zero-padded) + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (capacity self-describing) + `UserConfig` (no debt/collateral fields). NbConstraints=33,306 at tiny shape. RiskPolicy 부재. |
 | `zkpor/core/solvency/{merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved. R6 (3rd model) rule-of-three 대기. |
+| `zkpor/profile/sea_reference/*` | ✅ **R5-1 + R5-2 done** — 두 번째 customer profile (hypothetical SEA spot-only 거래소). 7 어댑터: `catalog` (capacity-aware), `pricing` (uniform default scales), `identity` (same `passthrough_hex_bn254_reduced.v0` scheme as binance — universal contract), `insolvent`, `batch_shape` (single {50, 1000} default + same `ZKPOR_BATCH_SHAPE_OVERRIDE` env), `constraint_noop` (spot-typed), `snapshot` (spot 단순 CSV ETL: `rn,id,<asset>,...,sum` + `cex_assets_info.csv` symbol/usdt_price/total_equity). testdata/happy fixture 포함. 14 단위 테스트 통과. |
+| `zkpor/profile/declarative/*` | ✅ **R5-3 done** — `profile.toml` schema (struct + Load + Validate) + 두 customer 의 sample 인스턴스 (`profile/binance/binance.toml` tier_3bucket, `profile/sea_reference/sea_reference.toml` spot_simple). dep: `github.com/pelletier/go-toml/v2` (parent go.mod). 5 테스트 통과. **service-startup 에서 toml 을 consume 하는 wiring 은 별도 슬라이스 — R7 freeze 전 candidate**. |
 | `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료. **G2 closed** (Scheme `passthrough_hex_bn254_reduced.v0`). **G13 closed** (snapshot AccountID fr.Element 정규화). `NewCatalog(orderedSymbols, capacity)` (E refactor — capacity 가 catalog 인스턴스 필드). `SnapshotConfig.AssetCapacity` 추가. `NewBatchShape()` 가 `ZKPOR_BATCH_SHAPE_OVERRIDE` env var 지원 (A1 11f2d0a). multi-shard concurrency 는 여전히 sequential (follow-up) |
 | `zkpor/deploy/` | ✅ **smoke MySQL fixture (A2, 1d5b2e9)** — `docker-compose.yml` 단일 컨테이너 (mysql:8.0, healthcheck, 영속 볼륨). Memory tree 라 Redis 컨테이너 불필요. 사용: `docker compose -f deploy/docker-compose.yml up -d` |
 | `zkpor/scripts/` | ✅ **end-to-end smoke 하네스 (A5, d7c23f3)** — `smoke.sh` 가 docker compose → keygen (캐시) → witness → prover → verifier(batch) → userproof → verifier(-user) 순으로 전체 파이프라인 실행. R3 step 4 exit criteria 검증 완료. |
@@ -67,6 +75,41 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 최근 작업 흐름:
 
 ```text
+<R5/4>   docs(zkpor): R5-4 — G12 closure (multi-customer .vk sharing policy)
+        (commit 8fb5b3f. docs/02-module-architecture.md §6.1 신설.
+         `.vk` artifact 는 (model, asset_capacity, batch_shape,
+         constraint_module) tuple 단위 — customer profile blind.
+         두 customer 가 동일 tuple 이면 같은 ceremony 의 .vk 가
+         byte-equivalent. `StandardKeyName` 이 이미 customer-blind.
+         asset_capacity 는 stem 에 없어 operator 가 디렉터리 컨벤션
+         (`.artifacts/cap-<N>/`) 으로 일관성 보장. PRODUCTION_ROADMAP
+         G12 row deferred→closed.)
+<R5/3>   feat(zkpor): R5-3 — declarative profile.toml schema draft
+        (commit 23566aa. profile/declarative/profile.go — schema
+         struct + Load + Validate. profile/binance/binance.toml +
+         profile/sea_reference/sea_reference.toml 두 instantiation.
+         dep go-toml/v2 v2.3.1. 5 test 통과. service-startup 에서
+         toml consume 하는 wiring 은 별도 슬라이스 (R7 freeze 전).
+         parent repo go.mod commit 596dae0 (zkmerkle-proof-of-solvency)
+         별도 — 두 repo 독립 운영.)
+<R5/2>   feat(zkpor): R5-2 — sea_reference snapshot + happy fixture
+        (commit f41d36a. profile/sea_reference/snapshot.go — spot
+         단순 CSV ETL: `rn,id,<asset>,...,sum` user shard, `symbol,
+         usdt_price,total_equity` cex_assets_info. binance/snapshot.go
+         패턴 단순화. 5 test 신규 (happy + invalid hex + balance
+         overflow + missing symbol + capacity pad).)
+<R5/1>   feat(zkpor): R5-1 — sea_reference customer profile (6 adapters)
+        (commit d2c7f9b. catalog + pricing (uniform default scales,
+         no two-digit list) + identity (G2 same scheme as binance) +
+         insolvent + batch_shape ({50,1000} default + same env
+         override) + constraint_noop (spot-typed). doc.go 가 'rename
+         path on real customer confirm' 명시. 9 test.)
+<R5/0>   feat(zkpor): R5-0 — spot_simple host helpers (off-circuit)
+        (commit e8eabed. core/solvency/spot_simple/host/{commitment,
+         account,serialize}.go. tier_3bucket/host 패턴 모방, spot
+         단순화: 2-field per asset user commit, 1-field per asset
+         cex commit, 5-input leaf with nil zero positions (Poseidon
+         Bytes converts nil → fr.Element{0}). 6 test.)
 <R4/2>   feat(zkpor): R4-2 — spot_simple Setup smoke + Commitment fix
         (commit f511dcb. setup_test.go (Compile+Setup at tiny shape
          5_10_2, NbConstraints=33,306, R1CS sha256 baseline 기록 +
@@ -643,6 +686,11 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | Store driver abstraction + PG adapter (slice D) | pending — `store.Open(driver, dsn)` + ConvertDriverErr 매핑 + MaxExecutionTime context 추상화 | post-A / DEFERRED |
 | EC2 원격 sync 스크립트 (slice F) | pending — rsync + ssh helper, m6i.{2,4}xlarge 권장 | post-A / DEFERRED |
 | Second model 회로 구현 — `spot_simple` (SEA GTM driver, model-first) | ✅ done — spec + circuit + setup smoke (NbConstraints=33,306 baseline). Substrate audit 통과 (R4-3) | **R4 종결** |
+| Second customer profile — SEA reference (Indonesia/Thailand 우선) | ✅ done (sea_reference, hypothetical) — host helpers (R5-0) + 7 어댑터 (R5-1) + snapshot CSV ETL + fixture (R5-2). 실제 customer 결정 시 rename | **R5 종결** |
+| Declarative `profile.toml` 첫 추출 | ✅ done — `profile/declarative/profile.go` schema + Load + Validate, binance/binance.toml + sea_reference/sea_reference.toml (R5-3) | R5 |
+| G12 multi-customer `.vk` 공유/분리 정책 | ✅ closed — (model, asset_capacity, batch_shape, module) tuple 단위, customer-blind. docs/02-module-architecture.md §6.1 (R5-4) | R5 |
+| sea_reference end-to-end smoke (witness→prover→verifier 풀 파이프라인) | pending — R3 step 4 의 binance smoke 패턴 reuse, customer 별 sample data 차이만 wire-up | R5 follow-up |
+| service startup 이 profile.toml 을 직접 consume 하도록 wiring | pending — 각 adapter 의 constructor 가 toml 값을 인자로 받게 refactor 필요 | R7 freeze 직전 candidate |
 | Second customer profile — SEA reference (Indonesia/Thailand 우선) | pending | **R5 (was R4)** / G12 |
 | Third model + core/circuit/ 추가 헬퍼 승격 | awaits signal | R6 / G11 |
 | 카탈로그 v1 freeze | awaits R7 | R7 / G4 |
@@ -667,44 +715,62 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 4 + R4 종결**.
+**R3 step 4 + R4 + R5 종결**.
 
 R3 step 4 산출물: 4 services + 3 gate (G1/G2/G6) + AssetCounts
 재배치 (E) + end-to-end smoke (A5) — `scripts/smoke.sh` 풀 파이프
-라인 통과, 17/17 proofs verify, account #0 inclusion "verify
-pass!!!" (commit chain a6469c6 … 11f2d0a).
+라인 통과 (commit chain a6469c6 … 11f2d0a).
 
 R4 산출물: spot_simple model (spec + circuit + setup smoke) — 두번째
-model이 substrate 위에 안정 안착. NbConstraints=33,306 (tiny shape),
+model 이 substrate 위에 안정 안착, NbConstraints=33,306 (tiny shape).
 core/circuit 의 universal helpers 가 신규 추가 없이 수용. 부수로
-`ComputeFlatUint64Commitment` 잠재 버그 1건 fix (commit chain
-f511dcb → 466ef55 → e4dc0cb).
+`ComputeFlatUint64Commitment` 잠재 버그 fix (commit chain f511dcb →
+466ef55 → e4dc0cb).
 
-R6 promotion candidates 식별 (substrate audit): `PowersOfSixteenBits`,
-R1CS hash test helpers — 두 model 양쪽에 중복, rule-of-three 첫
-event. 3rd model 시 promote.
+R5 산출물 (이번 회): host helpers (R5-0) + sea_reference 7 어댑터
+(R5-1) + snapshot CSV ETL (R5-2) + declarative profile.toml (R5-3) +
+G12 closure (R5-4). 두 customer 가 같은 toml schema + 같은 universal
+identity scheme 위에서 표현됨. `.vk` 공유 정책 결정 (tuple-based,
+customer-blind). commit chain 8fb5b3f → 23566aa → f41d36a → d2c7f9b
+→ e8eabed.
+
+R6 promotion candidates 누적 (rule-of-three trigger 들):
+- `PowersOfSixteenBits` (양 model `circuit/constants.go`)
+- R1CS hash test helpers (양 model `setup_test.go`)
+- `parseShapeOverride` (양 profile `batch_shape.go`)
+- `convertFloatStrToUint64` + `errInvalidRow`/`invalidf` 패턴 (양
+  profile `snapshot.go`)
+- Identity DeriveAccountID 64-hex → fr.Element body (양 profile
+  `identity.go`)
+
+3rd model / 3rd customer 등장 시 promote — 자세한 항목 별로
+PRODUCTION_ROADMAP G11 row 참조.
 
 다음 슬라이스 갈래 — agent 가 선택 (또는 user 와 합의):
 
-**갈래 B' — R5 진입 (SEA reference customer + declarative profile)**:
+**갈래 R6 — Third model + core/circuit 보강 (rule-of-three trigger)**:
 
 ```text
-R4 가 spot_simple model 위에 customer 어댑터를 빠르게 받을 수 있는지를
-검증할 차례. R5 산출물:
-  - SEA reference customer (Indonesia/Thailand 후보) profile 패키지
-    (`zkpor/profile/<customer>/*`) — 어댑터 8개.
-  - 그 customer 의 spot_simple host helpers
-    (`zkpor/core/solvency/spot_simple/host/{commitment,account,serialize}.go`)
-    — tier_3bucket/host 패턴 모방. ComputeUserAssetsCommitment +
-    ComputeCexAssetsCommitment + AccountLeafHash + Encode/Decode
-    BatchWitness.
-  - declarative `profile.toml` 첫 추출 — binance + SEA 두 어댑터를
-    같은 toml schema 위에서 표현. schema freeze 는 R7.
-  - multi-customer `.vk` 공유/분리 정책 (G12 closure).
+PRODUCTION_ROADMAP §R6. 카탈로그 5 model 중 3번째 회로 구현 진입.
+후보: tier_1bucket (single-bucket collateral, tier_3bucket 의 sub-
+shape) / over_collateral_simple / merkle_classic 중 하나. 동시에
+R5 까지 누적된 R6 promotion candidates 를 정리 (PowersOfSixteenBits,
+R1CS hash helpers, parseShapeOverride, snapshot CSV helpers, identity
+derivation) 를 core 로 이동.
+```
 
-전제: SEA customer 후보 narrow-down 이 user/partner 측에서 진행돼
-있어야 함. 코드만이면 hypothetical SEA fixture 로 진행 가능 (실제
-customer 데이터 없이도 model→customer flow 검증).
+**갈래 R5-FU — sea_reference end-to-end smoke**:
+
+```text
+scripts/smoke.sh 를 sea_reference 변형. 차이:
+  - profile/binance → profile/sea_reference 로 import 교체 (또는
+    smoke 가 profile.toml 선택 가능하게 generic 화)
+  - sample data: src/sampledata/ 대신 profile/sea_reference/testdata/
+    happy/ 사용 (또는 별도 sea sample 작성)
+  - keygen 의 모델/capacity 인자 spot_simple, capacity=10 정도
+
+R5 의 "고객사 sample data 로 end-to-end PoR 통과" exit criterion 의
+명시적 마감. R4-R5 종결 후 R6 진입 전 자연 연결고리.
 ```
 
 **갈래 C — 작은 정리 작업** (low-risk, 언제든 가능):

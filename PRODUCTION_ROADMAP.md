@@ -447,10 +447,35 @@ Tokocrypto / Pintu 류) 또는 Thailand (Bitkub 류) — 둘 다 채택 incentiv
 Exit criteria:
 
 - SEA 고객사 sample data 로 end-to-end PoR 통과 (witness → proof →
-  verifier, spot_simple model 위에서).
-- multi-customer 운영 시 `.vk` 공유/분리 정책 문서화.
+  verifier, spot_simple model 위에서). **PARTIAL** — implementation
+  complete (R5-0 host + R5-1 profile + R5-2 snapshot/fixture). 풀
+  파이프라인 smoke (scripts/smoke.sh 의 sea_reference 변형) 는 R5
+  follow-up 으로 deferred. R3 step 4 의 binance smoke 패턴 그대로
+  재사용 가능 — sample data + profile import 만 swap.
+- multi-customer 운영 시 `.vk` 공유/분리 정책 문서화. **CLOSED
+  (R5-4 commit 8fb5b3f)** — `(model, asset_capacity, batch_shape,
+  constraint_module)` tuple 기준 공유, customer-blind.
+  `docs/02-module-architecture.md §6.1`, G12 row closed.
 - 두 customer 의 declarative 데이터가 동일 toml 스키마 위에서 표현됨
-  (스키마 freeze 는 R7).
+  (스키마 freeze 는 R7). **CLOSED (R5-3 commit 23566aa)** —
+  `profile/declarative/profile.go` schema + Load + Validate, binance
+  /binance.toml + sea_reference/sea_reference.toml 두 instantiation
+  모두 parse + Validate 통과.
+
+R5 안에서 surface 된 부수 결정:
+
+- **sea_reference 는 hypothetical placeholder** — 실제 SEA partner
+  (Indodax / Tokocrypto / Pintu / Bitkub / 기타) 결정 시 디렉터리
+  rename + catalog symbols + snapshot CSV schema 만 amend. 어댑터
+  shape 는 stable.
+- **service startup 이 profile.toml 을 consume 하는 wiring 은 미진입**.
+  현재 서비스들은 Go constructors 로 어댑터 합성. toml-driven 합성은
+  각 adapter constructor 가 toml 값을 인자로 받게 refactor 가 선행
+  필요 — R7 freeze 직전 candidate 슬라이스.
+- **R6 promotion candidates 누적** — R5 까지 두 model + 두 profile
+  중복 항목: PowersOfSixteenBits, R1CS hash test helpers (R4 식별),
+  parseShapeOverride, convertFloatStrToUint64+errInvalidRow/invalidf,
+  Identity DeriveAccountID body. 3rd model/customer 진입 시 promote.
 
 Blocking gates: G12.
 
