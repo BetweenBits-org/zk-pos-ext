@@ -23,7 +23,9 @@ action = "drop_and_log.v0"
 module = ""  # NoExtensionID — noop
 
 [snapshot]
-source_type = "binance_csv"
+# G17 registry key for the T4 snapshot connector. profile/binance
+# registers its CSV ETL under this exact id (R8-B/2).
+source_type = "binance_csv.v1"
 user_data_dir = "/server/data/<snapshot_id>"
 snapshot_id = "<set per snapshot>"
 

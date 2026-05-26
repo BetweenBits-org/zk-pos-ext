@@ -136,6 +136,7 @@ func Load(path string) (*Profile, error) {
 //   - identity.scheme non-empty (registry lookup happens at service
 //     startup; this only guards against forgotten / empty values)
 //   - insolvent.action non-empty (same rationale)
+//   - snapshot.source_type non-empty (same rationale; R8-B/2 registry)
 //   - at least one batch_shape
 //   - each batch_shape.{asset_count_tier,users_per_batch} > 0
 //   - pricing.default_* multipliers > 0
@@ -160,6 +161,9 @@ func (p *Profile) Validate() error {
 	}
 	if p.Insolvent.Action == "" {
 		return fmt.Errorf("insolvent.action is empty")
+	}
+	if p.Snapshot.SourceType == "" {
+		return fmt.Errorf("snapshot.source_type is empty")
 	}
 	if len(p.BatchShapes) == 0 {
 		return fmt.Errorf("batch_shapes is empty")

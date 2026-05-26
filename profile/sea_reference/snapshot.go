@@ -16,10 +16,32 @@ import (
 	"sync"
 	"sync/atomic"
 
+	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
 	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/shopspring/decimal"
 )
+
+// SnapshotConnectorID is the G17 registry key under which this
+// profile's CSV ETL is registered with the T1 snapshot connector
+// registry (R8-B/2). Service startup that loads sea_reference.toml
+// will see this exact string at [snapshot].source_type.
+const SnapshotConnectorID = "sea_csv.v1"
+
+func init() {
+	t1host.RegisterSnapshot(SnapshotConnectorID, snapshotFactory)
+}
+
+// snapshotFactory is the registry-facing constructor — same shape
+// as profile/binance.snapshotFactory but typed against the t1
+// SnapshotSource.
+func snapshotFactory(userDataDir, snapshotID string, assetCapacity int) modelspec.SnapshotSource {
+	return NewSnapshotCSV(SnapshotConfig{
+		UserDataDir:   userDataDir,
+		SnapshotID:    snapshotID,
+		AssetCapacity: assetCapacity,
+	})
+}
 
 // cexAssetsCSVName is the filename the sea_reference pipeline uses to
 // publish per-asset global state alongside the user shard CSVs.

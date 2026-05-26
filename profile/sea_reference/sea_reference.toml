@@ -28,7 +28,9 @@ action = "drop_and_log.v0"
 module = ""  # noop
 
 [snapshot]
-source_type = "sea_csv"
+# G17 registry key for the T1 snapshot connector. profile/sea_reference
+# registers its CSV ETL under this exact id (R8-B/2).
+source_type = "sea_csv.v1"
 user_data_dir = "/data/<snapshot_id>"
 snapshot_id = "<set per snapshot>"
 

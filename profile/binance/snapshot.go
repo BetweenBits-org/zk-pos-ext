@@ -16,11 +16,34 @@ import (
 	"sync"
 	"sync/atomic"
 
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/shopspring/decimal"
 )
+
+// SnapshotConnectorID is the G17 registry key under which this
+// profile's CSV ETL is registered with the T4 snapshot connector
+// registry (R8-B/2). Service startup that loads binance.toml will
+// see this exact string at [snapshot].source_type.
+const SnapshotConnectorID = "binance_csv.v1"
+
+func init() {
+	t4host.RegisterSnapshot(SnapshotConnectorID, snapshotFactory)
+}
+
+// snapshotFactory is the registry-facing constructor. It accepts the
+// universal (dir, snapshotID, capacity) tuple and wraps NewSnapshotCSV
+// — the imperative SnapshotConfig form remains available for direct
+// callers (legacy tests, smoke harness Go code) until R8-E cleanup.
+func snapshotFactory(userDataDir, snapshotID string, assetCapacity int) modelspec.SnapshotSource {
+	return NewSnapshotCSV(SnapshotConfig{
+		UserDataDir:   userDataDir,
+		SnapshotID:    snapshotID,
+		AssetCapacity: assetCapacity,
+	})
+}
 
 // cexAssetsCSVName is the fixed filename Binance's PoR pipeline uses to
 // publish per-asset global state alongside the user shard CSVs.
