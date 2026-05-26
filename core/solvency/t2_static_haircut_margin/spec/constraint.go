@@ -1,0 +1,44 @@
+package spec
+
+import (
+	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/consensys/gnark/frontend"
+)
+
+// ConstraintModule is the t2-typed extension hook. Same alpha-layer
+// interface as t1 / t3 / t4; the model-specific difference is the
+// ConstraintContext field set.
+type ConstraintModule interface {
+	ID() corespec.ConstraintModuleID
+	Define(api frontend.API, ctx ConstraintContext) error
+}
+
+// ConstraintContext is the read-only view of t2 standard witness
+// data that ConstraintModule sees.
+type ConstraintContext struct {
+	BeforeCexAssets []CircuitCexAsset
+	AfterCexAssets  []CircuitCexAsset
+	UserOps         []CircuitUserOp
+	R               frontend.Rangechecker
+}
+
+// CircuitCexAsset is the gnark Variable view of CexAssetInfo as
+// exposed to constraint modules. Single Haircut Variable (vs T3's
+// CollateralRatios slice).
+type CircuitCexAsset struct {
+	TotalEquity corecircuit.Variable
+	TotalDebt   corecircuit.Variable
+	BasePrice   corecircuit.Variable
+	Collateral  corecircuit.Variable
+	Haircut     corecircuit.Variable
+}
+
+// CircuitUserOp is the gnark Variable view of a per-user batch entry.
+type CircuitUserOp struct {
+	AccountIndex            corecircuit.Variable
+	AccountIDHash           corecircuit.Variable
+	TotalUserEquity         corecircuit.Variable
+	TotalUserDebt           corecircuit.Variable
+	TotalUserCollateralReal corecircuit.Variable
+}
