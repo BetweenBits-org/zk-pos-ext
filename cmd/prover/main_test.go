@@ -9,19 +9,17 @@ import (
 	"testing"
 
 	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/prover/config"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
-// TestLoadConfig_RoundTrip confirms the prover's config loader
-// reconstructs the deployment tier/key arrays in order. Drift in
-// AssetsCountTiers vs ZkKeyName indices would silently load the
-// wrong .vk for a batch — the main() length check catches mismatched
-// arrays but not reordering.
+// TestLoadConfig_RoundTrip confirms the slim R8-C/3 config carries
+// the DB-connection fields cleanly. AssetsCountTiers + ZkKeyName are
+// no longer config concerns — they're derived from profile.toml in
+// buildResolved.
 func TestLoadConfig_RoundTrip(t *testing.T) {
 	src := pconfig.Config{
-		MysqlDataSource:  "user:pass@tcp(host)/db",
-		DbSuffix:         "_test",
-		ZkKeyName:        []string{"keys/zkpor.t4_tiered_haircut_margin_3pool.50_700", "keys/zkpor.t4_tiered_haircut_margin_3pool.500_92"},
-		AssetsCountTiers: []int{50, 500},
+		MysqlDataSource: "user:pass@tcp(host)/db",
+		DbSuffix:        "_test",
 	}
 	raw, err := json.Marshal(src)
 	if err != nil {
@@ -36,11 +34,46 @@ func TestLoadConfig_RoundTrip(t *testing.T) {
 	if got.MysqlDataSource != src.MysqlDataSource || got.DbSuffix != src.DbSuffix {
 		t.Fatalf("scalar mismatch: got=%+v want=%+v", got, src)
 	}
-	if len(got.AssetsCountTiers) != 2 || got.AssetsCountTiers[0] != 50 || got.AssetsCountTiers[1] != 500 {
-		t.Fatalf("AssetsCountTiers = %v, want [50 500]", got.AssetsCountTiers)
+}
+
+// TestBuildResolved_DerivesTiersAndStems locks the toml → (tier, stem)
+// derivation the prover relies on for snark-param lookup. A mis-ordered
+// stem slice would silently load the wrong .vk; this test pins the
+// ascending-tier order and the StandardKeyName template.
+func TestBuildResolved_DerivesTiersAndStems(t *testing.T) {
+	t.Setenv("ZKPOR_BATCH_SHAPE_OVERRIDE", "") // never inherit; we want toml shapes
+	os.Unsetenv("ZKPOR_BATCH_SHAPE_OVERRIDE")
+	prof := &declarative.Profile{
+		Profile: declarative.ProfileMeta{
+			Name:          "test",
+			Model:         "t4_tiered_haircut_margin_3pool",
+			AssetCapacity: 500,
+		},
+		Identity:  declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
+		Insolvent: declarative.Insolvent{Action: "drop_and_log.v0"},
+		Snapshot:  declarative.Snapshot{SourceType: "binance_csv.v1"},
+		BatchShapes: []declarative.BatchShape{
+			{AssetCountTier: 500, UsersPerBatch: 92},
+			{AssetCountTier: 50, UsersPerBatch: 700},
+		},
+		Pricing: declarative.Pricing{DefaultPriceScale: 1e8, DefaultBalanceScale: 1e8},
 	}
-	if len(got.ZkKeyName) != 2 || got.ZkKeyName[0] != src.ZkKeyName[0] || got.ZkKeyName[1] != src.ZkKeyName[1] {
-		t.Fatalf("ZkKeyName mismatch: got=%v want=%v", got.ZkKeyName, src.ZkKeyName)
+	plan, err := buildResolved(prof, "/keys")
+	if err != nil {
+		t.Fatalf("buildResolved: %v", err)
+	}
+	wantTiers := []int{50, 500} // ascending
+	wantStems := []string{
+		"/keys/zkpor.t4_tiered_haircut_margin_3pool.50_700",
+		"/keys/zkpor.t4_tiered_haircut_margin_3pool.500_92",
+	}
+	for i := range wantTiers {
+		if plan.assetCountTiers[i] != wantTiers[i] {
+			t.Errorf("tier[%d] = %d, want %d", i, plan.assetCountTiers[i], wantTiers[i])
+		}
+		if plan.zkKeyStems[i] != wantStems[i] {
+			t.Errorf("stem[%d] = %q, want %q", i, plan.zkKeyStems[i], wantStems[i])
+		}
 	}
 }
 

@@ -1,12 +1,15 @@
-// Command prover is the zkpor-native Groth16 prover for the Binance
-// deployment. Polls the witness table for Published batches, decodes
-// each batch witness, runs groth16.Prove against the per-tier r1cs +
-// proving key, verifies the proof locally, and writes the result to
-// the proof table.
+// Command prover is the zkpor-native Groth16 prover. Polls the witness
+// table for Published batches, decodes each batch witness, runs
+// groth16.Prove against the per-tier r1cs + proving key, verifies the
+// proof locally, and writes the result to the proof table.
+//
+// R8-C/3 swap: AssetsCountTiers + ZkKeyName stems are derived from
+// the declarative profile.toml (model + batch_shapes + constraint
+// module) + the -keys-dir flag. config.json keeps DB DSN only.
 //
 // This is the R3 step 4 core-path service: single-instance, DB-poll
 // task pump (no Redis), no rerun mode. Multi-worker scaling and
-// offline rerun are tracked as follow-up slices — see HANDOFF.
+// offline rerun are tracked as follow-up slices.
 //
 // G1 carryover: solver.RegisterHint(corecircuit.IntegerDivision) at
 // startup resolves the hint-identifier divergence the byte-equivalence
@@ -23,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -31,13 +35,34 @@ import (
 	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
+
+	// Blank-imports auto-register snapshot/identity/insolvent entries
+	// (R8-A/B). Even though the prover doesn't itself read the
+	// snapshot, importing the profile packages keeps the binary's
+	// registries warm for cross-service identity-scheme assertions.
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
 )
+
+// expectedModel is the solvency model this prover binary supports.
+// V1-PROD scope is T4 only — the SetBatchCreateUserCircuitWitness
+// call below is model-typed.
+const expectedModel corespec.SolvencyModelID = "t4_tiered_haircut_margin_3pool"
+
+// resolved holds the derived (tier, stem) plan the prover walks
+// when loading snark params. Built once at startup from profile.toml.
+type resolved struct {
+	assetCountTiers []int
+	zkKeyStems      []string // same index as assetCountTiers; absolute or keys-dir-relative
+}
 
 // snarkParams caches the lazy-loaded artifact triple for one
 // AssetsCount tier. The prover keeps one set in memory at a time and
@@ -51,11 +76,30 @@ type snarkParams struct {
 }
 
 func main() {
+	profilePath := flag.String("profile", "", "path to the declarative profile.toml (required)")
+	keysDir := flag.String("keys-dir", "", "directory containing .pk/.vk/.r1cs artifacts (required)")
 	flag.Parse()
 
+	if *profilePath == "" {
+		fmt.Fprintln(os.Stderr, "-profile is required (path to profile.toml)")
+		os.Exit(2)
+	}
+	if *keysDir == "" {
+		fmt.Fprintln(os.Stderr, "-keys-dir is required (path to keygen .artifacts/)")
+		os.Exit(2)
+	}
+
 	cfg := loadConfig("config/config.json")
-	if len(cfg.AssetsCountTiers) != len(cfg.ZkKeyName) {
-		panic("asset tiers and zk key names must have the same length")
+	prof, err := declarative.Load(*profilePath)
+	if err != nil {
+		panic(err.Error())
+	}
+	if model := corespec.SolvencyModelID(prof.Profile.Model); model != expectedModel {
+		panic(fmt.Sprintf("prover binary supports %q only; profile.toml model = %q", expectedModel, model))
+	}
+	plan, err := buildResolved(prof, *keysDir)
+	if err != nil {
+		panic(fmt.Sprintf("resolve snark params plan: %v", err))
 	}
 
 	// G1 carryover — the zkpor circuit's IntegerDivision hint must be
@@ -85,11 +129,34 @@ func main() {
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		if err := proveOne(row, &params, cfg, witnessStore, proofStore); err != nil {
+		if err := proveOne(row, &params, plan, witnessStore, proofStore); err != nil {
 			fmt.Println("prove batch", row.Height, "failed:", err.Error())
 			return
 		}
 	}
+}
+
+// buildResolved derives the (tier, stem) plan from profile.toml. The
+// tiers come from BuildBatchShape (declarative builder honours
+// ZKPOR_BATCH_SHAPE_OVERRIDE for smoke); stems come from
+// BatchShape.StandardKeyName(model, constraint module) joined with
+// keysDir.
+func buildResolved(prof *declarative.Profile, keysDir string) (*resolved, error) {
+	provider, err := declarative.BuildBatchShapeProvider(
+		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
+	if err != nil {
+		return nil, err
+	}
+	shapes := provider.Shapes()
+	out := &resolved{
+		assetCountTiers: make([]int, len(shapes)),
+		zkKeyStems:      make([]string, len(shapes)),
+	}
+	for i, s := range shapes {
+		out.assetCountTiers[i] = s.AssetCountTier
+		out.zkKeyStems[i] = filepath.Join(keysDir, provider.KeyName(s, prof.Constraint.Module))
+	}
+	return out, nil
 }
 
 // loadConfig reads and parses the on-disk JSON config.
@@ -113,7 +180,7 @@ func loadConfig(path string) *pconfig.Config {
 func proveOne(
 	row *store.BatchWitness,
 	params *snarkParams,
-	cfg *pconfig.Config,
+	plan *resolved,
 	witnessStore *store.WitnessStore,
 	proofStore *store.ProofStore,
 ) error {
@@ -126,7 +193,7 @@ func proveOne(
 		return fmt.Errorf("decode witness: %w", err)
 	}
 
-	proof, assetsCount, err := generateAndVerify(witnessForCircuit, params, cfg, row.Height)
+	proof, assetsCount, err := generateAndVerify(witnessForCircuit, params, plan, row.Height)
 	if err != nil {
 		return fmt.Errorf("prove/verify: %w", err)
 	}
@@ -144,18 +211,18 @@ func proveOne(
 func generateAndVerify(
 	witnessForCircuit *t4spec.BatchCreateUserWitness,
 	params *snarkParams,
-	cfg *pconfig.Config,
+	plan *resolved,
 	batchNumber int64,
 ) (groth16.Proof, int, error) {
 	startTime := time.Now().UnixMilli()
 	fmt.Println("begin to generate proof for batch:", batchNumber)
 
-	circuitWitness, err := t4circuit.SetBatchCreateUserCircuitWitness(witnessForCircuit, cfg.AssetsCountTiers)
+	circuitWitness, err := t4circuit.SetBatchCreateUserCircuitWitness(witnessForCircuit, plan.assetCountTiers)
 	if err != nil {
 		return nil, 0, fmt.Errorf("build circuit witness: %w", err)
 	}
 	targetAssetsCount := len(circuitWitness.CreateUserOps[0].Assets)
-	if err := loadSnarkParams(params, cfg, targetAssetsCount); err != nil {
+	if err := loadSnarkParams(params, plan, targetAssetsCount); err != nil {
 		return nil, 0, fmt.Errorf("load snark params: %w", err)
 	}
 
@@ -242,22 +309,22 @@ func persistProof(
 // background goroutine triggering runtime.GC every 10s during load;
 // we collapse it to a single GC at end-of-load — same intent (keep
 // peak RSS bounded under several-GB proving keys), simpler code.
-func loadSnarkParams(params *snarkParams, cfg *pconfig.Config, targetTier int) error {
+func loadSnarkParams(params *snarkParams, plan *resolved, targetTier int) error {
 	if params.tier == targetTier && params.r1cs != nil {
 		return nil
 	}
 
 	index := -1
-	for i, v := range cfg.AssetsCountTiers {
+	for i, v := range plan.assetCountTiers {
 		if v == targetTier {
 			index = i
 			break
 		}
 	}
 	if index == -1 {
-		return fmt.Errorf("assets count tier %d not present in config", targetTier)
+		return fmt.Errorf("assets count tier %d not present in profile (resolved=%v)", targetTier, plan.assetCountTiers)
 	}
-	stem := cfg.ZkKeyName[index]
+	stem := plan.zkKeyStems[index]
 
 	loadStart := time.Now()
 	fmt.Println("loading r1cs of", targetTier, "assets")

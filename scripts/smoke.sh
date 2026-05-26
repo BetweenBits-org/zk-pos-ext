@@ -122,12 +122,12 @@ write_service_configs() {
 }
 EOF
 
+  # prover derives AssetsCountTiers + ZkKeyName from profile.toml +
+  # -keys-dir flag (R8-C/3); config.json is DB-only.
   cat > cmd/prover/config/config.json <<EOF
 {
   "MysqlDataSource": "$DSN",
-  "DbSuffix": "",
-  "ZkKeyName": [$zk_key_name_json],
-  "AssetsCountTiers": [$TIERS_JSON]
+  "DbSuffix": ""
 }
 EOF
 
@@ -158,8 +158,15 @@ run_witness() {
 
 run_prover() {
   log "running prover (DB-poll → groth16.Prove+Verify → Proof rows)"
+  local artifacts_abs
+  artifacts_abs="$(cd "$ARTIFACTS" && pwd)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
-    bash -c 'cd cmd/prover && go run .'
+  ZKPOR_SMOKE_KEYS_DIR="$artifacts_abs" \
+    bash -c '
+      cd cmd/prover && go run . \
+        -profile ../../profile/binance/binance.toml \
+        -keys-dir "$ZKPOR_SMOKE_KEYS_DIR"
+    '
 }
 
 write_verifier_config() {
