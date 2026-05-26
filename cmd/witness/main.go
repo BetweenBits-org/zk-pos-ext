@@ -78,10 +78,8 @@ func main() {
 	}
 
 	// G6 closure: BuildPricing rejects invariant violations at build time.
-	// The returned provider is kept around in case downstream wiring (per-
-	// asset normalisation) needs it — current T4 witness operates entirely
-	// on uint64 totals already scaled at snapshot time.
-	if _, err := declarative.BuildPricing(prof.Pricing); err != nil {
+	pricing, err := declarative.BuildPricing(prof.Pricing)
+	if err != nil {
 		panic(fmt.Sprintf("BuildPricing: %v", err))
 	}
 
@@ -104,7 +102,7 @@ func main() {
 	if *snapshotID != "" {
 		snapID = *snapshotID
 	}
-	snapshot := t4host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity)
+	snapshot := t4host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity, pricing)
 
 	ctx := context.Background()
 	cexAssets, err := snapshot.CexAssets(ctx)

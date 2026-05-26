@@ -6,6 +6,7 @@ import (
 
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
 // TestSnapshotConnector_Registered locks the engine wiring: importing
@@ -19,11 +20,18 @@ func TestSnapshotConnector_Registered(t *testing.T) {
 	}
 }
 
-// TestSnapshotConnector_NewSnapshotFromRegistry confirms the
-// registered factory produces a non-nil SnapshotSource via the
-// universal (dir, id, capacity) arguments.
+// TestSnapshotConnector_NewSnapshotFromRegistry confirms the registered
+// factory produces a non-nil SnapshotSource via the universal
+// (dir, id, capacity, pricing) tuple.
 func TestSnapshotConnector_NewSnapshotFromRegistry(t *testing.T) {
-	src := t4host.NewSnapshot(binance.SnapshotConnectorID, "testdata/happy", "test", 500)
+	pricing, err := declarative.BuildPricing(declarative.Pricing{
+		DefaultPriceScale: 1e8, DefaultBalanceScale: 1e8,
+	})
+	if err != nil {
+		t.Fatalf("BuildPricing: %v", err)
+	}
+	src := t4host.NewSnapshot(binance.SnapshotConnectorID,
+		"testdata/happy", "test", 500, pricing)
 	if src == nil {
 		t.Fatal("NewSnapshot returned nil")
 	}

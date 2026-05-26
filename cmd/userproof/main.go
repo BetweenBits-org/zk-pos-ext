@@ -90,7 +90,12 @@ func main() {
 	if *snapshotID != "" {
 		snapID = *snapshotID
 	}
-	snapshot := t4host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity)
+	// G6 closure: BuildPricing carries the ValueScale invariant assert.
+	pricing, err := declarative.BuildPricing(prof.Pricing)
+	if err != nil {
+		panic(fmt.Sprintf("BuildPricing: %v", err))
+	}
+	snapshot := t4host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity, pricing)
 
 	ctx := context.Background()
 	accountsByTier := streamAndBucket(ctx, snapshot, assetCountTiers)

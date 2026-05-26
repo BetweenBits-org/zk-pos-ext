@@ -18,6 +18,7 @@ import (
 
 	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
 	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/shopspring/decimal"
 )
@@ -35,11 +36,16 @@ func init() {
 // snapshotFactory is the registry-facing constructor — same shape
 // as profile/binance.snapshotFactory but typed against the t1
 // SnapshotSource.
-func snapshotFactory(userDataDir, snapshotID string, assetCapacity int) modelspec.SnapshotSource {
+func snapshotFactory(
+	userDataDir, snapshotID string,
+	assetCapacity int,
+	pricing corespec.PriceScaleProvider,
+) modelspec.SnapshotSource {
 	return NewSnapshotCSV(SnapshotConfig{
 		UserDataDir:   userDataDir,
 		SnapshotID:    snapshotID,
 		AssetCapacity: assetCapacity,
+		Pricing:       pricing,
 	})
 }
 
@@ -68,6 +74,10 @@ type SnapshotConfig struct {
 	UserDataDir   string
 	SnapshotID    string
 	AssetCapacity int
+	// Pricing scales raw float prices / balances into the uint64
+	// values embedded in the witness. R8-E supplied via declarative;
+	// nil is rejected by NewSnapshotCSV.
+	Pricing corespec.PriceScaleProvider
 }
 
 type csvSnapshot struct {
@@ -87,6 +97,9 @@ type csvSnapshot struct {
 // every user shard sequentially, yielding one AccountInfo per CSV
 // data row.
 func NewSnapshotCSV(cfg SnapshotConfig) modelspec.SnapshotSource {
+	if cfg.Pricing == nil {
+		panic("sea_reference.NewSnapshotCSV: cfg.Pricing must be non-nil")
+	}
 	return &csvSnapshot{cfg: cfg}
 }
 
@@ -114,7 +127,7 @@ func (c *csvSnapshot) AccountStream(ctx context.Context) (<-chan modelspec.Accou
 		return nil, err
 	}
 	out := make(chan modelspec.AccountInfo, accountStreamBuffer)
-	go c.streamAccounts(ctx, shards, assets, NewPricing(), out)
+	go c.streamAccounts(ctx, shards, assets, c.cfg.Pricing, out)
 	return out, nil
 }
 
@@ -282,7 +295,7 @@ func parseAccountRow(
 // with unused slots filled by reservedSymbol entries.
 func (c *csvSnapshot) CexAssets(ctx context.Context) ([]modelspec.CexAssetInfo, error) {
 	c.once.Do(func() {
-		c.assets, c.err = loadCSVSnapshot(c.cfg.UserDataDir, c.cfg.AssetCapacity)
+		c.assets, c.err = loadCSVSnapshot(c.cfg.UserDataDir, c.cfg.AssetCapacity, c.cfg.Pricing)
 	})
 	if c.err != nil {
 		return nil, c.err
@@ -296,7 +309,7 @@ func (c *csvSnapshot) SnapshotID() string { return c.cfg.SnapshotID }
 
 func (c *csvSnapshot) InvalidCount() uint64 { return c.invalidCount.Load() }
 
-func loadCSVSnapshot(dir string, capacity int) ([]modelspec.CexAssetInfo, error) {
+func loadCSVSnapshot(dir string, capacity int, pricing corespec.PriceScaleProvider) ([]modelspec.CexAssetInfo, error) {
 	if dir == "" {
 		return nil, errors.New("sea_reference snapshot: UserDataDir is empty")
 	}
@@ -313,7 +326,7 @@ func loadCSVSnapshot(dir string, capacity int) ([]modelspec.CexAssetInfo, error)
 			len(order), capacity,
 		)
 	}
-	bySymbol, err := readCexAssetsCSV(filepath.Join(dir, cexAssetsCSVName))
+	bySymbol, err := readCexAssetsCSV(filepath.Join(dir, cexAssetsCSVName), pricing)
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +426,7 @@ func readUserAssetOrder(dir string) ([]string, error) {
 // bundle. Layout: header `symbol, usdt_price, total_equity`, then
 // data rows. BasePrice uses PriceMultiplier from this profile's
 // pricing provider. TotalEquity uses BalanceMultiplier.
-func readCexAssetsCSV(path string) (map[string]modelspec.CexAssetInfo, error) {
+func readCexAssetsCSV(path string, prov corespec.PriceScaleProvider) (map[string]modelspec.CexAssetInfo, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("sea_reference snapshot: open %q: %w", path, err)
@@ -429,7 +442,6 @@ func readCexAssetsCSV(path string) (map[string]modelspec.CexAssetInfo, error) {
 	}
 	rows = rows[1:] // drop header
 
-	prov := NewPricing()
 	out := make(map[string]modelspec.CexAssetInfo, len(rows))
 	for i, row := range rows {
 		if len(row) != 3 {

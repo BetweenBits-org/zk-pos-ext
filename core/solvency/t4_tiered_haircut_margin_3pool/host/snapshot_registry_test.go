@@ -6,11 +6,14 @@ import (
 
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
 
 // stubFactory is a dummy SnapshotFactory used by negative tests that
 // need a non-nil factory value but never actually invoke it.
-func stubFactory(string, string, int) t4spec.SnapshotSource { return nil }
+func stubFactory(string, string, int, corespec.PriceScaleProvider) t4spec.SnapshotSource {
+	return nil
+}
 
 // Note: binance_csv.v1 registration is verified in profile/binance's
 // own test package, where its init() actually runs. This file only
@@ -26,7 +29,7 @@ func TestSnapshotRegistry_RegisterAndLookup(t *testing.T) {
 	if !slices.Contains(t4host.RegisteredSnapshotConnectors(), id) {
 		t.Fatalf("RegisteredSnapshotConnectors missing %q", id)
 	}
-	if got := t4host.NewSnapshot(id, "/tmp", "snap", 5); got != nil {
+	if got := t4host.NewSnapshot(id, "/tmp", "snap", 5, nil); got != nil {
 		t.Fatalf("stubFactory returned non-nil: %v", got)
 	}
 }
@@ -39,7 +42,7 @@ func TestSnapshotRegistry_NewSnapshotPanicsOnMissing(t *testing.T) {
 			t.Fatal("expected panic on unknown connector id")
 		}
 	}()
-	t4host.NewSnapshot("never_registered.v0", "/tmp", "snap", 5)
+	t4host.NewSnapshot("never_registered.v0", "/tmp", "snap", 5, nil)
 }
 
 // TestSnapshotRegistry_RegisterDuplicatePanics asserts the single-

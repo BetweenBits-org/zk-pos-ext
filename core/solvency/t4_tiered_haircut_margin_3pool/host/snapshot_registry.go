@@ -6,11 +6,20 @@ import (
 	"sync"
 
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
 
 // SnapshotFactory constructs a t4_tiered_haircut_margin_3pool SnapshotSource from
-// the universal arguments captured in the declarative profile's
-// [snapshot] table.
+// the universal arguments captured in the declarative profile.
+//
+// Arguments:
+//   - userDataDir, snapshotID: the profile's [snapshot] table.
+//   - assetCapacity: trusted-setup asset slot count (toml or override).
+//   - pricing: PriceScaleProvider built from [pricing] — the ETL uses
+//     it to scale raw float prices/balances into the uint64 values
+//     embedded in the witness. R8-E surfaced this as a missing factory
+//     argument: customer ETL code previously imported a per-profile
+//     pricing struct, which the R8-E cleanup removed.
 //
 // Factories MUST be cheap (no I/O) — heavy work (file open, CSV
 // parse) is deferred to AccountStream/CexAssets.
@@ -18,7 +27,11 @@ import (
 // One factory per connector ID. Connectors are registered at build
 // time via init() in the customer profile that owns the ETL
 // implementation (e.g. profile/binance/snapshot.go).
-type SnapshotFactory func(userDataDir, snapshotID string, assetCapacity int) t4spec.SnapshotSource
+type SnapshotFactory func(
+	userDataDir, snapshotID string,
+	assetCapacity int,
+	pricing corespec.PriceScaleProvider,
+) t4spec.SnapshotSource
 
 // Snapshot connector registry (T4 — R8-B/2 / G17).
 //
@@ -68,7 +81,11 @@ func RegisterSnapshot(connectorID string, factory SnapshotFactory) {
 // resolving the model from profile.toml.
 //
 // Panics if connectorID is not registered (build-time omission).
-func NewSnapshot(connectorID, userDataDir, snapshotID string, assetCapacity int) t4spec.SnapshotSource {
+func NewSnapshot(
+	connectorID, userDataDir, snapshotID string,
+	assetCapacity int,
+	pricing corespec.PriceScaleProvider,
+) t4spec.SnapshotSource {
 	snapshotRegistryMu.RLock()
 	factory, ok := snapshotRegistry[connectorID]
 	snapshotRegistryMu.RUnlock()
@@ -76,7 +93,7 @@ func NewSnapshot(connectorID, userDataDir, snapshotID string, assetCapacity int)
 		panic(fmt.Sprintf("t4_tiered_haircut_margin_3pool/host: snapshot connector %q is not registered (known: %v)",
 			connectorID, RegisteredSnapshotConnectors()))
 	}
-	return factory(userDataDir, snapshotID, assetCapacity)
+	return factory(userDataDir, snapshotID, assetCapacity, pricing)
 }
 
 // RegisteredSnapshotConnectors returns the sorted list of T4

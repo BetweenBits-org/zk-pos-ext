@@ -23,6 +23,7 @@ func TestCexAssets_HappyPath(t *testing.T) {
 		UserDataDir:   happyFixtureDir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	assets, err := src.CexAssets(context.Background())
 	if err != nil {
@@ -65,6 +66,7 @@ func TestAccountStream_HappyPath(t *testing.T) {
 		UserDataDir:   happyFixtureDir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
@@ -107,7 +109,7 @@ func TestAccountStream_InvalidHex(t *testing.T) {
 			"0,zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz,1.0,10.0,50000.0,0.0\n" +
 			"1,2222222222222222222222222222222222222222222222222222222222222222,1.5,20.0,100000.0,0.0\n",
 	})
-	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "t", AssetCapacity: testAssetCapacity})
+	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "t", AssetCapacity: testAssetCapacity, Pricing: testPricing(t)})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
 		t.Fatalf("AccountStream: %v", err)
@@ -131,7 +133,7 @@ func TestAccountStream_BalanceOverflow(t *testing.T) {
 			"0,1111111111111111111111111111111111111111111111111111111111111111,200000000000.0,10.0,50000.0,0.0\n" +
 			"1,2222222222222222222222222222222222222222222222222222222222222222,1.5,20.0,100000.0,0.0\n",
 	})
-	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "t", AssetCapacity: testAssetCapacity})
+	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "t", AssetCapacity: testAssetCapacity, Pricing: testPricing(t)})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
 		t.Fatalf("AccountStream: %v", err)
@@ -156,7 +158,7 @@ func TestCexAssets_MissingSymbol(t *testing.T) {
 			// "usdt" missing — user header expects it
 			"foo,1.00,150000.0\n",
 	})
-	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "t", AssetCapacity: testAssetCapacity})
+	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "t", AssetCapacity: testAssetCapacity, Pricing: testPricing(t)})
 	_, err := src.CexAssets(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "usdt") {
 		t.Fatalf("expected missing-usdt error, got %v", err)

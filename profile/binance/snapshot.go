@@ -34,14 +34,19 @@ func init() {
 }
 
 // snapshotFactory is the registry-facing constructor. It accepts the
-// universal (dir, snapshotID, capacity) tuple and wraps NewSnapshotCSV
-// — the imperative SnapshotConfig form remains available for direct
-// callers (legacy tests, smoke harness Go code) until R8-E cleanup.
-func snapshotFactory(userDataDir, snapshotID string, assetCapacity int) modelspec.SnapshotSource {
+// universal (dir, snapshotID, capacity, pricing) tuple and wraps
+// NewSnapshotCSV — the imperative SnapshotConfig form remains available
+// for direct callers (legacy tests, smoke harness Go code).
+func snapshotFactory(
+	userDataDir, snapshotID string,
+	assetCapacity int,
+	pricing corespec.PriceScaleProvider,
+) modelspec.SnapshotSource {
 	return NewSnapshotCSV(SnapshotConfig{
 		UserDataDir:   userDataDir,
 		SnapshotID:    snapshotID,
 		AssetCapacity: assetCapacity,
+		Pricing:       pricing,
 	})
 }
 
@@ -57,9 +62,7 @@ const cexAssetsCSVName = "cex_assets_info.csv"
 const reservedSymbol = "reserved"
 
 // SnapshotConfig is the static input needed to construct a CSV-backed
-// SnapshotSource. Mirrors the legacy witness/config.json:UserDataFile
-// plus the per-deployment asset capacity (formerly the implicit
-// corespec.AssetCounts constant).
+// SnapshotSource.
 type SnapshotConfig struct {
 	// UserDataDir is the directory containing per-shard user CSV
 	// files plus the cex_assets_info.csv summary file.
@@ -75,6 +78,11 @@ type SnapshotConfig struct {
 	// downstream commitment shape is constant. MUST be >= the count
 	// of real assets in the user CSV header.
 	AssetCapacity int
+
+	// Pricing scales raw float prices / balances into the uint64
+	// values embedded in the witness. R8-E supplied this via the
+	// declarative builder; nil is rejected by NewSnapshotCSV.
+	Pricing corespec.PriceScaleProvider
 }
 
 type csvSnapshot struct {
@@ -96,7 +104,13 @@ type csvSnapshot struct {
 // user-shard CSV's header on first call; the result is cached for the
 // lifetime of the returned source. AccountStream walks every user
 // shard sequentially, yielding one AccountInfo per CSV data row.
+//
+// Panics on nil cfg.Pricing — the ETL cannot run without a price-scale
+// provider, and an early panic is the safer failure mode.
 func NewSnapshotCSV(cfg SnapshotConfig) modelspec.SnapshotSource {
+	if cfg.Pricing == nil {
+		panic("binance.NewSnapshotCSV: cfg.Pricing must be non-nil")
+	}
 	return &csvSnapshot{cfg: cfg}
 }
 
@@ -165,7 +179,7 @@ func (c *csvSnapshot) AccountStream(ctx context.Context) (<-chan modelspec.Accou
 		return nil, err
 	}
 	out := make(chan modelspec.AccountInfo, accountStreamBuffer)
-	go c.streamAccounts(ctx, shards, assets, pricing{}, out)
+	go c.streamAccounts(ctx, shards, assets, c.cfg.Pricing, out)
 	return out, nil
 }
 
@@ -179,7 +193,7 @@ func (c *csvSnapshot) streamAccounts(
 	ctx context.Context,
 	shards []string,
 	assets []modelspec.CexAssetInfo,
-	prov pricing,
+	prov corespec.PriceScaleProvider,
 	out chan<- modelspec.AccountInfo,
 ) {
 	defer close(out)
@@ -204,7 +218,7 @@ func (c *csvSnapshot) streamShard(
 	ctx context.Context,
 	path string,
 	assets []modelspec.CexAssetInfo,
-	prov pricing,
+	prov corespec.PriceScaleProvider,
 	validIndex *uint32,
 	out chan<- modelspec.AccountInfo,
 ) error {
@@ -274,7 +288,7 @@ func parseAccountRow(
 	assets []modelspec.CexAssetInfo,
 	assetCount int,
 	index uint32,
-	prov pricing,
+	prov corespec.PriceScaleProvider,
 ) (modelspec.AccountInfo, error) {
 	minCols := 2 + assetCount*6
 	if len(row) < minCols {
@@ -447,7 +461,7 @@ func haircutValue(value *big.Int, tiers []modelspec.TierRatio) *big.Int {
 // calls return a defensive copy so callers cannot mutate cached state.
 func (c *csvSnapshot) CexAssets(ctx context.Context) ([]modelspec.CexAssetInfo, error) {
 	c.once.Do(func() {
-		c.assets, c.err = loadCSVSnapshot(c.cfg.UserDataDir, c.cfg.AssetCapacity)
+		c.assets, c.err = loadCSVSnapshot(c.cfg.UserDataDir, c.cfg.AssetCapacity, c.cfg.Pricing)
 	})
 	if c.err != nil {
 		return nil, c.err
@@ -483,7 +497,7 @@ func (c *csvSnapshot) InvalidCount() uint64 { return c.invalidCount.Load() }
 //
 // capacity is the per-deployment asset slot count baked into the
 // trusted setup — typically passed through from SnapshotConfig.
-func loadCSVSnapshot(dir string, capacity int) ([]modelspec.CexAssetInfo, error) {
+func loadCSVSnapshot(dir string, capacity int, pricing corespec.PriceScaleProvider) ([]modelspec.CexAssetInfo, error) {
 	if dir == "" {
 		return nil, errors.New("binance snapshot: UserDataDir is empty")
 	}
@@ -500,7 +514,7 @@ func loadCSVSnapshot(dir string, capacity int) ([]modelspec.CexAssetInfo, error)
 			len(order), capacity,
 		)
 	}
-	bySymbol, err := readCexAssetsCSV(filepath.Join(dir, cexAssetsCSVName))
+	bySymbol, err := readCexAssetsCSV(filepath.Join(dir, cexAssetsCSVName), pricing)
 	if err != nil {
 		return nil, err
 	}
@@ -619,7 +633,7 @@ func readUserAssetOrder(dir string) ([]string, error) {
 //	col 2: collateral_vip_loan_ratio_tiers
 //	col 3: collateral_margin_ratio_tiers
 //	col 4: collateral_portfolio_margin_ratio_tiers
-func readCexAssetsCSV(path string) (map[string]modelspec.CexAssetInfo, error) {
+func readCexAssetsCSV(path string, prov corespec.PriceScaleProvider) (map[string]modelspec.CexAssetInfo, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("binance snapshot: open %q: %w", path, err)
@@ -635,7 +649,6 @@ func readCexAssetsCSV(path string) (map[string]modelspec.CexAssetInfo, error) {
 	}
 	rows = rows[1:] // drop header
 
-	prov := pricing{}
 	out := make(map[string]modelspec.CexAssetInfo, len(rows))
 	for i, row := range rows {
 		if len(row) != 5 {

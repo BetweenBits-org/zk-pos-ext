@@ -2,18 +2,30 @@ package main
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
-// TestTiersFromShapes locks the binance deployment's tier view at
-// {50, 500} so the witness's bucketing assignment can't drift away
-// from the SetBatchCreateUserCircuitWitness padding the prover does
-// downstream.
-func TestTiersFromShapes(t *testing.T) {
-	got := tiersFromShapes(binance.NewBatchShape().Shapes())
+// TestTiersFromShapes_BinanceToml locks the binance deployment's
+// production tier view at {50, 500} via the declarative profile.
+// A drift would silently change witness bucketing without an obvious
+// failure surface.
+func TestTiersFromShapes_BinanceToml(t *testing.T) {
+	os.Unsetenv("ZKPOR_BATCH_SHAPE_OVERRIDE") // never inherit env override
+	prof, err := declarative.Load("../../profile/binance/binance.toml")
+	if err != nil {
+		t.Fatalf("load profile: %v", err)
+	}
+	provider, err := declarative.BuildBatchShapeProvider(
+		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
+	if err != nil {
+		t.Fatalf("BuildBatchShapeProvider: %v", err)
+	}
+	got := tiersFromShapes(provider.Shapes())
 	want := []int{50, 500}
 	if len(got) != len(want) {
 		t.Fatalf("tiers length = %d, want %d (%v)", len(got), len(want), got)
@@ -22,17 +34,6 @@ func TestTiersFromShapes(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("tiers[%d] = %d, want %d", i, got[i], want[i])
 		}
-	}
-}
-
-// TestPricingValueScaleInvariant_DefaultPath confirms the G6 assert
-// the witness runs on startup holds for the binance pricing default
-// path (no-symbol → 1e8 × 1e8 == 1e16).
-func TestPricingValueScaleInvariant_DefaultPath(t *testing.T) {
-	p := binance.NewPricing()
-	if got := p.PriceMultiplier("") * p.BalanceMultiplier(""); got != p.ValueScale() {
-		t.Fatalf("invariant violated: %d × %d = %d, want ValueScale=%d",
-			p.PriceMultiplier(""), p.BalanceMultiplier(""), got, p.ValueScale())
 	}
 }
 

@@ -29,6 +29,7 @@ func TestCexAssets_HappyPath(t *testing.T) {
 		UserDataDir:   happyFixtureDir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	assets, err := src.CexAssets(context.Background())
 	if err != nil {
@@ -96,6 +97,7 @@ func TestCexAssets_TwoDigitMultiplier(t *testing.T) {
 		UserDataDir:   happyFixtureDir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	assets, err := src.CexAssets(context.Background())
 	if err != nil {
@@ -199,6 +201,7 @@ func loadFixture(t *testing.T, dir string) error {
 		UserDataDir:   dir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	_, err := src.CexAssets(context.Background())
 	return err
@@ -217,6 +220,7 @@ func TestAccountStream_HappyPath(t *testing.T) {
 		UserDataDir:   happyFixtureDir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
@@ -295,6 +299,7 @@ func streamAll(t *testing.T, dir string) (modelspec.SnapshotSource, []modelspec.
 		UserDataDir:   dir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
@@ -400,6 +405,7 @@ func TestAccountStream_MultiShardSequential(t *testing.T) {
 		UserDataDir:   "testdata/multi_shard",
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
@@ -453,6 +459,7 @@ func TestAccountStream_CtxCancelCloses(t *testing.T) {
 		UserDataDir:   happyFixtureDir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	ch, err := src.AccountStream(ctx)
 	if err != nil {
@@ -580,7 +587,7 @@ func TestParseAccountRow_NormalizesAccountID(t *testing.T) {
 	assets := []modelspec.CexAssetInfo{
 		{Symbol: "btc", BasePrice: 0},
 	}
-	account, err := parseAccountRow(row, assets, 1, 0, pricing{})
+	account, err := parseAccountRow(row, assets, 1, 0, testPricing(t))
 	if err != nil {
 		t.Fatalf("parseAccountRow: %v", err)
 	}

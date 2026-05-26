@@ -4,19 +4,30 @@ import (
 	"bytes"
 	"encoding/json"
 	"math/big"
+	"os"
 	"testing"
 
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
-// TestTiersFromShapes locks the binance deployment's tier view at
-// {50, 500} so the userproof's bucketing assignment can't drift from
-// what the witness service is using. A mismatch silently breaks the
-// tree-root parity that ties the two services together.
-func TestTiersFromShapes(t *testing.T) {
-	got := tiersFromShapes(binance.NewBatchShape().Shapes())
+// TestTiersFromShapes_BinanceToml locks the binance tier view via the
+// declarative profile (same source-of-truth as the witness; a drift
+// breaks the tree-root parity that ties the two services together).
+func TestTiersFromShapes_BinanceToml(t *testing.T) {
+	os.Unsetenv("ZKPOR_BATCH_SHAPE_OVERRIDE")
+	prof, err := declarative.Load("../../profile/binance/binance.toml")
+	if err != nil {
+		t.Fatalf("load profile: %v", err)
+	}
+	provider, err := declarative.BuildBatchShapeProvider(
+		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
+	if err != nil {
+		t.Fatalf("BuildBatchShapeProvider: %v", err)
+	}
+	got := tiersFromShapes(provider.Shapes())
 	want := []int{50, 500}
 	if len(got) != len(want) {
 		t.Fatalf("tiers length = %d, want %d (%v)", len(got), len(want), got)

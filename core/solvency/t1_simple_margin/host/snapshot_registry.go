@@ -6,17 +6,20 @@ import (
 	"sync"
 
 	t1spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
 
 // SnapshotFactory constructs a t1_simple_margin SnapshotSource from
-// the universal arguments captured in the declarative profile's
-// [snapshot] table.
-//
-// Factories MUST be cheap (no I/O) — heavy work is deferred to
-// AccountStream/CexAssets. One factory per connector ID; registration
-// happens at build time via init() in the customer profile that owns
-// the ETL implementation (e.g. profile/sea_reference/snapshot.go).
-type SnapshotFactory func(userDataDir, snapshotID string, assetCapacity int) t1spec.SnapshotSource
+// the universal arguments captured in the declarative profile. Same
+// signature as t4_tiered_haircut_margin_3pool's factory — see that file for
+// argument semantics (R8-E added the PriceScaleProvider tail
+// argument so customer ETL can fully drop its in-package pricing
+// adapter).
+type SnapshotFactory func(
+	userDataDir, snapshotID string,
+	assetCapacity int,
+	pricing corespec.PriceScaleProvider,
+) t1spec.SnapshotSource
 
 // Snapshot connector registry (T1 — R8-B/2 / G17).
 //
@@ -48,7 +51,11 @@ func RegisterSnapshot(connectorID string, factory SnapshotFactory) {
 
 // NewSnapshot returns the T1 SnapshotSource built by the connector
 // registered under connectorID. Panics if not registered.
-func NewSnapshot(connectorID, userDataDir, snapshotID string, assetCapacity int) t1spec.SnapshotSource {
+func NewSnapshot(
+	connectorID, userDataDir, snapshotID string,
+	assetCapacity int,
+	pricing corespec.PriceScaleProvider,
+) t1spec.SnapshotSource {
 	snapshotRegistryMu.RLock()
 	factory, ok := snapshotRegistry[connectorID]
 	snapshotRegistryMu.RUnlock()
@@ -56,7 +63,7 @@ func NewSnapshot(connectorID, userDataDir, snapshotID string, assetCapacity int)
 		panic(fmt.Sprintf("t1_simple_margin/host: snapshot connector %q is not registered (known: %v)",
 			connectorID, RegisteredSnapshotConnectors()))
 	}
-	return factory(userDataDir, snapshotID, assetCapacity)
+	return factory(userDataDir, snapshotID, assetCapacity, pricing)
 }
 
 // RegisteredSnapshotConnectors returns the sorted list of T1
