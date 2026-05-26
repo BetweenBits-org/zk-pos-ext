@@ -104,6 +104,70 @@ func (s *WitnessStore) Touch(height int64) error {
 	return nil
 }
 
+// ClaimOldestByStatus is the single-instance prover's task pump:
+// inside one transaction find the oldest row at `from` status (lowest
+// Height), flip it to `to`, and return it. Returns ErrNotFound when
+// no row matches — the prover treats it as "queue empty, time to
+// quit". Multi-worker deployments will eventually wrap this with a
+// Redis BLPOP queue (legacy pattern); single-instance prover doesn't
+// need it.
+func (s *WitnessStore) ClaimOldestByStatus(from, to int64) (*BatchWitness, error) {
+	var row BatchWitness
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		dbTx := tx.Clauses(MaxExecutionTimeHint).Table(s.table).
+			Where("status = ?", from).
+			Order("height asc").Limit(1).Find(&row)
+		if dbTx.Error != nil {
+			return ConvertMySQLErr(dbTx.Error)
+		}
+		if dbTx.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		dbTx = tx.Table(s.table).Where("height = ?", row.Height).
+			Updates(map[string]any{"status": to})
+		if dbTx.Error != nil {
+			return ConvertMySQLErr(dbTx.Error)
+		}
+		row.Status = to
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// LatestByStatus returns the row with the largest Height at a given
+// status. Used by the prover's rerun mode to find batches that were
+// claimed but never finished. ErrNotFound when no row matches.
+func (s *WitnessStore) LatestByStatus(status int64) (*BatchWitness, error) {
+	var row BatchWitness
+	tx := s.db.Clauses(MaxExecutionTimeHint).Table(s.table).
+		Where("status = ?", status).
+		Order("height desc").Limit(1).Find(&row)
+	if tx.Error != nil {
+		return nil, ConvertMySQLErr(tx.Error)
+	}
+	if tx.RowsAffected == 0 {
+		return nil, ErrNotFound
+	}
+	return &row, nil
+}
+
+// MarkStatus sets the status column of a single row identified by
+// Height. ErrNotFound when no row matches.
+func (s *WitnessStore) MarkStatus(height, status int64) error {
+	tx := s.db.Table(s.table).Where("height = ?", height).
+		Updates(map[string]any{"status": status})
+	if tx.Error != nil {
+		return ConvertMySQLErr(tx.Error)
+	}
+	if tx.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // IsNotFound is a small convenience for callers that want to write
 // `if store.IsNotFound(err)` instead of importing errors and
 // reaching for errors.Is(err, store.ErrNotFound).
