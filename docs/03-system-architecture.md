@@ -54,7 +54,7 @@ flowchart TB
   subgraph Code["📦 Code stack (zkpor packages)"]
     direction TB
     Profile["profile/{binance, sea_reference, declarative}<br/>(customer-specific adapters + profile.toml)"]
-    Model["core/solvency/{t1, t2, t3, t4}<br/>(4-tier catalog — T1/T4 spec+circuit+host, T2/T3 doc.go only)"]
+    Model["core/solvency/{t1, t2, t3, t4}<br/>(4-tier catalog — 모두 spec+circuit+host 구현 완료 R6+follow-up)"]
     Universal["core/<br/>(spec · circuit · host · tree)<br/>incl. universal AccountLeafHash (G11 first entry)"]
     Store["store/<br/>(gorm models)"]
   end

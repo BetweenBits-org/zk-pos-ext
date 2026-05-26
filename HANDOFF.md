@@ -747,7 +747,20 @@ R6 산출물 (이번 회): **카탈로그 5→4 통합** (`spot_simple` + `merkl
 **`docs/04-solvency-models.md`** (industry reference + 일반화 트레일) +
 **G11 closure** (첫 universal helper `core/host.AccountLeafHash`
 promotion). 5-tier marketing 은 `ModelDisplay` map 으로 유지. commit chain
-b0318e1 → 829e81c → 722a133 → R6-close.
+b0318e1 → 829e81c → 722a133 → 44a47d9.
+
+R6 follow-up — **T2 + T3 구현** (T4 → T3 → T2 단순화 chain):
+
+- **T3** (`t3_tiered_haircut_margin_1pool`) — T4 의 3-bucket collateral
+  loop 를 single pool 로 collapse. per-asset 4-tuple (Index, Equity, Debt,
+  Collateral). 같은 tier-curve evaluation. RLC 3 powers/slot.
+- **T2** (`t2_static_haircut_margin`) — T3 의 tier 곡선을 single Haircut
+  basis-points 상수로 collapse. per-asset 1 multiply + 1 division.
+  assetHaircutTable lookup. 회로 가장 가벼움 (T1 < T2 < T3 < T4).
+
+**4 model 모두 구현 완료**. G4 (catalog stability) 의 회로 측 prereq 충족.
+남은 R7 entry 항목: bw6 env fix (R6.5) → setup smoke + R1CS baseline 기록
+→ profile descriptor schema freeze.
 
 R6 후 carry (3rd model 또는 R7 freeze 직전 promote):
 
