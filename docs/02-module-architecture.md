@@ -142,13 +142,17 @@ module 도입 시점 (R5 candidate) 에 첫 적용.
 
 # 5. Module Catalog Layout
 
+**STATUS (R7)**: catalog v1 FROZEN at zero core entries. `core/constraint_modules/`
+디렉터리 + governance 는 R7 에 lock. 첫 entry 는 R7+1 (customer signal
++ rule-of-three 충족).
+
 ```text
 core/
-└── constraint_modules/             ← V1 catalog promotion target (R6)
-    ├── noop/                       id = "noop"
-    ├── regulator/
+└── constraint_modules/             ← V1 catalog (R7 frozen, 0 entries)
+    ├── doc.go                      ← governance lock (R7-C)
+    ├── regulator/                  (R7+1 candidate, prefix locked)
     │   └── <jurisdiction>/<rule>_v<v>/
-    └── business/
+    └── business/                   (R7+1 candidate, prefix locked)
         └── <pattern>_v<v>/
 
 profile/<customer>/                 ← customer-specific module 거주처
@@ -178,9 +182,14 @@ G9 가 closed 인 `<exchange>.<rule>_v<v>` 은 customer-specific 영역에
 3rd customer 같은 패턴 도입     → core/constraint_modules/ 로 승격
 ```
 
-단 **`noop` 은 본질적으로 universal** 이라 rule-of-three 면제 — 첫
-multi-customer (R4) 또는 그 직전 R3 step 4 wiring 시점에 promotion 가능.
-구체 promotion 시점은 ROADMAP 의 해당 stage 에서 결정.
+단 **`noop` 은 본질적으로 universal** 이지만 v1 시점에서 per-model
+`ConstraintContext` field set 이 4 model 마다 다르므로 single generic
+noop 타입이 비실용. 각 model 의 in-package noop helper
+(`profile/<customer>/constraint_noop.go`) 가 현 시점 패턴. type-
+parametric / interface-dispatched universal noop 은 v2 candidate.
+
+**R7 freeze 결과** — `core/constraint_modules/` 디렉터리는 존재하되
+entry 없음 (`doc.go` 만). 첫 promotion 은 R7+1 customer signal 시.
 
 # 6. Profile Descriptor 진화 방향
 
