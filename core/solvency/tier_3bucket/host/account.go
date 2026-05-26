@@ -7,6 +7,36 @@ import (
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
 
+// UserConfig is the per-account inclusion-proof artifact. The
+// userproof service writes one per user (embedded as JSON in the
+// userproof DB row's Config column); the verifier's -user mode reads
+// it from disk and recomputes the leaf to check inclusion against
+// Root.
+//
+// On-wire format is JSON. The Go field types are chosen to round-trip
+// naturally:
+//
+//   - *big.Int values marshal as their decimal string via TextMarshaler
+//     (matching legacy userproof);
+//   - [][]byte values marshal as a JSON array of base64 strings
+//     (Go's default), so the verifier reads them back as raw bytes
+//     without an extra base64 decode step;
+//   - Root and AccountIdHash are hex-encoded 32-byte values.
+//
+// Mirrors legacy src/userproof/model.UserConfig. Shared between
+// userproof (writer) and verifier (reader) so format drift between
+// the two is impossible.
+type UserConfig struct {
+	AccountIndex    uint32
+	AccountIdHash   string
+	TotalEquity     *big.Int
+	TotalDebt       *big.Int
+	TotalCollateral *big.Int
+	Assets          []tier3spec.AccountAsset
+	Root            string
+	Proof           [][]byte
+}
+
 // AccountLeafHash returns the SMT leaf value for one user account:
 // Poseidon(AccountID, TotalEquity, TotalDebt, TotalCollateral,
 // AssetsCommitment). AssetsCommitment is produced by

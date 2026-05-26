@@ -6,8 +6,6 @@
 package config
 
 import (
-	"math/big"
-
 	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
 )
 
@@ -35,16 +33,6 @@ type Config struct {
 	CexAssetsInfo []tier3spec.CexAssetInfo
 }
 
-// UserConfig drives the single-user inclusion-verification mode
-// (verifier -user). It is the userproof service's per-user output: the
-// account's position, balances, asset list, and Merkle path.
-type UserConfig struct {
-	AccountIndex    uint32
-	AccountIdHash   string
-	TotalEquity     big.Int
-	TotalDebt       big.Int
-	TotalCollateral big.Int
-	Root            string
-	Assets          []tier3spec.AccountAsset
-	Proof           []string
-}
+// UserConfig (per-user inclusion-proof artifact) is defined in
+// zkpor/core/solvency/tier_3bucket/host so the userproof writer and
+// verifier reader share one type. Import tier3host.UserConfig.

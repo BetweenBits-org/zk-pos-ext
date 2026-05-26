@@ -109,7 +109,7 @@ func runUserVerification() {
 	if err != nil {
 		panic(err.Error())
 	}
-	userConfig := &vconfig.UserConfig{}
+	userConfig := &tier3host.UserConfig{}
 	if err := json.Unmarshal(content, userConfig); err != nil {
 		panic(err.Error())
 	}
@@ -119,14 +119,14 @@ func runUserVerification() {
 		panic("invalid account tree root")
 	}
 
-	proof := make([][]byte, 0, len(userConfig.Proof))
-	for i := range userConfig.Proof {
-		p, err := base64.StdEncoding.DecodeString(userConfig.Proof[i])
-		if err != nil || len(p) != 32 {
-			panic("invalid proof")
+	// UserConfig.Proof is [][]byte — JSON decode already base64'd the
+	// wire form back to raw 32-byte sibling hashes.
+	for i, p := range userConfig.Proof {
+		if len(p) != 32 {
+			panic(fmt.Sprintf("invalid proof[%d] len=%d, want 32", i, len(p)))
 		}
-		proof = append(proof, p)
 	}
+	proof := userConfig.Proof
 
 	assetCommitment := tier3host.ComputeUserAssetsCommitment(userConfig.Assets, assetCountTiers())
 
