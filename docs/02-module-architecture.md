@@ -227,20 +227,33 @@ v1 freeze 후 schema 변경 규약:
 
 **Service-startup wiring**: R7 시점에 schema 는 freeze 됐지만 service
 startup 이 toml 을 직접 *consume* 하지는 않음 — procedural Go adapters
-(`profile/<customer>/*.go`) 가 여전히 authoritative. R7+1 또는 V1
-production deployment 시점에 wiring 전환 (각 adapter constructor 가
-toml 값을 인자로 받는 refactor 동반).
+(`profile/<customer>/*.go`) 가 여전히 authoritative. **R8 stage** 에서
+wiring 전환 (PRODUCTION_ROADMAP §R8 참조): 각 adapter constructor 가
+toml 값을 인자로 받는 refactor + identity / insolvent / snapshot-connector
+registry 도입 + service-startup 이 `LoadProfile → builders` 흐름.
 
-**registry pattern** (R4+):
-- ConstraintModule registry — `core/constraint_modules/` + 각 customer
-  의 custom module 들이 ID 로 등록.
-- Identity scheme registry — `passthrough_hex.v0`, `hmac_sha256.v1` …
-- SnapshotSource registry — `csv_binance_v2`, `db_postgres_v1` …
+R8 종결 시 `profile/<customer>/` 에 procedural-only 파일 (snapshot.go,
+tests, doc.go) + customer.toml 만 남음. 신규 customer 추가 비용 = toml
+작성 + (필요 시) custom snapshot 코드만.
+
+**registry pattern** (R8 stage 에서 implementation):
+
+- **Identity scheme registry** — `passthrough_hex_bn254_reduced.v0`
+  (현재 유일 entry), `hmac_sha256.v1` 후보 …
+- **InvalidAccountPolicy registry** — `drop_and_log` (현재 유일 entry) …
+- **SnapshotSource connector registry** — `binance_csv_v1` (legacy CSV
+  ETL), `sea_csv_v1` (R5 sea_reference 의 spot CSV) …
+- **ConstraintModule registry** — `core/constraint_modules/` (R7 frozen
+  at zero entries) + customer-specific module 이 profile/<customer>/
+  안에 정의 후 registry 에 등록.
 - profile.toml 의 각 field 가 registry 의 ID 를 select.
 
 이 진화의 핵심: **engine 빌드 시점에 registry 가 채워진다**. Go plugin
 동적 로딩은 채택 안 함 (버전 깨짐 risk). 새 module / 새 connector 추가
 = engine PR + 빌드.
+
+R8 의 G17 (registry pattern v1 freeze) 가 ID prefix 형식 (`<category>.<id>_v<v>`)
++ 등록 누락 = service-startup panic policy 까지 명시 lock.
 
 ## 6.1 Multi-customer `.vk` 공유 정책 (G12 closure)
 

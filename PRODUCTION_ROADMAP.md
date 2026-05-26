@@ -575,11 +575,86 @@ Blocking gates: G4 ✅, G10 ✅ — 모두 closed.
 
 R7 close 후 다음 갈래 (post-R7):
 
-- **V1 production deployment** — service-startup 의 profile.toml wiring
-  refactor + 첫 customer 통합 + production .pk 마이그레이션 (legacy stem
-  → StandardKeyName).
-- **R5-FU** — sea_reference end-to-end smoke (T1 path).
+- **R8** (next stage) — Profile descriptor wiring + adapter cleanup.
+  declarative 가능한 어댑터 (catalog, batch_shape, identity, insolvent,
+  pricing, risk, constraint_noop) 를 profile.toml + registry 패턴으로
+  대체. profile/<customer>/ 에 procedural-only (snapshot 등) + tests 만
+  남도록 정리. 자세한 내용 §R8 아래.
+- **V1-PROD** (R8 후) — 첫 customer 통합 + production .pk 마이그레이션
+  (legacy stem → StandardKeyName, byte 불변 단순 rename). R8 의 wiring
+  위에 customer-specific delta 만 추가.
+- **R5-FU** — sea_reference end-to-end smoke (T1 path). R8 와 독립
+  가능 (현 procedural adapter 형태에서도 실행 가능).
 - **G15** — first production prove SLA 측정 후 GPU 가속 (ICICLE) 결정.
+
+### Stage R8 — Profile descriptor wiring + adapter cleanup
+
+목표: R7 에서 freeze 된 `profile.toml` schema 를 service-startup 이
+*직접 consume*. profile/<customer>/ 의 declarative-only 어댑터를
+registry 패턴 + toml 값 주입 으로 대체. 핵심 동기: 새 customer 통합 시
+**toml + customer-specific procedural 코드** 만 작성하면 되도록.
+
+산출물:
+
+- **Registry infrastructure** (`core/host/`, `core/spec/`):
+  - Identity scheme registry — scheme ID → `DeriveAccountID` 함수 매핑
+    (현재 `passthrough_hex_bn254_reduced.v0` 1개).
+  - InvalidAccountPolicy registry — policy ID → 동작 매핑 (현재
+    `drop_and_log` 1개).
+  - SnapshotSource connector registry — source-type ID → 인스턴스
+    factory. 첫 entry `binance_csv` + `sea_csv` (R8 진행 중에 분리 결정
+    가능).
+
+- **Adapter constructor refactor** (`profile/declarative/builders.go`
+  또는 동등):
+  - `declarative.BuildCatalog(cfg.Catalog, cfg.Profile.AssetCapacity)`
+  - `declarative.BuildBatchShape(cfg.BatchShapes)`
+  - `declarative.BuildPricing(cfg.Pricing)`
+  - `declarative.BuildIdentity(cfg.Identity)` — registry lookup
+  - `declarative.BuildInsolvent(cfg.Insolvent)` — registry lookup
+  - `declarative.BuildConstraintModule(cfg.Constraint, model)` — universal
+    noop 또는 customer-specific module registry lookup
+
+- **Service-startup wiring** (`cmd/*/main.go`):
+  - 기존 `binance.NewXxx()` 직접 호출 모두 제거.
+  - `decl, err := declarative.Load(path)` → `decl.Validate()` →
+    builders 호출 흐름.
+  - smoke.sh 의 service config 도 profile.toml path 단일 인자로 단순화.
+
+- **profile/<customer>/ cleanup**:
+  - `profile/binance/`: batch_shape.go, catalog.go, constraint_noop.go,
+    identity.go, insolvent.go, pricing.go, risk.go 제거. doc.go +
+    snapshot.go + test files + binance.toml 만 남음.
+  - `profile/sea_reference/`: 동일 패턴 (이미 minimal 이라 더 적은 제거).
+
+- **Documentation**:
+  - `docs/02-module-architecture.md` §6 의 wiring 단계 업데이트 — R7
+    schema freeze → R8 wiring 활성 → R8 후 declarative-only 어댑터 제거
+    완료.
+  - `docs/04-solvency-models.md` §11 의 wiring carry 항목 제거 (closed).
+
+Exit criteria:
+
+- 각 service 가 `LoadProfile(path) → adapter 조립` 흐름.
+- `profile/<customer>/` 에 procedural-only (snapshot.go) + tests + doc.go
+  + customer.toml 만.
+- 기존 `scripts/smoke.sh` 풀 파이프라인 통과 (functional 동등 — proof
+  byte-equivalent 까지는 아니어도 verifier OK).
+- 신규 customer 추가 비용 = toml 작성 + (필요 시) custom snapshot 코드만.
+
+Blocking gates: G17 (registry pattern v1 freeze).
+
+작업 분해 예 (~6-8 슬라이스):
+
+```
+R8-A  registry infrastructure (identity, insolvent, snapshot connector)
+R8-B  declarative builders (catalog, batch_shape, pricing, constraint module)
+R8-C  service-startup wiring — keygen + witness + prover
+R8-D  service-startup wiring — verifier + userproof + smoke.sh
+R8-E  profile/binance cleanup (declarative-only 파일 제거)
+R8-F  profile/sea_reference cleanup + sea_reference smoke 동등성 검증
+R8-close  G17 closure + handoff/roadmap + docs/02 §6 갱신
+```
 
 ## Decision Gate Register
 
@@ -609,6 +684,7 @@ R7 close 후 다음 갈래 (post-R7):
 | **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R5 진입, model-first swap 이후) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
 | **G15** Prove-path GPU 가속 backend 채택 여부 | deferred | post-R3 step 4 / first production prove SLA | gnark README 가 ICICLE backend (Ingonyama) 통한 GPU 가속을 **공식 지원** — BN254 + Groth16 호환, 라벨 "Experimental". `.pk`/`.vk` byte-equivalence (G1) 와는 **직교** (accelerator 가 같은 ceremony 출력 사용 — R1CS/`.pk`/`.vk` 모두 그대로). 채택 시 audit 추가 surface = ICICLE backend 자체 (수학적 동치이지만 trust boundary 증가). 결정은 첫 production deployment 의 CPU prove 시간 측정 → 24h snapshot SLA 와 비교 후. pre-결정 작업: ICICLE 공식 docs 에서 (a) PoR-scale R1CS 의 speedup 벤치마크, (b) build/CUDA toolkit 요건, (c) GPU 없는 환경에서의 fallback 동작 확인. | 첫 production prove SLA 측정 시점에 surface. binding 하면 채택 검토 → closed, 그렇지 않으면 CPU 만 사용. |
 | **G16** Module composition compatibility 검토 프로세스 | deferred | first multi-module composition (R5 candidate) | `docs/02-module-architecture.md` §1 의 add-only 원칙으로 composition 자체는 수학적으로 안전. 그러나 module 간 hidden assumption 충돌 (한 module 이 system 의 변수 의미를 전제, 다른 module 이 그걸 깸 → unsat) 가능. 방향 lock: (a) 각 module 의 doc/audit note 에 assumed invariants 명시 의무, (b) composition 등록 (= 새 `.vk` ceremony 시작) 전에 reviewer 가 invariant 호환성 검토, (c) 자동화는 future work. process detail (reviewer who, document where, fail-mode) 는 첫 multi-module 등장 시 채움. | 첫 multi-module composition customer 등장 시 process detail 확정 + 이 row 의 status `deferred → closed`. |
+| **G17** Registry pattern v1 freeze (identity / insolvent / snapshot-connector / constraint-module) | deferred | R8 | R8 wiring 의 핵심 lock: 각 adapter category 의 registry 가 *어디서* 정의되고, ID prefix 가 *어떤 형식* 이며, 등록 = *engine 빌드 시점* 인지 *plugin 동적 로딩* 인지. 방향 lock (docs/02 §6.2 후보): (a) `core/host/` + `core/spec/` 안 in-process registry (build-time 등록만, plugin 동적 로딩 미채택 — 버전 깨짐 risk), (b) ID prefix 는 `<category>.<id>_v<version>` 형식 (예: `identity.passthrough_hex_bn254_reduced_v0`, `snapshot.binance_csv_v1`), (c) 등록 누락은 service-startup panic. 첫 registry 3개 (identity, insolvent, snapshot-connector) 가 R8-A 산출물; 이후 추가는 G11 rule-of-three 와 같은 governance. | R8 entry 시 (a)(b)(c) lock 후 첫 implementation 으로 prove. R8 close 시 `deferred → closed`. |
 
 ## Gate → Stage Dependency
 
@@ -628,6 +704,7 @@ G13 --> R3 step 1 (AccountID fr.Element normalization)
 G14 --> post-V1 / customer SLA (user-facing verification distribution)
 G15 --> post-R3 step 4 / first production prove SLA (GPU acceleration backend)
 G16 --> R5 candidate (module composition compatibility process)
+G17 --> R8 (registry pattern v1 freeze)
 
 (G7, G8, G9 는 R0 시점에 closed)
 ```

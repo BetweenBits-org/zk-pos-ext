@@ -824,14 +824,44 @@ R6 후 surface 된 환경 이슈 (별 슬라이스 후보):
 
 다음 슬라이스 갈래 (post-R7) — agent 가 선택 (또는 user 와 합의):
 
-**갈래 V1-PROD — Production deployment (post-R7 자연 다음)**:
+**갈래 R8 — Profile wiring + adapter cleanup (RECOMMENDED, 다음 자연 stage)**:
 
 ```text
-첫 customer 통합 + service-startup wiring (profile.toml 을 service 가
-직접 consume — 각 adapter constructor 가 toml 값 인자 받는 refactor).
-R3 production .pk 1회 마이그레이션 (legacy stem → StandardKeyName, byte
-불변, 단순 file rename). production keygen + scripts/smoke.sh 풀 파이프
-라인 production 환경 검증 (m6i.{2,4}xlarge 권장).
+R7 에서 freeze 된 profile.toml schema 를 service-startup 이 직접 consume.
+profile/<customer>/ 의 declarative 가능 어댑터 7개 (batch_shape, catalog,
+constraint_noop, identity, insolvent, pricing, risk) 를 registry 패턴 +
+toml 값 주입 으로 대체. profile/<customer>/ 에 procedural-only
+(snapshot.go) + tests + doc.go + customer.toml 만 남음.
+
+산출물 (자세한 내용 PRODUCTION_ROADMAP §R8):
+  - Registry infrastructure (identity / insolvent / snapshot-connector)
+  - declarative builders (BuildCatalog / BuildBatchShape / BuildPricing 등)
+  - 5 services (cmd/*) 의 startup wiring: LoadProfile(path) → 어댑터 조립
+  - profile/binance + profile/sea_reference cleanup
+  - G17 (registry pattern v1 freeze) closure
+
+작업 분해 예 (~6-8 슬라이스):
+  R8-A  registry infrastructure (identity, insolvent, snapshot connector)
+  R8-B  declarative builders
+  R8-C  service-startup wiring — keygen + witness + prover
+  R8-D  service-startup wiring — verifier + userproof + smoke.sh
+  R8-E  profile/binance cleanup
+  R8-F  profile/sea_reference cleanup + sea_reference smoke 동등성 검증
+  R8-close  G17 closure + handoff/roadmap
+
+후속 customer 통합 비용 = toml 작성 + (필요 시) custom snapshot 코드만.
+```
+
+**갈래 V1-PROD — Production deployment (R8 후 자연 다음)**:
+
+```text
+R8 wiring 위에 첫 customer 통합 + production .pk 마이그레이션 (legacy
+stem → StandardKeyName, byte 불변 단순 rename). production keygen +
+scripts/smoke.sh 풀 파이프라인 production 환경 검증 (m6i.{2,4}xlarge
+권장). customer-specific delta (snapshot CSV format) 만 추가.
+
+R8 진행 전이라도 V1-PROD 진행 가능 — 단 customer adapter 가 현재
+procedural 형태로 작성 (R8 후 cleanup 시 자연 마이그레이션).
 ```
 
 **갈래 R5-FU — sea_reference end-to-end smoke**:
@@ -839,13 +869,13 @@ R3 production .pk 1회 마이그레이션 (legacy stem → StandardKeyName, byte
 ```text
 scripts/smoke.sh 를 sea_reference 변형. 차이:
   - profile/binance → profile/sea_reference 로 import 교체 (또는
-    smoke 가 profile.toml 선택 가능하게 generic 화)
+    smoke 가 profile.toml 선택 가능하게 generic 화 — R8 후 자연 달성)
   - sample data: src/sampledata/ 대신 profile/sea_reference/testdata/
     happy/ 사용 (또는 별도 sea sample 작성)
   - keygen 의 모델/capacity 인자 t1_simple_margin, capacity=10 정도
 
 R5 의 "고객사 sample data 로 end-to-end PoR 통과" exit criterion 의
-명시적 마감. T1 의 production-grade 검증.
+명시적 마감. T1 의 production-grade 검증. R8 와 독립 가능.
 ```
 
 **갈래 R5-FU — sea_reference end-to-end smoke**:
