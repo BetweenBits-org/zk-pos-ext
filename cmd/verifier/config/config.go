@@ -12,9 +12,26 @@ import (
 // Config drives the batch-verification mode of the verifier: it points
 // at the prover's proof table, the per-tier verifying keys, and the
 // published CEX asset totals whose commitment the proofs must match.
+//
+// Proof rows can come from either a CSV file (ProofTable) or the
+// prover's MySQL proof table directly (MysqlDataSource + DbSuffix).
+// When MysqlDataSource is set, ProofTable is ignored. The DB path is
+// the zkpor-preferred mode — no CSV intermediate, no separate exporter.
 type Config struct {
-	// ProofTable is the path to the prover-produced proof CSV.
+	// ProofTable is the path to the prover-produced proof CSV. Ignored
+	// when MysqlDataSource is non-empty.
 	ProofTable string
+
+	// MysqlDataSource (optional) is a gorm/MySQL DSN pointing at the
+	// prover's proof table. When set, the verifier loads proof rows
+	// directly via ProofStore.ListAllInOrder instead of parsing
+	// ProofTable.
+	MysqlDataSource string
+
+	// DbSuffix (optional) is the table-name suffix shared with the
+	// prover service. Empty in production, e.g. "_test" in CI. Used
+	// only when MysqlDataSource is set.
+	DbSuffix string
 
 	// ZkKeyName lists the verifying-key file stems, one per entry of
 	// AssetsCountTiers (same index). The verifier appends ".vk".

@@ -67,3 +67,17 @@ func (s *ProofStore) GetByBatchNumber(batchNumber int64) (*Proof, error) {
 	}
 	return &row, nil
 }
+
+// ListAllInOrder returns every proof row sorted by BatchNumber
+// ascending. The verifier's batch-mode DB read path uses this in place
+// of the legacy ProofTable CSV — same rows, same order, no CSV hop.
+// Returns an empty slice (nil error) when the table is empty.
+func (s *ProofStore) ListAllInOrder() ([]Proof, error) {
+	var rows []Proof
+	tx := s.db.Clauses(MaxExecutionTimeHint).Table(s.table).
+		Order("batch_number asc").Find(&rows)
+	if tx.Error != nil {
+		return nil, ConvertMySQLErr(tx.Error)
+	}
+	return rows, nil
+}
