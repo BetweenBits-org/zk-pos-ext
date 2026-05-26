@@ -759,8 +759,34 @@ R6 follow-up — **T2 + T3 구현** (T4 → T3 → T2 단순화 chain):
   assetHaircutTable lookup. 회로 가장 가벼움 (T1 < T2 < T3 < T4).
 
 **4 model 모두 구현 완료**. G4 (catalog stability) 의 회로 측 prereq 충족.
-남은 R7 entry 항목: bw6 env fix (R6.5) → setup smoke + R1CS baseline 기록
-→ profile descriptor schema freeze.
+
+**R6.5 — bw6 env fix + setup smoke baseline 기록** (closed):
+
+원인 분석: fork 의 zip 에는 bw6-633/761 + poseidon 패키지 모두 존재했으나
+Go module *build cache* 의 stale package list 가 stale extraction 을 가리킴.
+또 cache extraction 일부 sub-package 가 외부 trigger 로 invalidated.
+
+Fix: `chmod -R u+w` 후 `rm -rf` extracted dirs + `rm` cache zip metadata
+→ `go clean -cache` → `go build` 으로 fresh download/extract. 즉시 통과.
+
+검증 footprint (4 model setup smoke + Setup 모두 통과, tiny shape 5_10_2):
+
+| Model | NbConstraints | Setup time |
+|---|---:|---:|
+| T1 | 38,149 | 2.79s |
+| T2 | 48,886 | 6.11s |
+| T3 | 274,650 | 22.90s |
+| T4 | 723,790 | 58.15s |
+
+T1 R1CS sha256: `d2df98c8969280900ac36424358454af5a223b331839b9f2080cbc548aebe0b0`.
+4 model 모두 noop-module zero-cost 검증 통과. 전체 `go test -short` 통과.
+
+**정정**: R6/prep ~ T2/T3 close 의 commit message 의 "build clean" claim 은
+부분적으로 false positive 였음 (cache stale 로 fail 가능). R6.5 fix 후
+*실제로 통과 확인됨* — 코드 자체는 일관성 있게 작성됐었음.
+
+남은 R7 entry 항목: profile descriptor schema freeze + module 카탈로그
+freeze 만.
 
 R6 후 carry (3rd model 또는 R7 freeze 직전 promote):
 
