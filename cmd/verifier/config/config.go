@@ -42,6 +42,13 @@ type Config struct {
 	// matching verifying key by position.
 	AssetsCountTiers []int
 
+	// AssetCapacity is the per-deployment asset slot count baked into
+	// the trusted setup. Must match keygen, witness, prover, and
+	// userproof for this deployment. The CexAssetsInfo list may be
+	// shorter (real assets only); the verifier pads up to AssetCapacity
+	// with "reserved" entries before computing the expected commitment.
+	AssetCapacity int
+
 	// CexAssetsInfo is the published per-asset global state. Its
 	// Poseidon commitment must equal the final batch's after-CEX
 	// commitment. Entries MUST carry full corespec.TierCount-length

@@ -10,27 +10,34 @@ import (
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
 
+// roundTripCapacity locks the witness's per-deployment capacity for
+// the round-trip tests. The decoder self-infers capacity from
+// len(BeforeCexAssets), so the test must pad BeforeCexAssets up to
+// this value to exercise the dense Assets expansion the prover sees.
+const roundTripCapacity = 500
+
 // TestEncodeDecodeBatchWitness_RoundTrip exercises the witness on-wire
 // format end-to-end: encode, decode, verify the round-trip preserves
 // every header field and that CreateUserOps[*].Assets is expanded back
-// to a dense AssetCounts-length slice (the prover's expectation).
+// to a dense capacity-length slice (the prover's expectation, with
+// capacity inferred from len(w.BeforeCexAssets)).
 func TestEncodeDecodeBatchWitness_RoundTrip(t *testing.T) {
+	beforeCex := make([]tier3spec.CexAssetInfo, roundTripCapacity)
+	beforeCex[0] = tier3spec.CexAssetInfo{
+		TotalEquity: 100, TotalDebt: 50, BasePrice: 7_000_000,
+		Symbol: "BTC", Index: 0,
+		LoanCollateral: 30, MarginCollateral: 10, PortfolioMarginCollateral: 5,
+		LoanRatios:            tierRatiosOf(11),
+		MarginRatios:          tierRatiosOf(22),
+		PortfolioMarginRatios: tierRatiosOf(33),
+	}
 	src := &tier3spec.BatchCreateUserWitness{
 		BatchCommitment:           bytesPattern(0x01, 32),
 		BeforeAccountTreeRoot:     bytesPattern(0x02, 32),
 		AfterAccountTreeRoot:      bytesPattern(0x03, 32),
 		BeforeCEXAssetsCommitment: bytesPattern(0x04, 32),
 		AfterCEXAssetsCommitment:  bytesPattern(0x05, 32),
-		BeforeCexAssets: []tier3spec.CexAssetInfo{
-			{
-				TotalEquity: 100, TotalDebt: 50, BasePrice: 7_000_000,
-				Symbol: "BTC", Index: 0,
-				LoanCollateral: 30, MarginCollateral: 10, PortfolioMarginCollateral: 5,
-				LoanRatios:            tierRatiosOf(11),
-				MarginRatios:          tierRatiosOf(22),
-				PortfolioMarginRatios: tierRatiosOf(33),
-			},
-		},
+		BeforeCexAssets:           beforeCex,
 		CreateUserOps: []tier3spec.CreateUserOperation{
 			{
 				BeforeAccountTreeRoot: bytesPattern(0x10, 32),
@@ -67,9 +74,10 @@ func TestEncodeDecodeBatchWitness_RoundTrip(t *testing.T) {
 	if len(dst.CreateUserOps) != 1 {
 		t.Fatalf("CreateUserOps length = %d, want 1", len(dst.CreateUserOps))
 	}
-	// Assets must be expanded to dense AssetCounts length.
-	if len(dst.CreateUserOps[0].Assets) != corespec.AssetCounts {
-		t.Fatalf("dense Assets length = %d, want %d", len(dst.CreateUserOps[0].Assets), corespec.AssetCounts)
+	// Assets must be expanded to dense capacity length (inferred from
+	// len(BeforeCexAssets) by the decoder).
+	if len(dst.CreateUserOps[0].Assets) != roundTripCapacity {
+		t.Fatalf("dense Assets length = %d, want %d", len(dst.CreateUserOps[0].Assets), roundTripCapacity)
 	}
 	if dst.CreateUserOps[0].Assets[0].Equity != 100 || dst.CreateUserOps[0].Assets[0].Debt != 50 {
 		t.Fatalf("dense Assets[0] = %+v, want (Equity=100, Debt=50)", dst.CreateUserOps[0].Assets[0])

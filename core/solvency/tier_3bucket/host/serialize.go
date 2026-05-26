@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/klauspost/compress/s2"
 )
 
@@ -26,9 +25,13 @@ func EncodeBatchWitness(w *tier3spec.BatchCreateUserWitness) ([]byte, error) {
 // DecodeBatchWitness reverses EncodeBatchWitness: s2-decompresses then
 // gob-decodes the input. CreateUserOps[*].Assets in the encoded form
 // only carries non-empty user assets (sparse); this helper expands it
-// back to a dense AssetCounts-length slice so the prover can feed it
-// straight into SetBatchCreateUserCircuitWitness. Mirrors legacy
-// src/utils.DecodeBatchWitness.
+// back to a dense capacity-length slice so the prover can feed it
+// straight into SetBatchCreateUserCircuitWitness.
+//
+// Capacity is self-described by the encoded witness — len(w.BeforeCexAssets)
+// is the per-deployment asset capacity baked into the trusted setup
+// at keygen time. Mirrors legacy src/utils.DecodeBatchWitness, but no
+// longer reads a process-global constant.
 func DecodeBatchWitness(data []byte) (*tier3spec.BatchCreateUserWitness, error) {
 	uncompressed, err := s2.Decode(nil, data)
 	if err != nil {
@@ -38,9 +41,13 @@ func DecodeBatchWitness(data []byte) (*tier3spec.BatchCreateUserWitness, error) 
 	if err := gob.NewDecoder(bytes.NewReader(uncompressed)).Decode(&w); err != nil {
 		return nil, fmt.Errorf("decode batch witness: %w", err)
 	}
+	capacity := len(w.BeforeCexAssets)
+	if capacity == 0 {
+		return nil, fmt.Errorf("decode batch witness: BeforeCexAssets is empty (capacity unknown)")
+	}
 	for i := range w.CreateUserOps {
-		dense := make([]tier3spec.AccountAsset, corespec.AssetCounts)
-		for p := range corespec.AssetCounts {
+		dense := make([]tier3spec.AccountAsset, capacity)
+		for p := range capacity {
 			dense[p] = tier3spec.AccountAsset{Index: uint16(p)}
 		}
 		for _, a := range w.CreateUserOps[i].Assets {

@@ -118,7 +118,11 @@ func readLegacyAccounts(t *testing.T, cexPath, userPath string) []legacy.Account
 // is the dense-by-validIndex order matching legacy's AccountIndex).
 func readZkporAccounts(t *testing.T, dir string) []modelspec.AccountInfo {
 	t.Helper()
-	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "test"})
+	src := NewSnapshotCSV(SnapshotConfig{
+		UserDataDir:   dir,
+		SnapshotID:    "test",
+		AssetCapacity: testAssetCapacity,
+	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
 		t.Fatalf("zkpor AccountStream: %v", err)

@@ -55,7 +55,10 @@ func main() {
 		))
 	}
 
-	snapshot := binance.NewSnapshotCSV(binance.SnapshotConfig{UserDataDir: cfg.UserDataFile})
+	snapshot := binance.NewSnapshotCSV(binance.SnapshotConfig{
+		UserDataDir:   cfg.UserDataFile,
+		AssetCapacity: cfg.AssetCapacity,
+	})
 	shapeProvider := binance.NewBatchShape()
 	assetCountTiers := tiersFromShapes(shapeProvider.Shapes())
 
@@ -209,11 +212,11 @@ func buildBatch(
 ) *tier3spec.BatchCreateUserWitness {
 	wit := &tier3spec.BatchCreateUserWitness{
 		BeforeAccountTreeRoot: accountTree.Root(),
-		BeforeCexAssets:       make([]tier3spec.CexAssetInfo, corespec.AssetCounts),
+		BeforeCexAssets:       make([]tier3spec.CexAssetInfo, len(cexAssets)),
 		CreateUserOps:         make([]tier3spec.CreateUserOperation, len(batch)),
 	}
 	copy(wit.BeforeCexAssets, cexAssets)
-	wit.BeforeCEXAssetsCommitment = tier3host.ComputeCexAssetsCommitment(cexAssets)
+	wit.BeforeCEXAssetsCommitment = tier3host.ComputeCexAssetsCommitment(cexAssets, len(cexAssets))
 
 	for i, account := range batch {
 		op := &wit.CreateUserOps[i]
@@ -245,7 +248,7 @@ func buildBatch(
 		op.Assets = account.Assets
 	}
 
-	wit.AfterCEXAssetsCommitment = tier3host.ComputeCexAssetsCommitment(cexAssets)
+	wit.AfterCEXAssetsCommitment = tier3host.ComputeCexAssetsCommitment(cexAssets, len(cexAssets))
 	wit.AfterAccountTreeRoot = accountTree.Root()
 	wit.BatchCommitment = poseidon.PoseidonBytes(
 		wit.BeforeAccountTreeRoot,

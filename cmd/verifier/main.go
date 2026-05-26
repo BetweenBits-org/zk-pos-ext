@@ -219,8 +219,11 @@ func runBatchVerification() {
 		emptyCexAssetsInfo[i].MarginCollateral = 0
 		emptyCexAssetsInfo[i].PortfolioMarginCollateral = 0
 	}
-	emptyCexAssetListCommitment := tier3host.ComputeCexAssetsCommitment(emptyCexAssetsInfo)
-	expectFinalCexAssetsInfoComm := tier3host.ComputeCexAssetsCommitment(cexAssetsInfo)
+	if verifierConfig.AssetCapacity <= 0 {
+		panic("verifier config: AssetCapacity must be set (> 0); see config docs")
+	}
+	emptyCexAssetListCommitment := tier3host.ComputeCexAssetsCommitment(emptyCexAssetsInfo, verifierConfig.AssetCapacity)
+	expectFinalCexAssetsInfoComm := tier3host.ComputeCexAssetsCommitment(cexAssetsInfo, verifierConfig.AssetCapacity)
 
 	prevCexAssetListCommitments := make([][]byte, 2)
 	prevAccountTreeRoots := make([][]byte, 2)

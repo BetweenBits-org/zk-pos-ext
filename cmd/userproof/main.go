@@ -44,7 +44,10 @@ func main() {
 
 	cfg := loadConfig("config/config.json")
 
-	snapshot := binance.NewSnapshotCSV(binance.SnapshotConfig{UserDataDir: cfg.UserDataFile})
+	snapshot := binance.NewSnapshotCSV(binance.SnapshotConfig{
+		UserDataDir:   cfg.UserDataFile,
+		AssetCapacity: cfg.AssetCapacity,
+	})
 	shapeProvider := binance.NewBatchShape()
 	assetCountTiers := tiersFromShapes(shapeProvider.Shapes())
 

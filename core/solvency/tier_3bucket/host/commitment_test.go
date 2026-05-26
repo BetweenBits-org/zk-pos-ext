@@ -105,7 +105,13 @@ func TestComputeCexAssetsCommitment_LegacyParity(t *testing.T) {
 		PortfolioMarginRatios:     tierToLegacy(spec0.PortfolioMarginRatios),
 	}
 
-	got := tier3host.ComputeCexAssetsCommitment([]tier3spec.CexAssetInfo{spec0})
+	// Capacity == legacyutils.AssetCounts (500) is what locks
+	// byte-parity: the legacy commitment hashes 500 padded slots, so
+	// the host commitment must too.
+	got := tier3host.ComputeCexAssetsCommitment(
+		[]tier3spec.CexAssetInfo{spec0},
+		legacyutils.AssetCounts,
+	)
 	want := legacyutils.ComputeCexAssetsCommitment([]legacyutils.CexAssetInfo{legacy0})
 	if !bytes.Equal(got, want) {
 		t.Fatalf("cex assets commitment byte mismatch:\n  host   = %x\n  legacy = %x", got, want)

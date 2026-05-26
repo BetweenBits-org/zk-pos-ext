@@ -12,6 +12,7 @@
 package host
 
 import (
+	"fmt"
 	"math/big"
 
 	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
@@ -86,20 +87,30 @@ func ComputeUserAssetsCommitment(assets []tier3spec.AccountAsset, assetCountTier
 }
 
 // ComputeCexAssetsCommitment returns the Poseidon commitment over the
-// global per-asset state. cexAssetsInfo MAY be shorter than
-// corespec.AssetCounts; this helper pads with "reserved" entries
+// global per-asset state, padded to `capacity` slots. cexAssetsInfo
+// MAY be shorter than capacity; the helper appends "reserved" entries
 // (BasePrice=0, all collateral 0, max-boundary tier ratios) so the
-// commitment shape is constant.
+// commitment shape is constant for a given trusted setup.
+//
+// `capacity` is the per-deployment asset capacity — typically the
+// profile's AssetCatalog.Capacity() value. It is part of the trusted
+// setup contract: keygen and witness MUST use the same capacity, and
+// changing it forks .vk. Panics if len(cexAssetsInfo) > capacity.
 //
 // Each entry's LoanRatios / MarginRatios / PortfolioMarginRatios slice
 // MUST already have length corespec.TierCount — the snapshot adapter
 // is responsible for that padding. Byte-equivalent to legacy
-// src/utils/utils.go ComputeCexAssetsCommitment.
-func ComputeCexAssetsCommitment(cexAssetsInfo []tier3spec.CexAssetInfo) []byte {
+// src/utils/utils.go ComputeCexAssetsCommitment at capacity ==
+// legacyutils.AssetCounts (500).
+func ComputeCexAssetsCommitment(cexAssetsInfo []tier3spec.CexAssetInfo, capacity int) []byte {
+	if len(cexAssetsInfo) > capacity {
+		panic(fmt.Sprintf("ComputeCexAssetsCommitment: %d entries exceeds capacity %d",
+			len(cexAssetsInfo), capacity))
+	}
 	hasher := poseidon.NewPoseidon()
-	padded := make([]tier3spec.CexAssetInfo, len(cexAssetsInfo), corespec.AssetCounts)
+	padded := make([]tier3spec.CexAssetInfo, len(cexAssetsInfo), capacity)
 	copy(padded, cexAssetsInfo)
-	for i := len(cexAssetsInfo); i < corespec.AssetCounts; i++ {
+	for i := len(cexAssetsInfo); i < capacity; i++ {
 		padded = append(padded, tier3spec.CexAssetInfo{
 			Symbol:                "reserved",
 			Index:                 uint32(i),

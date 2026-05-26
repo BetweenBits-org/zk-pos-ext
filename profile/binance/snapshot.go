@@ -27,14 +27,16 @@ import (
 const cexAssetsCSVName = "cex_assets_info.csv"
 
 // reservedSymbol is the sentinel symbol stamped onto unused
-// CexAssetInfo slots when the deployment uses fewer than
-// corespec.AssetCounts assets. Mirrors legacy src/utils behaviour and
-// matches the literal value the circuit-instance commitment is built
-// against — DO NOT change without a trusted-setup re-ceremony.
+// CexAssetInfo slots when the deployment uses fewer than its
+// per-deployment asset capacity. Mirrors legacy src/utils behaviour
+// and matches the literal value the circuit-instance commitment is
+// built against — DO NOT change without a trusted-setup re-ceremony.
 const reservedSymbol = "reserved"
 
 // SnapshotConfig is the static input needed to construct a CSV-backed
-// SnapshotSource. Mirrors the legacy witness/config.json:UserDataFile.
+// SnapshotSource. Mirrors the legacy witness/config.json:UserDataFile
+// plus the per-deployment asset capacity (formerly the implicit
+// corespec.AssetCounts constant).
 type SnapshotConfig struct {
 	// UserDataDir is the directory containing per-shard user CSV
 	// files plus the cex_assets_info.csv summary file.
@@ -43,6 +45,13 @@ type SnapshotConfig struct {
 	// SnapshotID is a stable identifier embedded in published
 	// artifacts (e.g. "2026-01-15T00:00:00Z").
 	SnapshotID string
+
+	// AssetCapacity is the per-deployment asset slot count the
+	// trusted setup ceremony baked into the keys. CexAssets() pads
+	// the loaded slice up to this length with "reserved" entries so
+	// downstream commitment shape is constant. MUST be >= the count
+	// of real assets in the user CSV header.
+	AssetCapacity int
 }
 
 type csvSnapshot struct {
@@ -407,15 +416,15 @@ func haircutValue(value *big.Int, tiers []modelspec.TierRatio) *big.Int {
 // AssetCatalog index. Symbol order is derived from the first user-shard
 // CSV's header — this is the same convention legacy
 // src/utils/utils.go:ParseAssetIndexFromUserFile uses, so the resulting
-// commitment matches byte-for-byte. The returned slice is always length
-// corespec.AssetCounts, with unused slots filled by reservedSymbol
-// entries whose ratios are MaxTierBoundary placeholders.
+// commitment matches byte-for-byte at equal capacity. The returned
+// slice is always length cfg.AssetCapacity, with unused slots filled by
+// reservedSymbol entries whose ratios are MaxTierBoundary placeholders.
 //
 // The slice is loaded lazily on the first call and cached; subsequent
 // calls return a defensive copy so callers cannot mutate cached state.
 func (c *csvSnapshot) CexAssets(ctx context.Context) ([]modelspec.CexAssetInfo, error) {
 	c.once.Do(func() {
-		c.assets, c.err = loadCSVSnapshot(c.cfg.UserDataDir)
+		c.assets, c.err = loadCSVSnapshot(c.cfg.UserDataDir, c.cfg.AssetCapacity)
 	})
 	if c.err != nil {
 		return nil, c.err
@@ -445,21 +454,27 @@ func (c *csvSnapshot) InvalidCount() uint64 { return c.invalidCount.Load() }
 //     CexAssetInfo; the bundle from (2) supplies BasePrice and three
 //     TierRatio slices padded to corespec.TierCount with
 //     PrecomputedValue filled.
-//  4. Pad the slice up to corespec.AssetCounts with reservedSymbol
-//     entries so the witness shape stays constant across deployments
-//     with fewer assets than the engine cap.
-func loadCSVSnapshot(dir string) ([]modelspec.CexAssetInfo, error) {
+//  4. Pad the slice up to capacity with reservedSymbol entries so the
+//     witness shape stays constant across deployments with fewer real
+//     assets than the trusted-setup cap.
+//
+// capacity is the per-deployment asset slot count baked into the
+// trusted setup — typically passed through from SnapshotConfig.
+func loadCSVSnapshot(dir string, capacity int) ([]modelspec.CexAssetInfo, error) {
 	if dir == "" {
 		return nil, errors.New("binance snapshot: UserDataDir is empty")
+	}
+	if capacity <= 0 {
+		return nil, errors.New("binance snapshot: AssetCapacity must be > 0")
 	}
 	order, err := readUserAssetOrder(dir)
 	if err != nil {
 		return nil, err
 	}
-	if len(order) > corespec.AssetCounts {
+	if len(order) > capacity {
 		return nil, fmt.Errorf(
-			"binance snapshot: user CSV has %d assets, exceeds engine cap %d",
-			len(order), corespec.AssetCounts,
+			"binance snapshot: user CSV has %d assets, exceeds deployment capacity %d",
+			len(order), capacity,
 		)
 	}
 	bySymbol, err := readCexAssetsCSV(filepath.Join(dir, cexAssetsCSVName))
@@ -473,7 +488,7 @@ func loadCSVSnapshot(dir string) ([]modelspec.CexAssetInfo, error) {
 		)
 	}
 
-	assets := make([]modelspec.CexAssetInfo, corespec.AssetCounts)
+	assets := make([]modelspec.CexAssetInfo, capacity)
 	for i, sym := range order {
 		info, ok := bySymbol[sym]
 		if !ok {
@@ -485,7 +500,7 @@ func loadCSVSnapshot(dir string) ([]modelspec.CexAssetInfo, error) {
 		info.Index = uint32(i)
 		assets[i] = info
 	}
-	for i := len(order); i < corespec.AssetCounts; i++ {
+	for i := len(order); i < capacity; i++ {
 		assets[i] = reservedCexAsset(uint32(i))
 	}
 	return assets, nil

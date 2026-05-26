@@ -18,17 +18,24 @@ import (
 
 const happyFixtureDir = "testdata/happy"
 
+// testAssetCapacity is the per-deployment asset capacity tests pad to.
+// 500 keeps byte-parity assertions against legacy src/utils (which
+// hardcodes AssetCounts=500); the production-shape commitment tests
+// would not match a different capacity.
+const testAssetCapacity = 500
+
 func TestCexAssets_HappyPath(t *testing.T) {
 	src := NewSnapshotCSV(SnapshotConfig{
-		UserDataDir: happyFixtureDir,
-		SnapshotID:  "test",
+		UserDataDir:   happyFixtureDir,
+		SnapshotID:    "test",
+		AssetCapacity: testAssetCapacity,
 	})
 	assets, err := src.CexAssets(context.Background())
 	if err != nil {
 		t.Fatalf("CexAssets: unexpected error: %v", err)
 	}
-	if len(assets) != corespec.AssetCounts {
-		t.Fatalf("len(assets) = %d, want %d", len(assets), corespec.AssetCounts)
+	if len(assets) != testAssetCapacity {
+		t.Fatalf("len(assets) = %d, want %d", len(assets), testAssetCapacity)
 	}
 
 	// Real assets in user-CSV-header order: btc, eth, doge.
@@ -69,8 +76,8 @@ func TestCexAssets_HappyPath(t *testing.T) {
 		t.Errorf("btc loan tier 0 ratio = %d, want 90", got)
 	}
 
-	// Reserved padding from index 3 through AssetCounts-1.
-	for i := 3; i < corespec.AssetCounts; i++ {
+	// Reserved padding from index 3 through capacity-1.
+	for i := 3; i < testAssetCapacity; i++ {
 		if assets[i].Symbol != "reserved" {
 			t.Fatalf("assets[%d].Symbol = %q, want %q", i, assets[i].Symbol, "reserved")
 		}
@@ -86,8 +93,9 @@ func TestCexAssets_HappyPath(t *testing.T) {
 // factor of 1e6, so a regression here is unmistakable.
 func TestCexAssets_TwoDigitMultiplier(t *testing.T) {
 	src := NewSnapshotCSV(SnapshotConfig{
-		UserDataDir: happyFixtureDir,
-		SnapshotID:  "test",
+		UserDataDir:   happyFixtureDir,
+		SnapshotID:    "test",
+		AssetCapacity: testAssetCapacity,
 	})
 	assets, err := src.CexAssets(context.Background())
 	if err != nil {
@@ -187,7 +195,11 @@ func buildTamperedFixture(t *testing.T, overrides map[string]string) string {
 
 func loadFixture(t *testing.T, dir string) error {
 	t.Helper()
-	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "test"})
+	src := NewSnapshotCSV(SnapshotConfig{
+		UserDataDir:   dir,
+		SnapshotID:    "test",
+		AssetCapacity: testAssetCapacity,
+	})
 	_, err := src.CexAssets(context.Background())
 	return err
 }
@@ -202,8 +214,9 @@ func loadFixture(t *testing.T, dir string) error {
 // R2/2 step 2 / step 3.
 func TestAccountStream_HappyPath(t *testing.T) {
 	src := NewSnapshotCSV(SnapshotConfig{
-		UserDataDir: happyFixtureDir,
-		SnapshotID:  "test",
+		UserDataDir:   happyFixtureDir,
+		SnapshotID:    "test",
+		AssetCapacity: testAssetCapacity,
 	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
@@ -278,7 +291,11 @@ func userShardWithRows(rows ...string) string {
 // (for InvalidCount) and the collected accounts.
 func streamAll(t *testing.T, dir string) (modelspec.SnapshotSource, []modelspec.AccountInfo) {
 	t.Helper()
-	src := NewSnapshotCSV(SnapshotConfig{UserDataDir: dir, SnapshotID: "test"})
+	src := NewSnapshotCSV(SnapshotConfig{
+		UserDataDir:   dir,
+		SnapshotID:    "test",
+		AssetCapacity: testAssetCapacity,
+	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
 		t.Fatalf("AccountStream: unexpected start-up error: %v", err)
@@ -380,8 +397,9 @@ func TestAccountStream_InvalidMalformedHex(t *testing.T) {
 // b.csv's (AccountIndex = 1). InvalidCount stays 0.
 func TestAccountStream_MultiShardSequential(t *testing.T) {
 	src := NewSnapshotCSV(SnapshotConfig{
-		UserDataDir: "testdata/multi_shard",
-		SnapshotID:  "test",
+		UserDataDir:   "testdata/multi_shard",
+		SnapshotID:    "test",
+		AssetCapacity: testAssetCapacity,
 	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {
@@ -432,8 +450,9 @@ func TestAccountStream_MultiShardSequential(t *testing.T) {
 func TestAccountStream_CtxCancelCloses(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	src := NewSnapshotCSV(SnapshotConfig{
-		UserDataDir: happyFixtureDir,
-		SnapshotID:  "test",
+		UserDataDir:   happyFixtureDir,
+		SnapshotID:    "test",
+		AssetCapacity: testAssetCapacity,
 	})
 	ch, err := src.AccountStream(ctx)
 	if err != nil {

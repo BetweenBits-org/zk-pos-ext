@@ -14,7 +14,13 @@ package spec
 type AssetCatalog interface {
 	// Capacity returns the maximum number of distinct assets the
 	// circuit instance reserves slots for. MUST be >= len(Symbols()).
-	// SHOULD equal spec.AssetCounts for engine-standard compliance.
+	//
+	// Capacity is the single source of truth for per-deployment asset
+	// slot count: keygen, witness, prover, verifier, and userproof all
+	// derive their sizing from this value (directly via the catalog or
+	// transitively via the snapshot's pre-padded slices). Capacity is
+	// part of the trusted-setup contract — changing it forks .vk and
+	// invalidates published proofs.
 	Capacity() int
 
 	// Symbols returns the asset symbols in index order (index 0..N-1

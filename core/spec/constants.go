@@ -16,11 +16,6 @@ const (
 	// models pack two TierRatio entries into one field element.
 	TierCount = 12
 
-	// AssetCounts is the global capacity for distinct CEX assets in one
-	// proof. Deployments with fewer assets pad with "reserved" slots so
-	// circuit-instance size is constant.
-	AssetCounts = 500
-
 	// DefaultPriceScale is the recommended multiplier from a quote-
 	// currency float price to the uint64 BasePrice value embedded in
 	// the witness. Deployments MAY override per-asset via

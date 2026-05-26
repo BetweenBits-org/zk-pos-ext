@@ -10,12 +10,16 @@ package config
 //	                   (CSV files; the binance profile's
 //	                   snapshot adapter consumes it).
 //	DbSuffix           Optional table-name suffix (production: "").
+//	AssetCapacity      Per-deployment asset slot count baked into the
+//	                   trusted setup. Must match keygen, witness,
+//	                   prover, and verifier for this deployment.
 //	TreeDB.Driver      "memory" or "redis".
 //	TreeDB.Option.Addr Redis endpoint when Driver == "redis".
 type Config struct {
 	MysqlDataSource string
 	UserDataFile    string
 	DbSuffix        string
+	AssetCapacity   int
 	TreeDB          struct {
 		Driver string
 		Option struct {
