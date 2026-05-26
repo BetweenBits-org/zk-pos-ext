@@ -45,5 +45,8 @@ Thumbs.db
 # Local config / secrets (per-developer overrides, never commit)
 .env
 .env.*
+!.env.example
+!scripts/ec2/.env.example
 *.local.json
 config.local.*
+scripts/ec2/.env

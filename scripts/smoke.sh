@@ -19,10 +19,35 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ARTIFACTS=".artifacts"
-KEYGEN_STEM="$ARTIFACTS/zkpor.tier_3bucket.5_10"
-ASSET_CAPACITY=5
-SHAPE_OVERRIDE="5_10"
+# Defaults are tiny (R3 step 4 exit-criteria smoke). For production
+# capacity smoke (e.g. on an m6i.4xlarge), export:
+#   ZKPOR_BATCH_SHAPE_OVERRIDE='50_700,500_92'  (must be explicit)
+#   ZKPOR_SMOKE_ASSET_CAPACITY=500
+SHAPE_OVERRIDE="${ZKPOR_BATCH_SHAPE_OVERRIDE:-5_10}"
+ASSET_CAPACITY="${ZKPOR_SMOKE_ASSET_CAPACITY:-5}"
 SAMPLE_DATA="$(pwd)/../src/sampledata"
+
+# Parse SHAPE_OVERRIDE "<tier>_<users>[,<tier>_<users>...]" into the
+# JSON fragments the service configs need:
+#   AssetsCountTiers       — list of per-user tier ints
+#   ZkKeyName              — list of "<artifacts_abs>/<stem>" paths
+# Tiers must appear in ascending order; the override parser already
+# rejects duplicates, so a simple sort + dedupe-not-needed pass is fine.
+shape_tiers_json() {
+  echo "$SHAPE_OVERRIDE" | tr ',' '\n' \
+    | awk -F_ '{print $1}' | sort -n | paste -sd ',' -
+}
+shape_stem_paths_json() {
+  local artifacts_abs="$1"
+  echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ -v base="$artifacts_abs" '
+    { printf "%s\"%s/zkpor.tier_3bucket.%s_%s\"", (NR>1?",":""), base, $1, $2 }
+  '
+}
+# Stems for keygen output (basename only, no path).
+shape_stems() {
+  echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ '{print "zkpor.tier_3bucket." $1 "_" $2}'
+}
+TIERS_JSON="$(shape_tiers_json)"
 
 DSN="zkpor:zkpor@123@tcp(127.0.0.1:3306)/zkpor?parseTime=true"
 
@@ -56,10 +81,16 @@ ensure_mysql() {
   return 1
 }
 
-# 2. Keygen — skip if artifacts already exist.
+# 2. Keygen — skip if every shape's artifact triplet is already present.
 ensure_keys() {
-  if [ -f "$KEYGEN_STEM.pk" ] && [ -f "$KEYGEN_STEM.vk" ] && [ -f "$KEYGEN_STEM.r1cs" ]; then
-    log "keygen artifacts already present at $KEYGEN_STEM.*"
+  local missing=0
+  while read -r stem; do
+    if ! [ -f "$ARTIFACTS/$stem.pk" ] && [ -f "$ARTIFACTS/$stem.vk" ] && [ -f "$ARTIFACTS/$stem.r1cs" ]; then
+      missing=1
+    fi
+  done < <(shape_stems)
+  if [ "$missing" = 0 ]; then
+    log "keygen artifacts already present for shape(s): $SHAPE_OVERRIDE"
     return 0
   fi
   log "running keygen (asset-capacity=$ASSET_CAPACITY, shape=$SHAPE_OVERRIDE)"
@@ -74,6 +105,8 @@ ensure_keys() {
 write_service_configs() {
   local artifacts_abs
   artifacts_abs="$(cd "$ARTIFACTS" && pwd)"
+  local zk_key_name_json
+  zk_key_name_json="$(shape_stem_paths_json "$artifacts_abs")"
 
   cat > cmd/witness/config/config.json <<EOF
 {
@@ -89,8 +122,8 @@ EOF
 {
   "MysqlDataSource": "$DSN",
   "DbSuffix": "",
-  "ZkKeyName": ["$artifacts_abs/zkpor.tier_3bucket.5_10"],
-  "AssetsCountTiers": [$ASSET_CAPACITY]
+  "ZkKeyName": [$zk_key_name_json],
+  "AssetsCountTiers": [$TIERS_JSON]
 }
 EOF
 
@@ -120,14 +153,16 @@ run_prover() {
 write_verifier_config() {
   local artifacts_abs
   artifacts_abs="$(cd "$ARTIFACTS" && pwd)"
+  local zk_key_name_json
+  zk_key_name_json="$(shape_stem_paths_json "$artifacts_abs")"
   local cex_json
   cex_json="$(cat "$ARTIFACTS/final_cex_assets.json")"
   cat > cmd/verifier/config/config.json <<EOF
 {
   "MysqlDataSource": "$DSN",
   "DbSuffix": "",
-  "ZkKeyName": ["$artifacts_abs/zkpor.tier_3bucket.5_10"],
-  "AssetsCountTiers": [$ASSET_CAPACITY],
+  "ZkKeyName": [$zk_key_name_json],
+  "AssetsCountTiers": [$TIERS_JSON],
   "AssetCapacity": $ASSET_CAPACITY,
   "CexAssetsInfo": $cex_json
 }
