@@ -45,14 +45,14 @@ import (
 // requirements are validated by Validate() rather than the schema
 // itself (since both models share one struct).
 type Profile struct {
-	Profile     ProfileMeta    `toml:"profile"`
-	Identity    Identity       `toml:"identity"`
-	Insolvent   Insolvent      `toml:"insolvent"`
-	Constraint  Constraint     `toml:"constraint"`
-	Snapshot    Snapshot       `toml:"snapshot"`
-	BatchShapes []BatchShape   `toml:"batch_shapes"`
-	Pricing     Pricing        `toml:"pricing"`
-	Catalog     CatalogConfig  `toml:"catalog"`
+	Profile     ProfileMeta   `toml:"profile"`
+	Identity    Identity      `toml:"identity"`
+	Insolvent   Insolvent     `toml:"insolvent"`
+	Constraint  Constraint    `toml:"constraint"`
+	Snapshot    Snapshot      `toml:"snapshot"`
+	BatchShapes []BatchShape  `toml:"batch_shapes"`
+	Pricing     Pricing       `toml:"pricing"`
+	Catalog     CatalogConfig `toml:"catalog"`
 }
 
 // ProfileMeta carries the profile-identifying fields.
