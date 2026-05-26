@@ -207,6 +207,52 @@ identity derivation, constraint module).
 동적 로딩은 채택 안 함 (버전 깨짐 risk). 새 module / 새 connector 추가
 = engine PR + 빌드.
 
+## 6.1 Multi-customer `.vk` 공유 정책 (G12 closure)
+
+두 customer (또는 더 많은) profile 이 같은 model 을 쓸 때 trusted-
+setup artifact (`.pk`/`.vk`/`.r1cs`) 가 공유 가능한가 — R5 진입 시점에
+명확히 답해야 했던 질문.
+
+**답**: **공유 가능. r1cs 는 (model, asset_capacity, batch_shape,
+constraint_module) tuple 으로 결정되며 customer profile 은 이 tuple
+바깥의 값을 회로에 흘리지 않는다.**
+
+근거:
+- 회로 코드는 `core/solvency/<model>/circuit/*` — customer 패키지를
+  import 하지 않음 (단방향 의존).
+- `NewBatchCreateUserCircuit(userAssetCounts, allAssetCounts,
+  batchCounts)` 시그니처에 customer 정보 없음.
+- `ConstraintModule` 은 alpha-layer hook — module ID 가 같으면 emit
+  되는 constraint 가 동일. `noop` 모듈은 두 customer 가 자유롭게 공유.
+- `BatchShape.StandardKeyName` 도 이미 customer-blind:
+  `zkpor.<model>.<tier>_<users>[.<module>]`. customer name 없음.
+
+**운영 정책** (operator 책임 — R5 결정):
+
+1. **`(model, asset_capacity, batch_shape, module)` tuple 이 같은
+   customer 끼리 같은 `.vk` 디렉터리를 공유**. e.g. binance 와 SEA-
+   customer 가 둘 다 `tier_3bucket`, capacity 500, shape `{50, 700}`,
+   noop module 이면 같은 `zkpor.tier_3bucket.50_700.{pk,vk,r1cs}` 사용.
+
+2. **`asset_capacity` 는 `StandardKeyName` 에 인코드되지 않으므로
+   operator 가 명시적으로 일관성을 보장해야 한다**. `cmd/keygen` 의
+   `-asset-capacity` 와 모든 service config 의 `AssetCapacity` 가
+   같은 값을 가져야 함. 디렉터리 컨벤션 권장:
+   `.artifacts/cap-<N>/zkpor.<model>.<tier>_<users>.*` — capacity
+   별로 폴더 분리.
+
+3. **profile name 은 `.vk` 신원의 일부가 아니다**. 두 profile 이
+   같은 tuple 을 가지면 같은 ceremony 의 .vk 가 byte-equivalent 로
+   동작. audit 라벨 측면에서 customer 별 파일명을 원하면 operator 가
+   심볼릭 링크 또는 복사로 처리 — engine 은 stem 만 본다.
+
+4. **다른 tuple 은 무조건 별도 ceremony**. shape 다름, capacity 다름,
+   module 다름은 별도 `.vk`. profile 다른 건 무관.
+
+**향후 (R7 freeze 직전 후보)**: capacity 를 StandardKeyName 에 인코드
+(예: `zkpor.<model>.cap<N>.<tier>_<users>.<module>`) — operator 의
+실수 위험을 줄이는 trade-off. R5 시점에는 컨벤션-only.
+
 # 7. G16 — Composition Compatibility Process (방향 lock)
 
 composition 자체는 §1 의 add-only 로 수학적으로 안전. 그러나
