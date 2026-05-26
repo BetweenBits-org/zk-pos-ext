@@ -3,8 +3,8 @@ package host
 import (
 	"math/big"
 
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	t1spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
-	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
 
 // UserConfig is the per-account inclusion-proof artifact for the
@@ -51,11 +51,11 @@ func AccountLeafHash(account *t1spec.AccountInfo, assetCountTiers []int) []byte 
 	if account.TotalDebt != nil {
 		debtBytes = account.TotalDebt.Bytes()
 	}
-	return poseidon.PoseidonBytes(
+	return corehost.AccountLeafHash(
 		account.AccountID,
 		account.TotalEquity.Bytes(),
 		debtBytes,
-		nil,
+		nil, // T1 has no risk-weighted collateral
 		assetsCommitment,
 	)
 }

@@ -8,11 +8,17 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
+R6-close docs(handoff+roadmap): close R6 — t1_simple_margin + Tn naming + G11
+722a133 feat(zkpor): R6-B — t1_simple_margin host helpers + sea_reference debt=0 wire
+829e81c feat(zkpor): R6-A — t1_simple_margin spec + circuit (debt absorbed, spot superset)
+b0318e1 feat(zkpor): R6 prep — 04-solvency-models docs + Tn naming v1 (5→4 model, versioned change)
+4330cbf docs(zkpor): add 03-system-architecture visual overview (R5 snapshot)
+b5b3236 docs(handoff+roadmap): close R5 — sea_reference + profile.toml + G12
 8fb5b3f docs(zkpor): R5-4 — G12 closure (multi-customer .vk sharing policy)
 23566aa feat(zkpor): R5-3 — declarative profile.toml schema + two reference instantiations
 f41d36a feat(zkpor): R5-2 — sea_reference snapshot CSV adapter + happy fixture
 d2c7f9b feat(zkpor): R5-1 — sea_reference customer profile (6 adapters, no snapshot)
-e8eabed feat(zkpor): R5-0 — t1_simple_margin host helpers (off-circuit emitter)
+e8eabed feat(zkpor): R5-0 — spot_simple host helpers (off-circuit emitter)
 20a1571 docs(handoff+roadmap): close R4 — t1_simple_margin model audited + R5 next
 f511dcb feat(zkpor): R4-2 — t1_simple_margin Setup smoke + ComputeFlatUint64Commitment fix
 466ef55 feat(zkpor): R4-1 — t1_simple_margin circuit (BatchCreateUserCircuit + witness builder)
@@ -715,7 +721,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 4 + R4 + R5 종결**.
+**R3 step 4 + R4 + R5 + R6 종결**.
 
 R3 step 4 산출물: 4 services + 3 gate (G1/G2/G6) + AssetCounts
 재배치 (E) + end-to-end smoke (A5) — `scripts/smoke.sh` 풀 파이프
@@ -727,14 +733,24 @@ core/circuit 의 universal helpers 가 신규 추가 없이 수용. 부수로
 `ComputeFlatUint64Commitment` 잠재 버그 fix (commit chain f511dcb →
 466ef55 → e4dc0cb).
 
-R5 산출물 (이번 회): host helpers (R5-0) + sea_reference 7 어댑터
-(R5-1) + snapshot CSV ETL (R5-2) + declarative profile.toml (R5-3) +
-G12 closure (R5-4). 두 customer 가 같은 toml schema + 같은 universal
-identity scheme 위에서 표현됨. `.vk` 공유 정책 결정 (tuple-based,
-customer-blind). commit chain 8fb5b3f → 23566aa → f41d36a → d2c7f9b
-→ e8eabed.
+R5 산출물: host helpers (R5-0) + sea_reference 7 어댑터 (R5-1) + snapshot
+CSV ETL (R5-2) + declarative profile.toml (R5-3) + G12 closure (R5-4).
+두 customer 가 같은 toml schema + 같은 universal identity scheme 위에서
+표현됨. `.vk` 공유 정책 결정 (tuple-based, customer-blind). commit chain
+8fb5b3f → 23566aa → f41d36a → d2c7f9b → e8eabed.
 
-R6 promotion candidates 누적 (rule-of-three trigger 들):
+R6 산출물 (이번 회): **카탈로그 5→4 통합** (`spot_simple` + `merkle_classic`
+→ `t1_simple_margin` superset, debt=0 spot 흡수) + **Tn naming v1**
+(`t1_simple_margin` / `t2_static_haircut_margin` /
+`t3_tiered_haircut_margin_1pool` / `t4_tiered_haircut_margin_3pool`) +
+**4 model 통일 5-input Poseidon AccountLeaf signature** +
+**`docs/04-solvency-models.md`** (industry reference + 일반화 트레일) +
+**G11 closure** (첫 universal helper `core/host.AccountLeafHash`
+promotion). 5-tier marketing 은 `ModelDisplay` map 으로 유지. commit chain
+b0318e1 → 829e81c → 722a133 → R6-close.
+
+R6 후 carry (3rd model 또는 R7 freeze 직전 promote):
+
 - `PowersOfSixteenBits` (양 model `circuit/constants.go`)
 - R1CS hash test helpers (양 model `setup_test.go`)
 - `parseShapeOverride` (양 profile `batch_shape.go`)
@@ -743,20 +759,36 @@ R6 promotion candidates 누적 (rule-of-three trigger 들):
 - Identity DeriveAccountID 64-hex → fr.Element body (양 profile
   `identity.go`)
 
-3rd model / 3rd customer 등장 시 promote — 자세한 항목 별로
-PRODUCTION_ROADMAP G11 row 참조.
+R6 후 surface 된 환경 이슈 (별 슬라이스 후보):
+
+- **bw6 환경 fix** — `bnb-chain/gnark-crypto` fork 의 bw6-633/bw6-761
+  패키지 부재로 `gnark/backend/groth16` transitive import 가 fail.
+  R6 의 build/vet 는 통과하나 `go test` 가 일부 패키지 (circuit /
+  profile/binance / host) 의 setup_test, host_test, legacy_compare_test
+  실행 불가. fix 안: gnark / gnark-crypto fork 버전 매칭, 또는
+  backend/groth16/bn254 명시 import, 또는 module cache 의 bw6 패키지
+  복원. 별 슬라이스 (R6.5 env fix) 로 처리.
 
 다음 슬라이스 갈래 — agent 가 선택 (또는 user 와 합의):
 
-**갈래 R6 — Third model + core/circuit 보강 (rule-of-three trigger)**:
+**갈래 R6.5 — bw6 env fix (R6 follow-up, prereq for full test)**:
 
 ```text
-PRODUCTION_ROADMAP §R6. 카탈로그 5 model 중 3번째 회로 구현 진입.
-후보: t3_tiered_haircut_margin_1pool (single-bucket collateral, t4_tiered_haircut_margin_3pool 의 sub-
-shape) / t2_static_haircut_margin / t1_simple_margin 중 하나. 동시에
-R5 까지 누적된 R6 promotion candidates 를 정리 (PowersOfSixteenBits,
-R1CS hash helpers, parseShapeOverride, snapshot CSV helpers, identity
-derivation) 를 core 로 이동.
+go.mod 의 bnb-chain/gnark + bnb-chain/gnark-crypto fork 가 bw6 패키지를
+제거. gnark backend/groth16 의 init 이 bw6 transitive import 라 일부
+test 실행 fail. 작업: (a) fork 버전 매칭 확인 (b) backend/groth16/bn254
+명시 import 로 변경 (c) module cache 복원 / replace 갱신. 끝나면 setup
+smoke + binance legacy_compare + host round-trip 모두 통과 — R6 의
+NbConstraints + R1CS sha256 baseline 도 이때 기록.
+```
+
+**갈래 R7 — v1 catalog freeze (장기, 3rd model 후보 narrowing 필요)**:
+
+```text
+PRODUCTION_ROADMAP §R7. 카탈로그 4 model 중 남은 2개 (T2 / T3) 구현 +
+profile descriptor schema v1 freeze + module 카탈로그 freeze + G4 + G10
+closure. 3rd model 후보 narrowing (customer signal) 가 prereq —
+T2 (static haircut) 또는 T3 (tiered 1-pool) 중 시장 신호 기반.
 ```
 
 **갈래 R5-FU — sea_reference end-to-end smoke**:

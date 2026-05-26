@@ -3,8 +3,8 @@ package host
 import (
 	"math/big"
 
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
-	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
 
 // UserConfig is the per-account inclusion-proof artifact. The
@@ -50,7 +50,7 @@ type UserConfig struct {
 // own config to check inclusion locally.
 func AccountLeafHash(account *t4spec.AccountInfo, assetCountTiers []int) []byte {
 	assetsCommitment := ComputeUserAssetsCommitment(account.Assets, assetCountTiers)
-	return poseidon.PoseidonBytes(
+	return corehost.AccountLeafHash(
 		account.AccountID,
 		account.TotalEquity.Bytes(),
 		account.TotalDebt.Bytes(),

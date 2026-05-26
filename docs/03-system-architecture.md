@@ -1,7 +1,13 @@
 # zkpor System Architecture (overview)
 
-**Snapshot 시점**: 2026-05-26 / commit `b5b3236` 기준 (R5 종결 직후).  
+**Snapshot 시점**: 2026-05-26 / R6 종결 직후 (4-슬라이스 chain
+`b0318e1 → 829e81c → 722a133 → R6-close`).  
 **기준**: 코드 (`zkpor/` 트리) + `PRODUCTION_ROADMAP.md` stage 정의.
+
+R6 변경 요약: 카탈로그 5→4 통합 (`spot_simple` + `merkle_classic` →
+`t1_simple_margin` superset), Tn naming v1, 4 model 통일 5-input Poseidon
+AccountLeaf signature, `core/host.AccountLeafHash` universal helper
+promotion (G11 first entry). 자세한 결정 트레일은 `docs/04-solvency-models.md`.
 
 이 문서는 다이어그램 중심의 system overview 다. 한 번에 한 다이어그램,
 한 다이어그램이 한 가지 질문만 답하도록 설계 — "전체 어디에 뭐가 있나",
@@ -48,8 +54,8 @@ flowchart TB
   subgraph Code["📦 Code stack (zkpor packages)"]
     direction TB
     Profile["profile/{binance, sea_reference, declarative}<br/>(customer-specific adapters + profile.toml)"]
-    Model["core/solvency/{t4_tiered_haircut_margin_3pool, t1_simple_margin}<br/>(spec + circuit + host — 2 model)"]
-    Universal["core/<br/>(spec · circuit · host · tree)"]
+    Model["core/solvency/{t1, t2, t3, t4}<br/>(4-tier catalog — T1/T4 spec+circuit+host, T2/T3 doc.go only)"]
+    Universal["core/<br/>(spec · circuit · host · tree)<br/>incl. universal AccountLeafHash (G11 first entry)"]
     Store["store/<br/>(gorm models)"]
   end
 

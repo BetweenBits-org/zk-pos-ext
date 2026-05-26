@@ -479,33 +479,65 @@ R5 안에서 surface 된 부수 결정:
 
 Blocking gates: G12.
 
-### Stage R6 — Third model + core/circuit 보강 (rule-of-three trigger)
+### Stage R6 — `t1_simple_margin` (spot+margin 통합) + G11 closure
 
-목표: 세 번째 model 구현 시점 (t4_tiered_haircut_margin_3pool + t1_simple_margin + 새 model).
-이때 처음으로 `zkpor/core/circuit/` 에 추가 헬퍼 승격 검토 (G11). 후보:
-`t1_simple_margin` (mid-tier 마진 거래소), `t2_static_haircut_margin` (단순
-마진), 또는 시장 신호 기반의 다른 entry. 후보 헬퍼: RLC-based sum
-equality helper, account leaf composition helper.
+**CLOSED** (commit chain b0318e1 → 829e81c → 722a133 → R6-close).
+
+R6 의 원래 정의는 "세 번째 model + core/circuit 승격". 실제 진행은
+**카탈로그 통합 우선**: market context (`docs/01` SEA zoom-in) 에서
+spot+margin (`spot_simple` + `merkle_classic`) 통합이 cost-neutral 임을
+확인하고 5→4 model 로 카탈로그 재정렬. 첫 universal helper promotion
+(`core/host.AccountLeafHash`) 으로 G11 의 *규약과 첫 entry* 정착.
 
 산출물:
 
-- 세 번째 model 의 회로 구현.
-- 세 model 모두에 공통으로 적용 가능한 패턴이 `zkpor/core/circuit/` 으로 승격됨.
-- substrate API v1 잠정 정착.
-- **`core/constraint_modules/` 의 첫 본격 entry 들 promotion** — R5 까지
-  거치며 두 customer 이상에서 같은 module 패턴이 사용된 것이 있으면, G11
-  의 자연 확장으로 module 도 core 라이브러리로 옮긴다. 후보 prefix:
-  `regulator.<jurisdiction>.<rule>_v<v>`, `business.<pattern>_v<v>`.
-  `docs/02-module-architecture.md` §5 참조.
+- **`t1_simple_margin` model** — `spot_simple` (R4-R5) 가 `merkle_classic` 의
+  *math superset* 임을 확정하고 둘을 하나의 회로로 통합. spot 거래소는
+  `Debt=0` supply 로 자명 만족 (per-user `TotalEquity≥TotalDebt`). 5-input
+  Poseidon AccountLeaf signature 가 4 model 모두 통일됨
+  (`docs/04-solvency-models.md §3`).
+
+- **카탈로그 4-tier 재정렬** + Tn naming (`t1_simple_margin`,
+  `t2_static_haircut_margin`, `t3_tiered_haircut_margin_1pool`,
+  `t4_tiered_haircut_margin_3pool`). marketing 의 5-tier (Basic / Standard
+  / Pro-A / Pro-B / Enterprise) 는 `ModelDisplay` map 으로 유지.
+
+- **`docs/04-solvency-models.md`** — 4 model 의 industry reference (Binance
+  OSS, Bybit / KuCoin / HTX off-chain Merkle PoR, OKX zk-STARK V2, Aave V3
+  LTV, dYdX IMF curve, Provisions 학술) + 솔밴시 식 + 일반화 결정 트레일.
+
+- **G11 첫 promotion entry**: `core/host.AccountLeafHash` — 4 model 공유
+  되는 5-input Poseidon leaf signature 의 universal off-circuit emitter.
+  T1 + T4 의 model-typed wrapper 가 호출.
+
+남은 promotion candidates (carry to R7 / 3rd model 진입):
+
+- `PowersOfSixteenBits` (양 model `circuit/constants.go`)
+- R1CS hash test helpers (양 model `setup_test.go`)
+- `parseShapeOverride` (양 profile `batch_shape.go`)
+- snapshot CSV helpers (`convertFloatStrToUint64`, `errInvalidRow`/`invalidf`)
+- identity `DeriveAccountID` 64-hex → fr.Element body
+
+위 5개는 **two-model evidence** 만 확보된 상태 (rule-of-three 의 두 번째 case
+까지). 3rd model 등장 시 또는 R7 freeze 직전에 promote.
 
 Exit criteria:
 
-- 세 model 모두 `zkpor/core/circuit/` 새 헬퍼 호출 형태로 정리.
-- G11 closed.
-- `core/constraint_modules/` 에 noop 외 최소 1 entry 등록 (rule-of-three
-  통과한 module 한정).
+- 카탈로그 4 entry 로 정렬 + Tn naming 적용 ✅
+- 첫 universal host helper promoted (`core/host.AccountLeafHash`) ✅
+- G11 closed ✅
+- `t1_simple_margin` 회로 구현 (build + vet 통과) ✅. 단 setup smoke 실
+  실행은 bw6 환경 이슈 (`bnb-chain/gnark-crypto` fork 의 bw6 패키지
+  부재) 로 보류 — 별도 환경 fix 슬라이스 (R6.5 후보).
 
-Blocking gates: G11.
+R6 후 차기 단계 (선택):
+
+- **R6.5 env fix** — bw6 transitive 의존 해소 (gnark / gnark-crypto fork
+  버전 매칭 또는 backend/groth16/bn254 명시 import 로 변경). 이게 끝나면
+  setup smoke + binance legacy_compare + host round-trip 테스트 모두 통과.
+- **R5-FU** — sea_reference end-to-end smoke (이미 R5 후속 추적 중).
+- **R6.6 / R7-prep** — 3rd model 후보 narrowing (T2 / T3) + 5 promotion
+  candidates 정리.
 
 ### Stage R7 — v1 catalog freeze
 
@@ -555,7 +587,7 @@ Blocking gates: G4, G10.
 | **G8** BatchShape v1 정착 (binance) | closed | R0 | `{50,700}` + `{500,92}` (Binance reference). | 다른 customer 시 별도 shape 정의. |
 | **G9** module ID 명명 규약 | closed | R0 | `<exchange>.<rule>_v<version>` 형식. filename-safe (lowercase, digits, dots, underscores). | — |
 | **G10** LegacyKeyName 폐기 일정 | deferred | R7 | 현재 호환 유지 (`BatchShape.LegacyKeyName()`). | catalog freeze 후 한 release에서 deprecate. |
-| **G11** core/circuit 추가 헬퍼 승격 규약 | deferred | R6 | rule-of-three — 3번째 model 등장 시 검토. | 세 번째 model 구현 시점. |
+| **G11** core/circuit 추가 헬퍼 승격 규약 | closed | R6 | **rule-of-three 의 *두 model 일치* 시점에 universal signature 만 promote** 정착 (R6/FU). 첫 entry: `core/host.AccountLeafHash` — 4 model 통일 5-input Poseidon leaf signature 의 universal off-circuit emitter. 5 carry candidates (PowersOfSixteenBits / R1CS hash helpers / parseShapeOverride / snapshot CSV helpers / identity DeriveAccountID body) 는 3rd model 등장 또는 R7 freeze 직전 promote. | — |
 | **G12** multi-customer profile 충돌 정책 | closed | R5 step 4 | **`.vk` 공유는 `(model, asset_capacity, batch_shape, constraint_module)` tuple 단위**. customer profile 은 회로에 흐르지 않으므로 두 customer 가 동일 tuple 이면 같은 ceremony 의 .vk 가 byte-equivalent. `StandardKeyName` 은 이미 customer-blind (`zkpor.<model>.<tier>_<users>[.<module>]`). `asset_capacity` 는 stem 에 인코드되지 않아 operator 가 capacity 별 디렉터리 컨벤션 (예: `.artifacts/cap-<N>/`) 으로 일관성 보장 책임. 자세한 내용 `docs/02-module-architecture.md §6.1` 참조. R7 freeze 직전 capacity 를 stem 에 추가 인코드 여부 재검토 후보. | — |
 | **G13** AccountID fr.Element 정규화 위치 | closed | R3 step 1 | **(a) snapshot 어댑터** 채택. legacy `src/utils/utils.go:553` 와 동일 layer 에서 `new(fr.Element).SetBytes(id).Marshal()` round-trip. 근거: G1 byte-equivalence 비용 최저 (snapshot 출력 hex 직접 비교 가능), `AccountInfo.AccountID == userproof.AccountID == field input` 단일 형태 유지, R3 step 4 service rewire 시 호출 누락 위험 없음. 트레이드오프: `profile/binance/snapshot.go` 가 bn254 에 직접 결합 — 현재 카탈로그 5 model 전부 bn254 라 실질 충돌 없음, 두 번째 customer profile (R4) 등장 시 R6 helper 승격 후보로 carry. (b)/(c) 는 layering 더 깔끔하나 user-facing inconsistency / interface 확장 / 회귀 위험으로 기각. | impl: R3 step 2 (alpha wiring 과 동반). `AccountIDProvider.Scheme()` 명칭 갱신은 R3 step 4 (G2 closure) 동반. |
 | **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R5 진입, model-first swap 이후) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
