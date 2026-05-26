@@ -93,9 +93,12 @@ ensure_keys() {
     log "keygen artifacts already present for shape(s): $SHAPE_OVERRIDE"
     return 0
   fi
-  log "running keygen (asset-capacity=$ASSET_CAPACITY, shape=$SHAPE_OVERRIDE)"
+  log "running keygen (profile=binance, asset-capacity=$ASSET_CAPACITY, shape=$SHAPE_OVERRIDE)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
-    go run ./cmd/keygen -asset-capacity "$ASSET_CAPACITY" -out "$ARTIFACTS/"
+    go run ./cmd/keygen \
+      -profile profile/binance/binance.toml \
+      -asset-capacity "$ASSET_CAPACITY" \
+      -out "$ARTIFACTS/"
 }
 
 # 3-7. Run each service from its own cwd so its hard-coded

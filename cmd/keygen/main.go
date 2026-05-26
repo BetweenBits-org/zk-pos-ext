@@ -1,28 +1,43 @@
 // Command keygen is the zkpor-native trusted-setup generator. For each
-// BatchShape the deployment's profile advertises, it compiles the
-// t4_tiered_haircut_margin_3pool circuit at that shape's (userAssetCounts, assetCapacity,
-// batchCounts) parameters, runs groth16.Setup, and writes the
-// .pk / .vk / .r1cs artifact triplet to -out.
+// BatchShape advertised by the customer's declarative profile, it
+// compiles the solvency-model circuit at that shape's (userAssetCounts,
+// assetCapacity, batchCounts) parameters, runs groth16.Setup, and
+// writes the .pk / .vk / .r1cs artifact triplet to -out.
 //
-// File stems use BatchShape.StandardKeyName — e.g.
-// "zkpor.t4_tiered_haircut_margin_3pool.5_10". The prover/verifier configs reference
-// these stems verbatim in their ZkKeyName field. The asset capacity is
-// NOT encoded in the stem; downstream services MUST configure the same
-// AssetCapacity to land on a compatible witness shape.
+// File stems use BatchShape.StandardKeyName, with the SolvencyModelID
+// drawn from the profile — e.g. "zkpor.t4_tiered_haircut_margin_3pool.5_10"
+// for the binance reference profile, "zkpor.t1_simple_margin.50_1000"
+// for sea_reference. Asset capacity is NOT encoded in the stem;
+// downstream services MUST configure the same AssetCapacity to land
+// on a compatible witness shape.
 //
 // This is the engine-side trusted setup; in production each shape's
 // triplet is the output of a real multi-party ceremony, not a
-// single-process Setup call. For sample-data end-to-end smoke (R3
-// step 4 exit criteria) a single-process Setup is sufficient.
+// single-process Setup call. For sample-data end-to-end smoke a
+// single-process Setup is sufficient.
 //
-// Run for production capacity + production shapes:
+// Run for the binance reference profile + production shapes:
 //
-//	go run ./cmd/keygen -asset-capacity 500 -out .artifacts/
+//	go run ./cmd/keygen -profile ./profile/binance/binance.toml \
+//	    -out .artifacts/binance
 //
-// Run for a tiny smoke shape + small capacity:
+// Run for the smoke harness (override capacity + shapes):
 //
 //	ZKPOR_BATCH_SHAPE_OVERRIDE=5_10 \
-//	  go run ./cmd/keygen -asset-capacity 5 -out .artifacts/
+//	  go run ./cmd/keygen \
+//	      -profile ./profile/binance/binance.toml \
+//	      -asset-capacity 5 \
+//	      -out .artifacts/smoke
+//
+// -asset-capacity overrides profile.asset_capacity when set; this
+// keeps the smoke harness running on tiny shapes without committing
+// a separate smoke-specific profile.toml.
+//
+// R8-C/1 swap: previously the profile was hard-coded to
+// profile/binance via direct constructor calls. Now profile.toml is
+// the source-of-truth; the binance package is still imported so its
+// init() registers the binance_csv snapshot connector (the t4 host's
+// registry would otherwise be missing the entry the toml references).
 package main
 
 import (
@@ -33,9 +48,17 @@ import (
 	"runtime"
 	"time"
 
+	t1circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/circuit"
 	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+
+	// _ imports register snapshot connectors + identity/insolvent in
+	// the engine registries (R8-A/B). When a new profile lands, add
+	// its blank import here.
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
+
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
@@ -43,41 +66,59 @@ import (
 )
 
 func main() {
+	profilePath := flag.String("profile", "", "path to the declarative profile.toml (required)")
 	out := flag.String("out", ".", "output directory for .pk/.vk/.r1cs files")
-	assetCapacity := flag.Int("asset-capacity", 0, "per-deployment asset slot count (must match witness/prover/verifier/userproof)")
+	capacityOverride := flag.Int("asset-capacity", 0,
+		"override profile.asset_capacity (smoke harness only; 0 = use profile.toml value)")
 	flag.Parse()
 
-	if *assetCapacity <= 0 {
-		panic("-asset-capacity must be > 0 (typical production value: 500)")
+	if *profilePath == "" {
+		fmt.Fprintln(os.Stderr, "-profile is required (path to profile.toml)")
+		os.Exit(2)
+	}
+
+	prof, err := declarative.Load(*profilePath)
+	if err != nil {
+		panic(err.Error())
 	}
 	if err := os.MkdirAll(*out, 0o755); err != nil {
 		panic(fmt.Sprintf("create output dir %q: %v", *out, err))
 	}
 
-	shapeProvider := binance.NewBatchShape()
-	shapes := shapeProvider.Shapes()
-	fmt.Printf("keygen for %d shape(s) at asset capacity %d:\n", len(shapes), *assetCapacity)
+	shapes, err := declarative.BuildBatchShape(prof.BatchShapes)
+	if err != nil {
+		panic(fmt.Sprintf("BuildBatchShape: %v", err))
+	}
+	model := corespec.SolvencyModelID(prof.Profile.Model)
+	capacity := prof.Profile.AssetCapacity
+	if *capacityOverride > 0 {
+		capacity = *capacityOverride
+		fmt.Printf("keygen: -asset-capacity override %d (profile.toml = %d)\n",
+			capacity, prof.Profile.AssetCapacity)
+	}
+	fmt.Printf("keygen for profile %q (model %s, capacity %d): %d shape(s)\n",
+		prof.Profile.Name, model, capacity, len(shapes))
 	for _, s := range shapes {
 		fmt.Printf("  %d_%d (userAssetCounts=%d, allAssetCounts=%d, batchCounts=%d)\n",
-			s.AssetCountTier, s.UsersPerBatch, s.AssetCountTier, *assetCapacity, s.UsersPerBatch)
+			s.AssetCountTier, s.UsersPerBatch, s.AssetCountTier, capacity, s.UsersPerBatch)
 	}
 
 	for _, s := range shapes {
-		stem := s.StandardKeyName(binance.SolvencyModel, corespec.NoExtensionID)
-		if err := keygenShape(s, *assetCapacity, filepath.Join(*out, stem)); err != nil {
+		stem := s.StandardKeyName(model, prof.Constraint.Module)
+		if err := keygenShape(model, s, capacity, filepath.Join(*out, stem)); err != nil {
 			panic(err.Error())
 		}
 	}
 }
 
-// keygenShape compiles the t4_tiered_haircut_margin_3pool circuit at the given shape and
-// asset capacity, then writes .pk / .vk / .r1cs to "<stemPath>.<ext>".
-func keygenShape(s corespec.BatchShape, assetCapacity int, stemPath string) error {
-	circuit := t4circuit.NewBatchCreateUserCircuit(
-		uint32(s.AssetCountTier),
-		uint32(assetCapacity),
-		uint32(s.UsersPerBatch),
-	)
+// keygenShape compiles the model-appropriate circuit at the given
+// shape and asset capacity, then writes .pk / .vk / .r1cs to
+// "<stemPath>.<ext>".
+func keygenShape(model corespec.SolvencyModelID, s corespec.BatchShape, assetCapacity int, stemPath string) error {
+	circuit, err := newCircuit(model, s, assetCapacity)
+	if err != nil {
+		return err
+	}
 
 	compileStart := time.Now()
 	cs, err := frontend.Compile(
@@ -113,6 +154,28 @@ func keygenShape(s corespec.BatchShape, assetCapacity int, stemPath string) erro
 		return err
 	}
 	return nil
+}
+
+// newCircuit returns the gnark circuit for the model at the given
+// shape. Each model has its own BatchCreateUserCircuit constructor;
+// adding a new model means extending this switch.
+func newCircuit(model corespec.SolvencyModelID, s corespec.BatchShape, assetCapacity int) (frontend.Circuit, error) {
+	switch model {
+	case "t4_tiered_haircut_margin_3pool":
+		return t4circuit.NewBatchCreateUserCircuit(
+			uint32(s.AssetCountTier),
+			uint32(assetCapacity),
+			uint32(s.UsersPerBatch),
+		), nil
+	case "t1_simple_margin":
+		return t1circuit.NewBatchCreateUserCircuit(
+			uint32(s.AssetCountTier),
+			uint32(assetCapacity),
+			uint32(s.UsersPerBatch),
+		), nil
+	default:
+		return nil, fmt.Errorf("keygen: unsupported solvency model %q (add a case in newCircuit)", model)
+	}
 }
 
 // writeTo opens path for writing and invokes serialize to stream the
