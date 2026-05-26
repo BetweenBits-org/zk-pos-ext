@@ -37,14 +37,6 @@ func (s BatchShape) StandardKeyName(model SolvencyModelID, module string) string
 	return fmt.Sprintf("zkpor.%s.%d_%d.%s", model, s.AssetCountTier, s.UsersPerBatch, module)
 }
 
-// LegacyKeyName returns the pre-engine naming scheme — "zkpor50_700".
-// Provided so existing t4_tiered_haircut_margin_3pool deployments can read their old
-// keys without re-running keygen. New deployments SHOULD use
-// StandardKeyName.
-func (s BatchShape) LegacyKeyName() string {
-	return fmt.Sprintf("zkpor%d_%d", s.AssetCountTier, s.UsersPerBatch)
-}
-
 // BatchShapeProvider supplies the set of batch shapes a customer
 // deployment runs for a given solvency model.
 //

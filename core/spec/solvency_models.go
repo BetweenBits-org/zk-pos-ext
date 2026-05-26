@@ -16,13 +16,21 @@ import "slices"
 // leaf — see docs/04-solvency-models.md §3.
 type SolvencyModelID string
 
-// Solvency-model catalog (R6, 4-entry).
+// Solvency-model catalog (v1 FROZEN — R7).
 //
 // This is the public, audited list of models supported by the engine.
 // Each entry maps to a directory under zkpor/core/solvency/<id>/ and
 // to a published .pk/.vk pair per BatchShape.
 //
-// Catalog governance:
+// v1 freeze (R7) — the 4-entry list below is frozen. Any catalog change
+// after this freeze is a *versioned change* (v2 catalog) requiring:
+//
+//   - new entry: separate v2 catalog definition; v1 entries unchanged.
+//   - removal: deprecate-then-remove across two version cycles minimum.
+//   - rename of an existing ID: breaks every published .vk that
+//     references the old name — disallowed in v1.
+//
+// Catalog governance (add-only at the v1 level):
 //
 //   - Adding a model requires its circuit to be audited and its
 //     trusted-setup ceremony completed.
@@ -32,7 +40,7 @@ type SolvencyModelID string
 //     composition is intentionally not supported at v1).
 //
 // Spot use case: T1 with all user.TotalDebt = 0 (constraint trivially
-// satisfied). The former separate `t1_simple_margin` entry was absorbed
+// satisfied). The former separate `spot_simple` entry was absorbed
 // into T1 in R6 — see docs/04-solvency-models.md §8.1.
 const (
 	// T1SimpleMargin — Basic / Standard tier (spot absorbed).
@@ -93,9 +101,10 @@ const (
 	T4TieredHaircutMargin3Pool SolvencyModelID = "t4_tiered_haircut_margin_3pool"
 )
 
-// CatalogedModels lists every model in the audited catalog in tier
-// order (T1 → T4 = ascending verification richness / circuit cost).
-// Adding to this list is a versioned, audited change.
+// CatalogedModels lists every model in the v1-frozen audited catalog
+// in tier order (T1 → T4 = ascending verification richness / circuit
+// cost). Adding to this list is a versioned, audited change (v2
+// catalog).
 var CatalogedModels = []SolvencyModelID{
 	T1SimpleMargin,
 	T2StaticHaircutMargin,

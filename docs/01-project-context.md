@@ -268,7 +268,7 @@ reserve option 으로 가치 유지, 그러나 "주력 제품" 은 t1_simple_mar
 | Sum equality | **모든 모델 mandatory** — irreducible PoR claim (= c4). |
 | 명명 분리 | `SolvencyModelID` (math) ≠ `ProfileID` (deployment). `BatchShape` (dimensions) ≠ `BatchProfile`. |
 | Key file naming | `zkpor.<model>.<assetTier>_<usersPerBatch>[.<module>].{pk,vk,r1cs}` |
-| Legacy 호환 | `BatchShape.LegacyKeyName()` 가 기존 `zkpor50_700` 명명 유지. |
+| Legacy 호환 | ✅ R7 에서 LegacyKeyName 제거 — StandardKeyName 단일 사용. R3 의 production `.pk` 는 1회 마이그레이션 후 새 stem 사용. |
 | Identity 공개 | `AccountIDProvider.Scheme()` 으로 derivation 알고리즘 ID 공개. 사용자가 자기 ID 재현 가능해야. |
 | Adapter 패키지 | `zkpor/profile/<customer>/` 는 **단일 Go 패키지**. 한 customer = 한 import. |
 | 거래소명 분리 | 거래소 이름을 model id에 박지 않는다 (예: `t4_tiered_haircut_margin_3pool`, not `binance_v2`). |
@@ -286,5 +286,5 @@ reserve option 으로 가치 유지, 그러나 "주력 제품" 은 t1_simple_mar
 | Q3 | 두 번째 customer 온보딩 시 적용할 model — t1_simple_margin debt=0 (한국 spot)? t1_simple_margin margin (Bybit-class)? 시장 신호 따라. (R6: 같은 회로) | R4 (closed by R6) |
 | Q4 | `ConstraintModule` 공개 API 의 v1 freeze 시점 — 첫 번째 module 등장 후 surface 최소화로 좁히기. | R3 후 (첫 module 등장 시) |
 | Q5 | RiskPolicy 데이터를 CSV로 계속 받을지, JSON/YAML schema로 옮길지 — schema validator 도입 시점. | R2 |
-| Q6 | LegacyKeyName 폐기 일정 — catalog freeze (R7) 이후 한 release에 deprecate? | R7 |
+| Q6 | ~~LegacyKeyName 폐기 일정~~ — ✅ closed (R7): 즉시 제거 + StandardKeyName 통일. | R7 (closed) |
 | Q7 | 다중 customer 가 같은 model을 쓸 때 `.vk` 공유 정책 — customer마다 독립 발행 vs 공유? | R4 |

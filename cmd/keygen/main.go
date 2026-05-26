@@ -44,7 +44,6 @@ import (
 
 func main() {
 	out := flag.String("out", ".", "output directory for .pk/.vk/.r1cs files")
-	legacyNames := flag.Bool("legacy-names", false, "write files with legacy stems (zkpor<tier>_<users>) instead of StandardKeyName")
 	assetCapacity := flag.Int("asset-capacity", 0, "per-deployment asset slot count (must match witness/prover/verifier/userproof)")
 	flag.Parse()
 
@@ -65,9 +64,6 @@ func main() {
 
 	for _, s := range shapes {
 		stem := s.StandardKeyName(binance.SolvencyModel, corespec.NoExtensionID)
-		if *legacyNames {
-			stem = s.LegacyKeyName()
-		}
 		if err := keygenShape(s, *assetCapacity, filepath.Join(*out, stem)); err != nil {
 			panic(err.Error())
 		}
