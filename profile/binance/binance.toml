@@ -1,0 +1,53 @@
+# Binance profile, declarative form (R5-3 draft).
+#
+# At R5 this is a documentation artefact — the procedural adapters in
+# profile/binance/*.go remain the authoritative implementation; the
+# loader at profile/declarative/profile.go can parse this file and
+# Validate() will accept it, but no service startup currently consumes
+# it. The wiring swap is a post-R5 / pre-R7 slice.
+
+[profile]
+name = "binance"
+model = "tier_3bucket"
+asset_capacity = 500
+
+[identity]
+scheme = "passthrough_hex_bn254_reduced.v0"
+
+[insolvent]
+action = "drop_and_log"
+
+[constraint]
+module = ""  # NoExtensionID — noop
+
+[snapshot]
+source_type = "binance_csv"
+user_data_dir = "/server/data/<snapshot_id>"
+snapshot_id = "<set per snapshot>"
+
+[[batch_shapes]]
+asset_count_tier = 50
+users_per_batch = 700
+
+[[batch_shapes]]
+asset_count_tier = 500
+users_per_batch = 92
+
+[pricing]
+default_price_scale = 100000000        # 1e8
+default_balance_scale = 100000000      # 1e8
+two_digit_assets = [
+  "bttc", "shib", "lunc", "xec", "win", "bidr", "spell", "hot",
+  "doge", "pepe", "floki", "idrt", "dogs", "bonk", "1000sats",
+  "neiro", "1000pepper", "not", "nft", "bome", "1mbabydoge",
+  "hmstr", "wlfi", "pump", "monky", "1000cheems", "idr",
+]
+two_digit_price_scale = 100000000000000   # 1e14
+two_digit_balance_scale = 100             # 1e2
+
+[catalog]
+# In production the symbol order is derived from the user-CSV header at
+# snapshot time; this list is a publishable reference for auditors and
+# verifier-side users. Leave empty if the operator prefers
+# snapshot-header-only ordering.
+symbols = []

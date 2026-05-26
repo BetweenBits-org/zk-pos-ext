@@ -1,0 +1,46 @@
+# sea_reference profile (hypothetical SEA spot-only exchange),
+# declarative form (R5-3 draft).
+#
+# Status: synthetic reference, not a real customer integration. When a
+# concrete SEA partner is confirmed (Indodax / Tokocrypto / Pintu /
+# Bitkub / other), copy this file under that partner's name and amend
+# the catalog symbol list + asset capacity to match.
+#
+# Same loader/schema as profile/binance/binance.toml — the spot
+# profile uses fewer optional fields (no two_digit_assets list, no
+# constraint module).
+
+[profile]
+name = "sea_reference"
+model = "spot_simple"
+asset_capacity = 50
+
+[identity]
+# Engine-universal scheme — same string binance uses, intentionally.
+scheme = "passthrough_hex_bn254_reduced.v0"
+
+[insolvent]
+action = "drop_and_log"
+
+[constraint]
+module = ""  # noop
+
+[snapshot]
+source_type = "sea_csv"
+user_data_dir = "/data/<snapshot_id>"
+snapshot_id = "<set per snapshot>"
+
+[[batch_shapes]]
+asset_count_tier = 50
+users_per_batch = 1000
+
+[pricing]
+default_price_scale = 100000000        # 1e8
+default_balance_scale = 100000000      # 1e8
+# No two_digit_assets — sea_reference profile is uniform-scale (see
+# profile/sea_reference/pricing.go for rationale).
+
+[catalog]
+# Indicative SEA major-asset list; the actual snapshot order is taken
+# from the user-CSV header.
+symbols = ["btc", "eth", "usdt", "usdc", "bnb"]
