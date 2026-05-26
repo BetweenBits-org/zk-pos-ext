@@ -8,20 +8,51 @@ import (
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 )
 
-// TestAssetCountTiers locks the verifier's view of the Binance
-// deployment's per-batch asset tiers. -user mode pads a user's asset
-// list to one of these before recomputing the leaf hash; a drift here
-// silently breaks single-user verification.
-func TestAssetCountTiers(t *testing.T) {
-	got := assetCountTiers()
-	want := []int{50, 500}
-	if len(got) != len(want) {
-		t.Fatalf("assetCountTiers length = %d, want %d (%v)", len(got), len(want), got)
+// TestResolveFromProfile_Binance locks the verifier's derivation of
+// asset capacity / tiers / .vk stems from the binance reference
+// profile. -user mode uses plan.assetCountTiers to pad a user's
+// asset list; batch mode uses plan.zkKeyStems + plan.assetCapacity.
+func TestResolveFromProfile_Binance(t *testing.T) {
+	plan, err := resolveFromProfile(&pflags{
+		profilePath: "../../profile/binance/binance.toml",
+		keysDir:     "/keys",
+	})
+	if err != nil {
+		t.Fatalf("resolveFromProfile: %v", err)
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("assetCountTiers[%d] = %d, want %d", i, got[i], want[i])
+	if plan.assetCapacity != 500 {
+		t.Errorf("assetCapacity = %d, want 500", plan.assetCapacity)
+	}
+	wantTiers := []int{50, 500}
+	for i := range wantTiers {
+		if plan.assetCountTiers[i] != wantTiers[i] {
+			t.Errorf("tier[%d] = %d, want %d", i, plan.assetCountTiers[i], wantTiers[i])
 		}
+	}
+	wantStems := []string{
+		"/keys/zkpor.t4_tiered_haircut_margin_3pool.50_700",
+		"/keys/zkpor.t4_tiered_haircut_margin_3pool.500_92",
+	}
+	for i := range wantStems {
+		if plan.zkKeyStems[i] != wantStems[i] {
+			t.Errorf("stem[%d] = %q, want %q", i, plan.zkKeyStems[i], wantStems[i])
+		}
+	}
+}
+
+// TestResolveFromProfile_CapacityOverride confirms -asset-capacity
+// supersedes profile.asset_capacity (smoke harness behaviour).
+func TestResolveFromProfile_CapacityOverride(t *testing.T) {
+	plan, err := resolveFromProfile(&pflags{
+		profilePath: "../../profile/binance/binance.toml",
+		keysDir:     "/keys",
+		capacity:    5,
+	})
+	if err != nil {
+		t.Fatalf("resolveFromProfile: %v", err)
+	}
+	if plan.assetCapacity != 5 {
+		t.Errorf("override ignored: assetCapacity = %d, want 5", plan.assetCapacity)
 	}
 }
 

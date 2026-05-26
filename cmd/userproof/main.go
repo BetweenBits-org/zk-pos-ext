@@ -1,14 +1,17 @@
 // Command userproof is the zkpor-native per-user inclusion-proof
-// builder for the Binance deployment. Reads the customer snapshot,
-// rebuilds the depth-28 account SMT (matching the witness service's
-// tree state via the same padding semantics), and writes one
-// UserProof row per real account — embedded UserConfig payload lets
-// the verifier -user mode recompute and check inclusion locally.
+// builder. Reads the customer snapshot, rebuilds the depth-28
+// account SMT (matching the witness service's tree state via the
+// same padding semantics), and writes one UserProof row per real
+// account — embedded UserConfig payload lets the verifier -user
+// mode recompute and check inclusion locally.
+//
+// R8-D swap: snapshot/asset-capacity/batch-shape now come from
+// profile.toml + the host registries. config.json keeps DB +
+// TreeDB only.
 //
 // This is the R3 step 4 core-path service: sequential per-account
 // hashing and proof generation, fresh-start only (no DB resume, no
-// parallel workers, no -memory_tree utility flag). Recovery and
-// throughput follow-ups are tracked separately.
+// parallel workers, no -memory_tree utility flag).
 //
 // Self-contained tree build: the userproof does NOT depend on the
 // witness service's persisted tree state. Same snapshot + same
@@ -30,28 +33,64 @@ import (
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
+
+	// Blank-imports for registry self-registration.
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
 )
+
+const expectedModel corespec.SolvencyModelID = "t4_tiered_haircut_margin_3pool"
 
 // dbBatchSize is the legacy chunk size for UserProof inserts (~100
 // rows per round-trip); preserved to match operational throughput.
 const dbBatchSize = 100
 
 func main() {
+	profilePath := flag.String("profile", "", "path to the declarative profile.toml (required)")
+	userDataDir := flag.String("user-data-dir", "", "override profile.snapshot.user_data_dir (smoke + per-snapshot ops)")
+	snapshotID := flag.String("snapshot-id", "", "override profile.snapshot.snapshot_id (per-snapshot ops)")
+	capacityOverride := flag.Int("asset-capacity", 0, "override profile.asset_capacity (smoke only; 0 = use toml value)")
 	dumpUserIndex := flag.Int("dump-user-index", -1, "if >=0, after writing all userproofs, dump that account's UserConfig JSON to -dump-user-path (smoke harness convenience)")
 	dumpUserPath := flag.String("dump-user-path", "", "destination path for -dump-user-index dump")
 	flag.Parse()
 
-	cfg := loadConfig("config/config.json")
+	if *profilePath == "" {
+		fmt.Fprintln(os.Stderr, "-profile is required (path to profile.toml)")
+		os.Exit(2)
+	}
 
-	snapshot := binance.NewSnapshotCSV(binance.SnapshotConfig{
-		UserDataDir:   cfg.UserDataFile,
-		AssetCapacity: cfg.AssetCapacity,
-	})
-	shapeProvider := binance.NewBatchShape()
+	cfg := loadConfig("config/config.json")
+	prof, err := declarative.Load(*profilePath)
+	if err != nil {
+		panic(err.Error())
+	}
+	if model := corespec.SolvencyModelID(prof.Profile.Model); model != expectedModel {
+		panic(fmt.Sprintf("userproof binary supports %q only; profile.toml model = %q", expectedModel, model))
+	}
+
+	shapeProvider, err := declarative.BuildBatchShapeProvider(
+		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
+	if err != nil {
+		panic(fmt.Sprintf("BuildBatchShapeProvider: %v", err))
+	}
 	assetCountTiers := tiersFromShapes(shapeProvider.Shapes())
+
+	capacity := prof.Profile.AssetCapacity
+	if *capacityOverride > 0 {
+		capacity = *capacityOverride
+	}
+	dataDir := prof.Snapshot.UserDataDir
+	if *userDataDir != "" {
+		dataDir = *userDataDir
+	}
+	snapID := prof.Snapshot.SnapshotID
+	if *snapshotID != "" {
+		snapID = *snapshotID
+	}
+	snapshot := t4host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity)
 
 	ctx := context.Background()
 	accountsByTier := streamAndBucket(ctx, snapshot, assetCountTiers)

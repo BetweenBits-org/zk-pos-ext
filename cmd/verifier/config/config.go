@@ -1,8 +1,8 @@
 // Package config declares the on-disk configuration shapes consumed by
-// the zkpor verifier CLI. It is the zkpor-native replacement for legacy
-// src/verifier/config — the structs mirror the legacy fields so an
-// existing config.json / user_config.json keeps working, but the asset
-// types are the zkpor t4_tiered_haircut_margin_3pool spec types (no src/utils import).
+// the zkpor verifier CLI. R8-D slimmed Config to deployment-secret +
+// per-snapshot fields only; per-customer values (asset capacity, tiers,
+// verifying-key stems) are derived from profile.toml + the -keys-dir
+// flag.
 package config
 
 import (
@@ -10,13 +10,16 @@ import (
 )
 
 // Config drives the batch-verification mode of the verifier: it points
-// at the prover's proof table, the per-tier verifying keys, and the
-// published CEX asset totals whose commitment the proofs must match.
+// at the prover's proof table and carries the published CEX asset
+// totals whose commitment the proofs must match.
 //
 // Proof rows can come from either a CSV file (ProofTable) or the
 // prover's MySQL proof table directly (MysqlDataSource + DbSuffix).
-// When MysqlDataSource is set, ProofTable is ignored. The DB path is
-// the zkpor-preferred mode — no CSV intermediate, no separate exporter.
+// When MysqlDataSource is set, ProofTable is ignored.
+//
+// Unknown JSON fields are tolerated by json.Unmarshal — pre-R8 configs
+// that still carry ZkKeyName/AssetsCountTiers/AssetCapacity will load
+// cleanly but those values are ignored (the verifier derives them).
 type Config struct {
 	// ProofTable is the path to the prover-produced proof CSV. Ignored
 	// when MysqlDataSource is non-empty.
@@ -32,22 +35,6 @@ type Config struct {
 	// prover service. Empty in production, e.g. "_test" in CI. Used
 	// only when MysqlDataSource is set.
 	DbSuffix string
-
-	// ZkKeyName lists the verifying-key file stems, one per entry of
-	// AssetsCountTiers (same index). The verifier appends ".vk".
-	ZkKeyName []string
-
-	// AssetsCountTiers lists the per-batch asset-count tiers in the
-	// same order as ZkKeyName. A proof row's assets_count selects the
-	// matching verifying key by position.
-	AssetsCountTiers []int
-
-	// AssetCapacity is the per-deployment asset slot count baked into
-	// the trusted setup. Must match keygen, witness, prover, and
-	// userproof for this deployment. The CexAssetsInfo list may be
-	// shorter (real assets only); the verifier pads up to AssetCapacity
-	// with "reserved" entries before computing the expected commitment.
-	AssetCapacity int
 
 	// CexAssetsInfo is the published per-asset global state. Its
 	// Poseidon commitment must equal the final batch's after-CEX

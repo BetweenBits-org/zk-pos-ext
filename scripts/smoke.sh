@@ -27,27 +27,14 @@ SHAPE_OVERRIDE="${ZKPOR_BATCH_SHAPE_OVERRIDE:-5_10}"
 ASSET_CAPACITY="${ZKPOR_SMOKE_ASSET_CAPACITY:-5}"
 SAMPLE_DATA="$(pwd)/../src/sampledata"
 
-# Parse SHAPE_OVERRIDE "<tier>_<users>[,<tier>_<users>...]" into the
-# JSON fragments the service configs need:
-#   AssetsCountTiers       — list of per-user tier ints
-#   ZkKeyName              — list of "<artifacts_abs>/<stem>" paths
-# Tiers must appear in ascending order; the override parser already
-# rejects duplicates, so a simple sort + dedupe-not-needed pass is fine.
-shape_tiers_json() {
-  echo "$SHAPE_OVERRIDE" | tr ',' '\n' \
-    | awk -F_ '{print $1}' | sort -n | paste -sd ',' -
-}
-shape_stem_paths_json() {
-  local artifacts_abs="$1"
-  echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ -v base="$artifacts_abs" '
-    { printf "%s\"%s/zkpor.t4_tiered_haircut_margin_3pool.%s_%s\"", (NR>1?",":""), base, $1, $2 }
-  '
-}
-# Stems for keygen output (basename only, no path).
+# Post-R8 services derive tiers + .vk stems from profile.toml + the
+# -keys-dir flag, so the smoke harness no longer needs to project the
+# SHAPE_OVERRIDE into JSON fragments for the service configs. The
+# stem list is still useful to decide whether keygen artifacts are
+# already on disk.
 shape_stems() {
   echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ '{print "zkpor.t4_tiered_haircut_margin_3pool." $1 "_" $2}'
 }
-TIERS_JSON="$(shape_tiers_json)"
 
 DSN="zkpor:zkpor@123@tcp(127.0.0.1:3306)/zkpor?parseTime=true"
 
@@ -106,11 +93,6 @@ ensure_keys() {
 # config.json fresh at the start of the smoke; if you want to inspect
 # the configs after a run, look at cmd/<svc>/config/config.json.
 write_service_configs() {
-  local artifacts_abs
-  artifacts_abs="$(cd "$ARTIFACTS" && pwd)"
-  local zk_key_name_json
-  zk_key_name_json="$(shape_stem_paths_json "$artifacts_abs")"
-
   # witness now sources AssetCapacity / UserDataFile from
   # profile.toml (override via -asset-capacity / -user-data-dir
   # flags below); config.json keeps only DB + TreeDB.
@@ -131,12 +113,12 @@ EOF
 }
 EOF
 
+  # userproof also derives capacity / user data dir from profile.toml
+  # + flags (R8-D); config.json is DB+TreeDB only.
   cat > cmd/userproof/config/config.json <<EOF
 {
   "MysqlDataSource": "$DSN",
-  "UserDataFile": "$SAMPLE_DATA",
   "DbSuffix": "",
-  "AssetCapacity": $ASSET_CAPACITY,
   "TreeDB": { "Driver": "memory", "Option": { "Addr": "" } }
 }
 EOF
@@ -170,19 +152,14 @@ run_prover() {
 }
 
 write_verifier_config() {
-  local artifacts_abs
-  artifacts_abs="$(cd "$ARTIFACTS" && pwd)"
-  local zk_key_name_json
-  zk_key_name_json="$(shape_stem_paths_json "$artifacts_abs")"
+  # verifier derives tiers + .vk stems + capacity from profile.toml +
+  # -keys-dir (R8-D). config.json keeps DB + per-snapshot CexAssetsInfo.
   local cex_json
   cex_json="$(cat "$ARTIFACTS/final_cex_assets.json")"
   cat > cmd/verifier/config/config.json <<EOF
 {
   "MysqlDataSource": "$DSN",
   "DbSuffix": "",
-  "ZkKeyName": [$zk_key_name_json],
-  "AssetsCountTiers": [$TIERS_JSON],
-  "AssetCapacity": $ASSET_CAPACITY,
   "CexAssetsInfo": $cex_json
 }
 EOF
@@ -190,20 +167,44 @@ EOF
 
 run_verifier_batch() {
   log "running verifier (batch — DB direct read)"
+  local artifacts_abs
+  artifacts_abs="$(cd "$ARTIFACTS" && pwd)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
-    bash -c 'cd cmd/verifier && go run .'
+  ZKPOR_SMOKE_KEYS_DIR="$artifacts_abs" \
+  ZKPOR_SMOKE_ASSET_CAPACITY="$ASSET_CAPACITY" \
+    bash -c '
+      cd cmd/verifier && go run . \
+        -profile ../../profile/binance/binance.toml \
+        -keys-dir "$ZKPOR_SMOKE_KEYS_DIR" \
+        -asset-capacity "$ZKPOR_SMOKE_ASSET_CAPACITY"
+    '
 }
 
 run_userproof() {
   log "running userproof (per-account Merkle proofs → UserProof rows + dump user_config[0])"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
-    bash -c 'cd cmd/userproof && go run . -dump-user-index 0 -dump-user-path ../verifier/config/user_config.json'
+  ZKPOR_SMOKE_SAMPLE_DATA="$SAMPLE_DATA" \
+  ZKPOR_SMOKE_ASSET_CAPACITY="$ASSET_CAPACITY" \
+    bash -c '
+      cd cmd/userproof && go run . \
+        -profile ../../profile/binance/binance.toml \
+        -user-data-dir "$ZKPOR_SMOKE_SAMPLE_DATA" \
+        -asset-capacity "$ZKPOR_SMOKE_ASSET_CAPACITY" \
+        -dump-user-index 0 \
+        -dump-user-path ../verifier/config/user_config.json
+    '
 }
 
 run_verifier_user() {
   log "running verifier -user (single account inclusion)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
-    bash -c 'cd cmd/verifier && go run . -user'
+  ZKPOR_SMOKE_ASSET_CAPACITY="$ASSET_CAPACITY" \
+    bash -c '
+      cd cmd/verifier && go run . \
+        -profile ../../profile/binance/binance.toml \
+        -asset-capacity "$ZKPOR_SMOKE_ASSET_CAPACITY" \
+        -user
+    '
 }
 
 main() {

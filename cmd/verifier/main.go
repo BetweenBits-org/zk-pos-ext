@@ -1,7 +1,6 @@
-// Command verifier is the zkpor-native proof of solvency verifier for
-// the Binance deployment. It is the zkpor/cmd replacement for legacy
-// src/verifier — same three CLI modes, same on-disk inputs, but wired
-// entirely through zkpor packages (no src/utils, no legacy circuit/).
+// Command verifier is the zkpor-native proof of solvency verifier.
+// Same three CLI modes as legacy src/verifier, but wired entirely
+// through zkpor packages and (post R8-D) the declarative profile.
 //
 // Modes:
 //
@@ -11,6 +10,10 @@
 //	verifier -user           single-user inclusion verification against
 //	                         config/user_config.json
 //	verifier -hash A B       print Poseidon(A, B) for two base64 inputs
+//
+// R8-D swap: AssetCapacity / AssetsCountTiers / ZkKeyName come from
+// profile.toml + -keys-dir (batch + -user modes). config.json keeps
+// DB + CexAssetsInfo (per-snapshot published totals).
 //
 // The verifier never solves a witness, so it registers no solver hints;
 // groth16.Verify consumes only the proving artifacts and public input.
@@ -24,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
@@ -33,14 +37,39 @@ import (
 	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 	"github.com/gocarina/gocsv"
+
+	// Blank-imports for registry self-registration symmetry across
+	// services (R8-A/B).
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
 )
+
+// expectedModel — V1-PROD T4 only.
+const expectedModel corespec.SolvencyModelID = "t4_tiered_haircut_margin_3pool"
+
+// resolved holds the derived plan the verifier walks for both batch
+// mode (.vk per tier) and -user mode (assetCountTiers for leaf padding).
+type resolved struct {
+	assetCapacity   int
+	assetCountTiers []int
+	zkKeyStems      []string // same index as assetCountTiers
+}
+
+// pflags carries the parsed profile-driven flags. main passes a
+// pointer through to whichever subcommand runs.
+type pflags struct {
+	profilePath string
+	keysDir     string
+	capacity    int
+}
 
 // emptyAccountTreeRootHex is the root of a fully empty depth-28 sparse
 // Merkle account tree (every leaf the empty-leaf hash). The first
@@ -62,16 +91,59 @@ type proofRow struct {
 func main() {
 	userFlag := flag.Bool("user", false, "verify a single user's inclusion proof")
 	hashFlag := flag.Bool("hash", false, "print Poseidon hash of two base64 arguments")
+	profilePath := flag.String("profile", "", "path to the declarative profile.toml (required for batch + -user modes)")
+	keysDir := flag.String("keys-dir", "", "directory containing the verifying-key .vk files (required for batch mode)")
+	capacityOverride := flag.Int("asset-capacity", 0, "override profile.asset_capacity (smoke only; 0 = use toml value)")
 	flag.Parse()
 
+	flags := &pflags{
+		profilePath: *profilePath,
+		keysDir:     *keysDir,
+		capacity:    *capacityOverride,
+	}
+
 	switch {
-	case *userFlag:
-		runUserVerification()
 	case *hashFlag:
 		runHash(flag.Args())
+	case *userFlag:
+		runUserVerification(flags)
 	default:
-		runBatchVerification()
+		runBatchVerification(flags)
 	}
+}
+
+// resolveFromProfile loads profile.toml + derives the (capacity, tiers,
+// stems) plan. Used by both batch + -user modes.
+func resolveFromProfile(flags *pflags) (*resolved, error) {
+	if flags.profilePath == "" {
+		return nil, fmt.Errorf("-profile is required (path to profile.toml)")
+	}
+	prof, err := declarative.Load(flags.profilePath)
+	if err != nil {
+		return nil, err
+	}
+	if model := corespec.SolvencyModelID(prof.Profile.Model); model != expectedModel {
+		return nil, fmt.Errorf("verifier binary supports %q only; profile.toml model = %q", expectedModel, model)
+	}
+	provider, err := declarative.BuildBatchShapeProvider(
+		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
+	if err != nil {
+		return nil, err
+	}
+	shapes := provider.Shapes()
+	out := &resolved{
+		assetCapacity:   prof.Profile.AssetCapacity,
+		assetCountTiers: make([]int, len(shapes)),
+		zkKeyStems:      make([]string, len(shapes)),
+	}
+	if flags.capacity > 0 {
+		out.assetCapacity = flags.capacity
+	}
+	for i, s := range shapes {
+		out.assetCountTiers[i] = s.AssetCountTier
+		out.zkKeyStems[i] = filepath.Join(flags.keysDir, provider.KeyName(s, prof.Constraint.Module))
+	}
+	return out, nil
 }
 
 // loadVerifyingKey reads a groth16 BN254 verifying key from disk.
@@ -87,25 +159,16 @@ func loadVerifyingKey(path string) (groth16.VerifyingKey, error) {
 	return vk, nil
 }
 
-// assetCountTiers returns the Binance deployment's per-batch asset
-// count tiers (ascending), sourced from the profile's batch-shape
-// provider. Used to pad a single user's asset list to the committed
-// tier when recomputing their leaf hash.
-func assetCountTiers() []int {
-	shapes := binance.NewBatchShape().Shapes()
-	tiers := make([]int, len(shapes))
-	for i, s := range shapes {
-		tiers[i] = s.AssetCountTier
-	}
-	return tiers
-}
-
 // runUserVerification recomputes a single account's leaf hash from
 // config/user_config.json and checks it against the published account
 // tree root via the Merkle path. This is the engine-side primitive a
 // customer's self-inclusion UI would wrap (the UI itself is out of V1
 // scope).
-func runUserVerification() {
+func runUserVerification(flags *pflags) {
+	plan, err := resolveFromProfile(flags)
+	if err != nil {
+		panic(err.Error())
+	}
 	content, err := os.ReadFile("config/user_config.json")
 	if err != nil {
 		panic(err.Error())
@@ -129,7 +192,7 @@ func runUserVerification() {
 	}
 	proof := userConfig.Proof
 
-	assetCommitment := t4host.ComputeUserAssetsCommitment(userConfig.Assets, assetCountTiers())
+	assetCommitment := t4host.ComputeUserAssetsCommitment(userConfig.Assets, plan.assetCountTiers)
 
 	accountIDHash, err := hex.DecodeString(userConfig.AccountIdHash)
 	if err != nil || len(accountIDHash) != 32 {
@@ -178,7 +241,14 @@ func runHash(args []string) {
 // after-state is batch i+1's before-state), the first batch starts
 // from the empty tree, and the final CEX commitment equals the
 // commitment of the published totals.
-func runBatchVerification() {
+func runBatchVerification(flags *pflags) {
+	plan, err := resolveFromProfile(flags)
+	if err != nil {
+		panic(err.Error())
+	}
+	if flags.keysDir == "" {
+		panic("-keys-dir is required (path to keygen .artifacts/)")
+	}
 	content, err := os.ReadFile("config/config.json")
 	if err != nil {
 		panic(err.Error())
@@ -223,18 +293,18 @@ func runBatchVerification() {
 		emptyCexAssetsInfo[i].MarginCollateral = 0
 		emptyCexAssetsInfo[i].PortfolioMarginCollateral = 0
 	}
-	if verifierConfig.AssetCapacity <= 0 {
-		panic("verifier config: AssetCapacity must be set (> 0); see config docs")
+	if plan.assetCapacity <= 0 {
+		panic("verifier: profile.asset_capacity must be > 0")
 	}
-	emptyCexAssetListCommitment := t4host.ComputeCexAssetsCommitment(emptyCexAssetsInfo, verifierConfig.AssetCapacity)
-	expectFinalCexAssetsInfoComm := t4host.ComputeCexAssetsCommitment(cexAssetsInfo, verifierConfig.AssetCapacity)
+	emptyCexAssetListCommitment := t4host.ComputeCexAssetsCommitment(emptyCexAssetsInfo, plan.assetCapacity)
+	expectFinalCexAssetsInfoComm := t4host.ComputeCexAssetsCommitment(cexAssetsInfo, plan.assetCapacity)
 
 	prevCexAssetListCommitments := make([][]byte, 2)
 	prevAccountTreeRoots := make([][]byte, 2)
 	prevAccountTreeRoots[1] = emptyAccountTreeRoot
 	prevCexAssetListCommitments[1] = emptyCexAssetListCommitment
 
-	if !verifyAllProofs(proofs, verifierConfig) {
+	if !verifyAllProofs(proofs, plan) {
 		os.Exit(1)
 	}
 
@@ -378,7 +448,7 @@ func decodeBatchMetadata(p proofRow) (roots [][]byte, commits [][]byte) {
 // account-tree-roots and cex-commitments and checked against the
 // embedded batch commitment before the proof is verified. Returns
 // false if any proof fails.
-func verifyAllProofs(proofs []proofRow, cfg *vconfig.Config) bool {
+func verifyAllProofs(proofs []proofRow, plan *resolved) bool {
 	workersNum := max(16, runtime.NumCPU())
 	averageProofCount := (len(proofs) + workersNum - 1) / workersNum
 
@@ -396,7 +466,7 @@ func verifyAllProofs(proofs []proofRow, cfg *vconfig.Config) bool {
 				return
 			}
 			endIndex := min((index+1)*averageProofCount, len(proofs))
-			if !verifyProofRange(proofs[startIndex:endIndex], cfg) {
+			if !verifyProofRange(proofs[startIndex:endIndex], plan) {
 				mu.Lock()
 				ok = false
 				mu.Unlock()
@@ -410,7 +480,7 @@ func verifyAllProofs(proofs []proofRow, cfg *vconfig.Config) bool {
 // verifyProofRange verifies a contiguous slice of proof rows. The
 // verifying key is (re)loaded only when the asset-count tier changes,
 // matching the prover's tier-grouped ordering.
-func verifyProofRange(rows []proofRow, cfg *vconfig.Config) bool {
+func verifyProofRange(rows []proofRow, plan *resolved) bool {
 	var vk groth16.VerifyingKey
 	currentAssetCountsTier := -1
 
@@ -458,8 +528,8 @@ func verifyProofRange(rows []proofRow, cfg *vconfig.Config) bool {
 
 		if row.AssetsCount != currentAssetCountsTier {
 			keyIndex := -1
-			for p := range cfg.AssetsCountTiers {
-				if cfg.AssetsCountTiers[p] == row.AssetsCount {
+			for p := range plan.assetCountTiers {
+				if plan.assetCountTiers[p] == row.AssetsCount {
 					keyIndex = p
 					break
 				}
@@ -467,7 +537,7 @@ func verifyProofRange(rows []proofRow, cfg *vconfig.Config) bool {
 			if keyIndex == -1 {
 				panic("invalid asset counts tier")
 			}
-			vk, err = loadVerifyingKey(cfg.ZkKeyName[keyIndex] + ".vk")
+			vk, err = loadVerifyingKey(plan.zkKeyStems[keyIndex] + ".vk")
 			if err != nil {
 				panic(err.Error())
 			}
