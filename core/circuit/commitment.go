@@ -28,14 +28,23 @@ func ComputeFlatUint64Commitment(api API, flatValues []Variable) Variable {
 			flatValues[3*i+2],
 		)
 	}
-	var last Variable = 0
-	for i := 0; i < remainderEles; i++ {
-		last = api.Add(api.Mul(last, TwoToTheSixtyFour), flatValues[3*quotientEles+i])
+	// Trailing partial field — fill high-to-low (matching the quotient
+	// loop's {2^128, 2^64, 1} weighting). Missing low/mid entries
+	// pad with 0. Pre-fix this branch discarded its computed value
+	// (`_ = last`) and left tmp[nEles-1] nil — invisible bug under
+	// tier_3bucket's 6-field-per-asset layout (always a multiple of 3),
+	// but it panics in Poseidon under any layout whose flatten length
+	// is not 3-divisible (e.g. spot_simple's 2-field-per-asset).
+	if remainderEles > 0 {
+		var last Variable = 0
+		for i := 0; i < remainderEles; i++ {
+			last = api.Add(api.Mul(last, TwoToTheSixtyFour), flatValues[3*quotientEles+i])
+		}
+		for i := remainderEles; i < 3; i++ {
+			last = api.Mul(last, TwoToTheSixtyFour)
+		}
+		tmp[nEles-1] = last
 	}
-	for i := remainderEles; i < 3; i++ {
-		last = api.Mul(last, TwoToTheSixtyFour)
-	}
-	_ = last
 	return poseidon.Poseidon(api, tmp...)
 }
 
