@@ -434,11 +434,26 @@ func SetBatchCreateUserCircuitWitness(
 		currentPaddingCounts := 0
 		currentAssetIndex := 0
 		index := 0
+		// paddingAsset returns a fully zero-initialised UserAssetInfo at
+		// the given asset slot. All 6 collateral-related fields MUST be
+		// explicit zero values rather than left nil — gnark's frontend
+		// rejects nil Variables with "can't set fr.Element with <nil>".
+		paddingAsset := func(slot uint32) UserAssetInfo {
+			return UserAssetInfo{
+				AssetIndex:                     slot,
+				LoanCollateralIndex:            uint32(0),
+				LoanCollateralFlag:             uint32(0),
+				MarginCollateralIndex:          uint32(0),
+				MarginCollateralFlag:           uint32(0),
+				PortfolioMarginCollateralIndex: uint32(0),
+				PortfolioMarginCollateralFlag:  uint32(0),
+			}
+		}
 		for _, v := range existingKeys {
 			if currentPaddingCounts < paddingCounts {
 				for k := currentAssetIndex; k < v; k++ {
 					currentPaddingCounts++
-					w.CreateUserOps[i].Assets[index] = UserAssetInfo{AssetIndex: uint32(k)}
+					w.CreateUserOps[i].Assets[index] = paddingAsset(uint32(k))
 					index++
 					if currentPaddingCounts >= paddingCounts {
 						break
@@ -453,7 +468,7 @@ func SetBatchCreateUserCircuitWitness(
 			currentAssetIndex = v + 1
 		}
 		for k := index; k < targetCounts; k++ {
-			w.CreateUserOps[i].Assets[k] = UserAssetInfo{AssetIndex: uint32(currentAssetIndex)}
+			w.CreateUserOps[i].Assets[k] = paddingAsset(uint32(currentAssetIndex))
 			currentAssetIndex++
 		}
 		w.CreateUserOps[i].AccountIdHash = batchWitness.CreateUserOps[i].AccountIDHash

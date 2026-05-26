@@ -40,6 +40,8 @@ import (
 const dbBatchSize = 100
 
 func main() {
+	dumpUserIndex := flag.Int("dump-user-index", -1, "if >=0, after writing all userproofs, dump that account's UserConfig JSON to -dump-user-path (smoke harness convenience)")
+	dumpUserPath := flag.String("dump-user-path", "", "destination path for -dump-user-index dump")
 	flag.Parse()
 
 	cfg := loadConfig("config/config.json")
@@ -100,6 +102,20 @@ func main() {
 
 	written := writeUserProofs(accountTree, accountsByTier, tiers, realCount, assetCountTiers, rootHex, userProofStore)
 	fmt.Printf("userproof run finished, %d rows written\n", written)
+
+	if *dumpUserIndex >= 0 {
+		if *dumpUserPath == "" {
+			panic("-dump-user-index requires -dump-user-path")
+		}
+		row, err := userProofStore.GetByIndex(uint32(*dumpUserIndex))
+		if err != nil {
+			panic(fmt.Sprintf("read userproof index %d: %v", *dumpUserIndex, err))
+		}
+		if err := os.WriteFile(*dumpUserPath, []byte(row.Config), 0o644); err != nil {
+			panic(fmt.Sprintf("write %q: %v", *dumpUserPath, err))
+		}
+		fmt.Printf("user_config[%d] written to %s\n", *dumpUserIndex, *dumpUserPath)
+	}
 }
 
 func loadConfig(path string) *uconfig.Config {

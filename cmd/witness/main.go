@@ -39,6 +39,7 @@ import (
 )
 
 func main() {
+	dumpFinalCex := flag.String("dump-final-cex", "", "if set, write the post-batch CexAssetsInfo slice as JSON to this path (smoke harness convenience)")
 	flag.Parse()
 
 	cfg := loadConfig("config/config.json")
@@ -93,6 +94,17 @@ func main() {
 	runBatches(accountsByTier, cexAssets, accountTree, witnessStore, assetCountTiers, shapeProvider, totalAccounts)
 
 	fmt.Printf("witness run finished, account tree root = %x\n", accountTree.Root())
+
+	if *dumpFinalCex != "" {
+		raw, err := json.MarshalIndent(cexAssets, "", "  ")
+		if err != nil {
+			panic(fmt.Sprintf("marshal final cex assets: %v", err))
+		}
+		if err := os.WriteFile(*dumpFinalCex, raw, 0o644); err != nil {
+			panic(fmt.Sprintf("write %q: %v", *dumpFinalCex, err))
+		}
+		fmt.Printf("final cex assets written to %s\n", *dumpFinalCex)
+	}
 }
 
 // loadConfig reads and parses the on-disk JSON config.
@@ -190,8 +202,12 @@ func runBatches(
 				panic(err.Error())
 			}
 
-			version := bsmt.Version(height + 1)
-			if _, err := accountTree.Commit(&version); err != nil {
+			// bsmt.Commit takes a *pruning* version (not the new commit
+			// version, which is tree.version+1 auto-increment). Passing
+			// nil disables pruning — fine for the memory-backed tree the
+			// smoke uses and the default redis path until a multi-batch
+			// resume slice needs to bound disk growth.
+			if _, err := accountTree.Commit(nil); err != nil {
 				panic(err.Error())
 			}
 			height++

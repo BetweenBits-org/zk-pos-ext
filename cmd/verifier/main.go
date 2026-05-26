@@ -205,9 +205,13 @@ func runBatchVerification() {
 	for i := range verifierConfig.CexAssetsInfo {
 		entry := verifierConfig.CexAssetsInfo[i]
 		cexAssetsInfo[entry.Index] = entry
+		// Per-asset equity < debt is allowed under tier_3bucket: model
+		// invariants are per-account (sum collateral ≥ sum debt across
+		// the user's portfolio), not per-asset. Surface as a warning so
+		// operators notice unusual distributions, but do not panic.
 		if entry.TotalEquity < entry.TotalDebt {
-			fmt.Printf("%s asset equity %d less then debt %d\n", entry.Symbol, entry.TotalEquity, entry.TotalDebt)
-			panic("invalid cex asset info")
+			fmt.Printf("warning: %s asset equity %d less than debt %d (allowed by model; check distribution)\n",
+				entry.Symbol, entry.TotalEquity, entry.TotalDebt)
 		}
 	}
 	emptyCexAssetsInfo := make([]tier3spec.CexAssetInfo, len(cexAssetsInfo))

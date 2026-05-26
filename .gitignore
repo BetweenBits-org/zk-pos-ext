@@ -18,6 +18,16 @@ vendor/
 *.r1cs
 *.proof
 
+# smoke harness runtime output (config.json files the smoke writes
+# per-service, plus dumped final_cex_assets.json / user_config.json).
+# The smoke script regenerates these from templates each run.
+cmd/witness/config/config.json
+cmd/prover/config/config.json
+cmd/verifier/config/config.json
+cmd/userproof/config/config.json
+cmd/verifier/config/user_config.json
+.artifacts/*.json
+
 # Editor / IDE
 .idea/
 .vscode/
