@@ -1,27 +1,36 @@
 // Package declarative defines the on-disk TOML schema for a customer
 // profile, plus a Load helper that deserialises a file into the
-// schema struct. This is the R5 first-cut at the
-// `docs/02-module-architecture.md` §6 "declarative profile" concept:
-// the procedural Go adapters (in profile/<customer>/) still exist
-// and remain authoritative for now, but every value those adapters
-// historically held as a Go constant should also be representable
-// here. The schema is intentionally over-permissive at R5 — fields
-// only some models need (e.g. pricing.two_digit_assets) are present
-// at the top level so the same schema covers both t4_tiered_haircut_margin_3pool and
-// t1_simple_margin profiles. Schema freeze is R7 (catalog v1 freeze).
+// schema struct.
+//
+// v1 FROZEN (R7) — the schema below is frozen as the canonical
+// `profile.toml` shape for the v1 catalog. Any structural change after
+// this freeze is a *versioned change* requiring:
+//
+//   - new TOML field (additive): allowed with a default in Load so
+//     existing files continue to parse — minor schema bump.
+//   - removed field: deprecate-then-remove across two version cycles
+//     minimum, with a parser warning during the deprecation window.
+//   - renamed field: disallowed in v1 (breaks every existing file).
+//   - new TOML table: same rules as new field.
 //
 // Two reference instantiations:
 //
 //   - profile/binance/binance.toml          — t4_tiered_haircut_margin_3pool model
 //   - profile/sea_reference/sea_reference.toml — t1_simple_margin model
 //
-// At R5 these are documentation-grade artefacts (the loader and
-// schema are exercised by tests), not the actual service input. A
-// future slice will swap service startup from "construct adapters in
-// Go" to "Load(profile.toml) → assemble adapters from values". That
-// transition is intentionally NOT part of R5 — flipping it requires
-// every adapter constructor to accept its values via arguments, which
-// is a separate refactor.
+// At R7 these are *documentation-grade* artefacts (the loader and
+// schema are exercised by tests), not the actual service input. The
+// procedural Go adapters in profile/<customer>/ remain authoritative
+// for now. A future slice (R7+1 / V1 production deployment) will swap
+// service startup from "construct adapters in Go" to "Load(profile.toml)
+// → assemble adapters from values". That transition is intentionally
+// NOT part of R7 — flipping it requires every adapter constructor to
+// accept its values via arguments, a separate large refactor.
+//
+// The schema is intentionally over-permissive — fields only some
+// models need (e.g. pricing.two_digit_assets) are present at the top
+// level so one struct covers all v1 catalog models. Per-model required-
+// field validation lives in Validate(), not the struct shape.
 package declarative
 
 import (

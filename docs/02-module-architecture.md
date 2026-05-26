@@ -192,9 +192,35 @@ identity derivation, constraint module).
 
 | Layer | 위치 | 진화 |
 |---|---|---|
-| **Declarative** (asset list, batch shape, multipliers, identity scheme ID, insolvent policy, source-type ID) | `profile/<x>/profile.toml` | R4 부터 점진 추출, R7 schema freeze. |
+| **Declarative** (asset list, batch shape, multipliers, identity scheme ID, insolvent policy, source-type ID) | `profile/<x>/profile.toml` | R5-3 schema draft, **R7 schema v1 FROZEN** (`profile/declarative/profile.go`). |
 | **Procedural — standard connectors** (csv_binance_v2 같은 표준 source) | `core/snapshot_connectors/` (R5+ 후보) | 두 번째 customer 가 같은 CSV 포맷 쓰면 promotion. |
 | **Procedural — custom code** (customer-only module, custom snapshot, custom identity) | `profile/<x>/*.go` 그대로 | code 가 본질인 부분은 끝까지 code. registry 에 등록되어 ID 로 referenced. |
+
+## 6.0 Profile descriptor schema v1 FROZEN (R7)
+
+`profile/declarative/profile.go` 의 `Profile` struct + `Load` + `Validate`
+가 v1 canonical schema. 같은 schema 가 4 model 모두 cover (per-model
+required-field validation 은 `Validate()` 에서).
+
+Reference instantiations:
+
+- `profile/binance/binance.toml` — T4 model 사용 (3-bucket collateral)
+- `profile/sea_reference/sea_reference.toml` — T1 model 사용 (spot debt=0)
+
+v1 freeze 후 schema 변경 규약:
+
+- 새 field (additive) — Load 에서 default 값 보장 → 기존 toml 파일 계속
+  parse OK. minor schema bump.
+- field 제거 — deprecate-then-remove 2 cycle minimum, deprecation
+  window 에 parser warning.
+- field rename — v1 에서 disallowed (기존 file 깨짐).
+- 새 table — additive field 동일 규약.
+
+**Service-startup wiring**: R7 시점에 schema 는 freeze 됐지만 service
+startup 이 toml 을 직접 *consume* 하지는 않음 — procedural Go adapters
+(`profile/<customer>/*.go`) 가 여전히 authoritative. R7+1 또는 V1
+production deployment 시점에 wiring 전환 (각 adapter constructor 가
+toml 값을 인자로 받는 refactor 동반).
 
 **registry pattern** (R4+):
 - ConstraintModule registry — `core/constraint_modules/` + 각 customer
