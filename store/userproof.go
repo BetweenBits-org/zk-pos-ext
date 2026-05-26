@@ -11,9 +11,9 @@ import (
 //
 // All large fields are stored as strings:
 //   - AccountLeafHash / Proof — base64 or hex per legacy format;
-//   - Assets — JSON-marshalled []tier3spec.AccountAsset;
+//   - Assets — JSON-marshalled []t4spec.AccountAsset;
 //   - Total{Equity,Debt,Collateral} — big.Int.String();
-//   - Config — JSON-marshalled tier3host.UserConfig (what the
+//   - Config — JSON-marshalled t4host.UserConfig (what the
 //     verifier -user mode reads back).
 type UserProof struct {
 	AccountIndex    uint32 `gorm:"index:idx_int,unique"`

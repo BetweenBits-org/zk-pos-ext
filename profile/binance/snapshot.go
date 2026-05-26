@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/shopspring/decimal"
 )
@@ -668,7 +668,7 @@ func readCexAssetsCSV(path string) (map[string]modelspec.CexAssetInfo, error) {
 }
 
 // maxTierBoundary is the largest BoundaryValue a TierRatio may carry —
-// the 2^118 cap baked into the tier_3bucket circuit. Mirrors legacy
+// the 2^118 cap baked into the t4_tiered_haircut_margin_3pool circuit. Mirrors legacy
 // MaxTierBoundaryValue verbatim.
 var maxTierBoundary, _ = new(big.Int).SetString("332306998946228968225951765070086144", 10)
 

@@ -8,7 +8,7 @@
 
 [profile]
 name = "binance"
-model = "tier_3bucket"
+model = "t4_tiered_haircut_margin_3pool"
 asset_capacity = 500
 
 [identity]

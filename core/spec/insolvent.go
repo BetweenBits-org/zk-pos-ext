@@ -1,7 +1,7 @@
 package spec
 
 // InvalidAccountAction is the disposition for an account that fails
-// model-level validation (e.g. user solvency check in tier_3bucket).
+// model-level validation (e.g. user solvency check in t4_tiered_haircut_margin_3pool).
 type InvalidAccountAction int
 
 const (
@@ -23,7 +23,7 @@ const (
 
 // InvalidAccountPolicy decides what to do with accounts that fail
 // validation. The set of validation rules is model-defined (e.g.
-// tier_3bucket checks totalCollateral >= totalDebt); this interface
+// t4_tiered_haircut_margin_3pool checks totalCollateral >= totalDebt); this interface
 // only governs disposition, not detection.
 //
 // Model-independent — every solvency model has *some* notion of

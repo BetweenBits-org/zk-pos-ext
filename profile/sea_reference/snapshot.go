@@ -16,7 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/spot_simple/spec"
+	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/shopspring/decimal"
 )

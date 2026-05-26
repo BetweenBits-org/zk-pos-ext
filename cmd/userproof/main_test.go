@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"testing"
 
-	tier3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/host"
-	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
+	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
 )
 
@@ -30,16 +30,16 @@ func TestTiersFromShapes(t *testing.T) {
 
 // TestBuildUserProofRow_ConfigRoundTrip locks the userproof→verifier
 // contract: the JSON payload embedded in UserProof.Config unmarshals
-// back into the verifier's tier3host.UserConfig with every field
+// back into the verifier's t4host.UserConfig with every field
 // preserved (including raw-byte Proof entries and *big.Int totals).
 func TestBuildUserProofRow_ConfigRoundTrip(t *testing.T) {
-	account := &tier3spec.AccountInfo{
+	account := &t4spec.AccountInfo{
 		AccountIndex:    42,
 		AccountID:       bytesPattern(0xab, 32),
 		TotalEquity:     new(big.Int).SetUint64(1_000_000),
 		TotalDebt:       new(big.Int).SetUint64(250_000),
 		TotalCollateral: new(big.Int).SetUint64(500_000),
-		Assets: []tier3spec.AccountAsset{
+		Assets: []t4spec.AccountAsset{
 			{Index: 0, Equity: 100, Debt: 30, Loan: 20, Margin: 0, PortfolioMargin: 10},
 			{Index: 5, Equity: 5_000_000, Loan: 800_000, PortfolioMargin: 50},
 		},
@@ -57,7 +57,7 @@ func TestBuildUserProofRow_ConfigRoundTrip(t *testing.T) {
 		t.Fatalf("buildUserProofRow: %v", err)
 	}
 
-	var got tier3host.UserConfig
+	var got t4host.UserConfig
 	if err := json.Unmarshal([]byte(row.Config), &got); err != nil {
 		t.Fatalf("unmarshal Config: %v", err)
 	}

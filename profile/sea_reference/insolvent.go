@@ -10,9 +10,9 @@ import (
 // accounts (malformed row, balance overflow, etc.) are excluded from
 // the snapshot, with a log line for audit.
 //
-// The "insolvent" naming is held over from tier_3bucket's vocabulary
+// The "insolvent" naming is held over from t4_tiered_haircut_margin_3pool's vocabulary
 // (where it primarily denoted accounts with TotalCollateral < TotalDebt).
-// For spot_simple there's no per-account solvency invariant — the
+// For t1_simple_margin there's no per-account solvency invariant — the
 // policy here mostly fires on data-quality failures (hex decode, uint64
 // overflow). The name stays for interface compatibility.
 type insolventPolicy struct{}

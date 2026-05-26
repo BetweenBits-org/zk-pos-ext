@@ -28,9 +28,9 @@ import (
 
 	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/prover/config"
 	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
-	tier3circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/circuit"
-	tier3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/host"
-	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
+	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
+	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -121,7 +121,7 @@ func proveOne(
 	if err != nil {
 		return fmt.Errorf("base64 decode: %w", err)
 	}
-	witnessForCircuit, err := tier3host.DecodeBatchWitness(encoded)
+	witnessForCircuit, err := t4host.DecodeBatchWitness(encoded)
 	if err != nil {
 		return fmt.Errorf("decode witness: %w", err)
 	}
@@ -142,7 +142,7 @@ func proveOne(
 // padded tier) so the persisted row can carry it for the verifier's
 // .vk selection.
 func generateAndVerify(
-	witnessForCircuit *tier3spec.BatchCreateUserWitness,
+	witnessForCircuit *t4spec.BatchCreateUserWitness,
 	params *snarkParams,
 	cfg *pconfig.Config,
 	batchNumber int64,
@@ -150,7 +150,7 @@ func generateAndVerify(
 	startTime := time.Now().UnixMilli()
 	fmt.Println("begin to generate proof for batch:", batchNumber)
 
-	circuitWitness, err := tier3circuit.SetBatchCreateUserCircuitWitness(witnessForCircuit, cfg.AssetsCountTiers)
+	circuitWitness, err := t4circuit.SetBatchCreateUserCircuitWitness(witnessForCircuit, cfg.AssetsCountTiers)
 	if err != nil {
 		return nil, 0, fmt.Errorf("build circuit witness: %w", err)
 	}
@@ -163,7 +163,7 @@ func generateAndVerify(
 	if err != nil {
 		return nil, 0, fmt.Errorf("witness: %w", err)
 	}
-	verifyWitness := tier3circuit.NewVerifyBatchCreateUserCircuit(witnessForCircuit.BatchCommitment)
+	verifyWitness := t4circuit.NewVerifyBatchCreateUserCircuit(witnessForCircuit.BatchCommitment)
 	vWitness, err := frontend.NewWitness(verifyWitness, ecc.BN254.ScalarField(), frontend.PublicOnly())
 	if err != nil {
 		return nil, 0, fmt.Errorf("public witness: %w", err)
@@ -191,7 +191,7 @@ func generateAndVerify(
 // updates the witness status.
 func persistProof(
 	row *store.BatchWitness,
-	witnessForCircuit *tier3spec.BatchCreateUserWitness,
+	witnessForCircuit *t4spec.BatchCreateUserWitness,
 	proof groth16.Proof,
 	assetsCount int,
 	witnessStore *store.WitnessStore,

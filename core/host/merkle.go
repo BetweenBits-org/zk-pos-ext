@@ -1,9 +1,9 @@
 // Package host contains off-circuit (native) helpers used by zkpor
 // services to compute hashes and verify proofs without going through
 // gnark's frontend. Helpers in this package are universal across
-// solvency models. Model-specific off-circuit helpers (e.g. tier_3bucket
+// solvency models. Model-specific off-circuit helpers (e.g. t4_tiered_haircut_margin_3pool
 // commitment packing) live under each model's sibling host subpackage
-// such as zkpor/core/solvency/tier_3bucket/host.
+// such as zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host.
 package host
 
 import (

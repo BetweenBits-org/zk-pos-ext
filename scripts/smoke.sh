@@ -40,12 +40,12 @@ shape_tiers_json() {
 shape_stem_paths_json() {
   local artifacts_abs="$1"
   echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ -v base="$artifacts_abs" '
-    { printf "%s\"%s/zkpor.tier_3bucket.%s_%s\"", (NR>1?",":""), base, $1, $2 }
+    { printf "%s\"%s/zkpor.t4_tiered_haircut_margin_3pool.%s_%s\"", (NR>1?",":""), base, $1, $2 }
   '
 }
 # Stems for keygen output (basename only, no path).
 shape_stems() {
-  echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ '{print "zkpor.tier_3bucket." $1 "_" $2}'
+  echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ '{print "zkpor.t4_tiered_haircut_margin_3pool." $1 "_" $2}'
 }
 TIERS_JSON="$(shape_tiers_json)"
 

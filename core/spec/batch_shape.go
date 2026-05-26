@@ -38,7 +38,7 @@ func (s BatchShape) StandardKeyName(model SolvencyModelID, module string) string
 }
 
 // LegacyKeyName returns the pre-engine naming scheme — "zkpor50_700".
-// Provided so existing tier_3bucket deployments can read their old
+// Provided so existing t4_tiered_haircut_margin_3pool deployments can read their old
 // keys without re-running keygen. New deployments SHOULD use
 // StandardKeyName.
 func (s BatchShape) LegacyKeyName() string {

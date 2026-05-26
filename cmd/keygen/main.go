@@ -1,11 +1,11 @@
 // Command keygen is the zkpor-native trusted-setup generator. For each
 // BatchShape the deployment's profile advertises, it compiles the
-// tier_3bucket circuit at that shape's (userAssetCounts, assetCapacity,
+// t4_tiered_haircut_margin_3pool circuit at that shape's (userAssetCounts, assetCapacity,
 // batchCounts) parameters, runs groth16.Setup, and writes the
 // .pk / .vk / .r1cs artifact triplet to -out.
 //
 // File stems use BatchShape.StandardKeyName — e.g.
-// "zkpor.tier_3bucket.5_10". The prover/verifier configs reference
+// "zkpor.t4_tiered_haircut_margin_3pool.5_10". The prover/verifier configs reference
 // these stems verbatim in their ZkKeyName field. The asset capacity is
 // NOT encoded in the stem; downstream services MUST configure the same
 // AssetCapacity to land on a compatible witness shape.
@@ -33,7 +33,7 @@ import (
 	"runtime"
 	"time"
 
-	tier3circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/circuit"
+	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
 	"github.com/consensys/gnark-crypto/ecc"
@@ -74,10 +74,10 @@ func main() {
 	}
 }
 
-// keygenShape compiles the tier_3bucket circuit at the given shape and
+// keygenShape compiles the t4_tiered_haircut_margin_3pool circuit at the given shape and
 // asset capacity, then writes .pk / .vk / .r1cs to "<stemPath>.<ext>".
 func keygenShape(s corespec.BatchShape, assetCapacity int, stemPath string) error {
-	circuit := tier3circuit.NewBatchCreateUserCircuit(
+	circuit := t4circuit.NewBatchCreateUserCircuit(
 		uint32(s.AssetCountTier),
 		uint32(assetCapacity),
 		uint32(s.UsersPerBatch),

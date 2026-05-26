@@ -7,13 +7,13 @@
 // historically held as a Go constant should also be representable
 // here. The schema is intentionally over-permissive at R5 — fields
 // only some models need (e.g. pricing.two_digit_assets) are present
-// at the top level so the same schema covers both tier_3bucket and
-// spot_simple profiles. Schema freeze is R7 (catalog v1 freeze).
+// at the top level so the same schema covers both t4_tiered_haircut_margin_3pool and
+// t1_simple_margin profiles. Schema freeze is R7 (catalog v1 freeze).
 //
 // Two reference instantiations:
 //
-//   - profile/binance/binance.toml          — tier_3bucket model
-//   - profile/sea_reference/sea_reference.toml — spot_simple model
+//   - profile/binance/binance.toml          — t4_tiered_haircut_margin_3pool model
+//   - profile/sea_reference/sea_reference.toml — t1_simple_margin model
 //
 // At R5 these are documentation-grade artefacts (the loader and
 // schema are exercised by tests), not the actual service input. A
@@ -49,7 +49,7 @@ type Profile struct {
 // ProfileMeta carries the profile-identifying fields.
 type ProfileMeta struct {
 	Name          string `toml:"name"`           // human-readable profile id, e.g. "binance"
-	Model         string `toml:"model"`          // SolvencyModelID, e.g. "tier_3bucket"
+	Model         string `toml:"model"`          // SolvencyModelID, e.g. "t4_tiered_haircut_margin_3pool"
 	AssetCapacity int    `toml:"asset_capacity"` // trusted-setup asset slot count
 }
 
@@ -85,7 +85,7 @@ type BatchShape struct {
 }
 
 // Pricing carries the per-symbol multiplier configuration. The
-// two_digit_* fields are tier_3bucket-style operator knobs — spot
+// two_digit_* fields are t4_tiered_haircut_margin_3pool-style operator knobs — spot
 // profiles may leave them empty / zero.
 type Pricing struct {
 	DefaultPriceScale    int64    `toml:"default_price_scale"`
@@ -128,7 +128,7 @@ func Load(path string) (*Profile, error) {
 //   - at least one batch_shape
 //   - each batch_shape.{asset_count_tier,users_per_batch} > 0
 //   - pricing.default_* multipliers > 0
-//   - tier_3bucket-specific: if two_digit_assets is non-empty, the
+//   - t4_tiered_haircut_margin_3pool-specific: if two_digit_assets is non-empty, the
 //     two_digit_* scales must be > 0
 func (p *Profile) Validate() error {
 	if p.Profile.Name == "" {

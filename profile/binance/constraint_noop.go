@@ -2,12 +2,12 @@ package binance
 
 import (
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	"github.com/consensys/gnark/frontend"
 )
 
 // noopModule is the reference Binance constraint module — adds no
-// additional in-circuit constraints beyond the base tier_3bucket
+// additional in-circuit constraints beyond the base t4_tiered_haircut_margin_3pool
 // solvency logic. Key files generated with this module use the
 // un-suffixed naming (see spec.NoExtensionID).
 type noopModule struct{}

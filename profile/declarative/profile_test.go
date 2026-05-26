@@ -19,8 +19,8 @@ func TestLoadBinance(t *testing.T) {
 	if p.Profile.Name != "binance" {
 		t.Errorf("Name = %q, want binance", p.Profile.Name)
 	}
-	if p.Profile.Model != "tier_3bucket" {
-		t.Errorf("Model = %q, want tier_3bucket", p.Profile.Model)
+	if p.Profile.Model != "t4_tiered_haircut_margin_3pool" {
+		t.Errorf("Model = %q, want t4_tiered_haircut_margin_3pool", p.Profile.Model)
 	}
 	if p.Profile.AssetCapacity != 500 {
 		t.Errorf("AssetCapacity = %d, want 500", p.Profile.AssetCapacity)
@@ -49,7 +49,7 @@ func TestLoadBinance(t *testing.T) {
 }
 
 // TestLoadSeaReference verifies the published sea_reference.toml
-// parses + represents the spot_simple model correctly.
+// parses + represents the t1_simple_margin model correctly.
 func TestLoadSeaReference(t *testing.T) {
 	p, err := declarative.Load("../sea_reference/sea_reference.toml")
 	if err != nil {
@@ -58,8 +58,8 @@ func TestLoadSeaReference(t *testing.T) {
 	if p.Profile.Name != "sea_reference" {
 		t.Errorf("Name = %q", p.Profile.Name)
 	}
-	if p.Profile.Model != "spot_simple" {
-		t.Errorf("Model = %q, want spot_simple", p.Profile.Model)
+	if p.Profile.Model != "t1_simple_margin" {
+		t.Errorf("Model = %q, want t1_simple_margin", p.Profile.Model)
 	}
 	if p.Profile.AssetCapacity != 50 {
 		t.Errorf("AssetCapacity = %d, want 50", p.Profile.AssetCapacity)
@@ -92,7 +92,7 @@ func TestValidateRejectsEmpty(t *testing.T) {
 // catalog/capacity invariant is enforced.
 func TestValidateRejectsCapacityBelowSymbols(t *testing.T) {
 	p := &declarative.Profile{
-		Profile:  declarative.ProfileMeta{Name: "x", Model: "tier_3bucket", AssetCapacity: 2},
+		Profile:  declarative.ProfileMeta{Name: "x", Model: "t4_tiered_haircut_margin_3pool", AssetCapacity: 2},
 		Identity: declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
 		BatchShapes: []declarative.BatchShape{
 			{AssetCountTier: 50, UsersPerBatch: 700},
@@ -110,7 +110,7 @@ func TestValidateRejectsCapacityBelowSymbols(t *testing.T) {
 // multiplier fields must be positive.
 func TestValidateRejectsTwoDigitWithoutScales(t *testing.T) {
 	p := &declarative.Profile{
-		Profile:  declarative.ProfileMeta{Name: "x", Model: "tier_3bucket", AssetCapacity: 500},
+		Profile:  declarative.ProfileMeta{Name: "x", Model: "t4_tiered_haircut_margin_3pool", AssetCapacity: 500},
 		Identity: declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
 		BatchShapes: []declarative.BatchShape{
 			{AssetCountTier: 50, UsersPerBatch: 700},

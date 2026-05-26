@@ -20,7 +20,7 @@ func TestLoadConfig_RoundTrip(t *testing.T) {
 	src := pconfig.Config{
 		MysqlDataSource:  "user:pass@tcp(host)/db",
 		DbSuffix:         "_test",
-		ZkKeyName:        []string{"keys/zkpor.tier_3bucket.50_700", "keys/zkpor.tier_3bucket.500_92"},
+		ZkKeyName:        []string{"keys/zkpor.t4_tiered_haircut_margin_3pool.50_700", "keys/zkpor.t4_tiered_haircut_margin_3pool.500_92"},
 		AssetsCountTiers: []int{50, 500},
 	}
 	raw, err := json.Marshal(src)

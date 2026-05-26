@@ -12,11 +12,11 @@ Latest implementation commit (`zkpor/.git/`, branch `main`):
 23566aa feat(zkpor): R5-3 — declarative profile.toml schema + two reference instantiations
 f41d36a feat(zkpor): R5-2 — sea_reference snapshot CSV adapter + happy fixture
 d2c7f9b feat(zkpor): R5-1 — sea_reference customer profile (6 adapters, no snapshot)
-e8eabed feat(zkpor): R5-0 — spot_simple host helpers (off-circuit emitter)
-20a1571 docs(handoff+roadmap): close R4 — spot_simple model audited + R5 next
-f511dcb feat(zkpor): R4-2 — spot_simple Setup smoke + ComputeFlatUint64Commitment fix
-466ef55 feat(zkpor): R4-1 — spot_simple circuit (BatchCreateUserCircuit + witness builder)
-e4dc0cb feat(zkpor): R4-0 — spot_simple spec package (model 2 entry)
+e8eabed feat(zkpor): R5-0 — t1_simple_margin host helpers (off-circuit emitter)
+20a1571 docs(handoff+roadmap): close R4 — t1_simple_margin model audited + R5 next
+f511dcb feat(zkpor): R4-2 — t1_simple_margin Setup smoke + ComputeFlatUint64Commitment fix
+466ef55 feat(zkpor): R4-1 — t1_simple_margin circuit (BatchCreateUserCircuit + witness builder)
+e4dc0cb feat(zkpor): R4-0 — t1_simple_margin spec package (model 2 entry)
 a6469c6 feat(zkpor): F — EC2 remote-test helpers + smoke.sh shape parametrisation
 6cb6a37 docs(handoff+roadmap): close R3 step 4 with smoke + 3 supporting slices
 d7c23f3 feat(zkpor): A5 — end-to-end smoke harness + 3 bug fixes surfaced en route
@@ -29,12 +29,12 @@ cd6a0db docs(handoff+roadmap): catch up to R3 step 4 closure + 2 next-slice 갈�
 3c691cb feat(zkpor): close G2 — AccountIDProvider scheme v1 freeze
 fdf4a63 feat(zkpor): zkpor/cmd/userproof — R3 step 4 core-path service
 b7e57e6 feat(zkpor/store): user-proof model (userproof prep)
-4e85757 refactor(zkpor): UserConfig → tier_3bucket/host shared type (userproof prep)
+4e85757 refactor(zkpor): UserConfig → t4_tiered_haircut_margin_3pool/host shared type (userproof prep)
 8045c37 feat(zkpor): zkpor/cmd/prover — R3 step 4 core-path service + G1 hint closure
 16f36bd feat(zkpor/store): proof model + witness state-machine methods (prover prep)
 5332f40 feat(zkpor): zkpor/cmd/witness — R3 step 4 core-path service + G6 closure
 78acd39 feat(zkpor/store): batch witness model + MySQL connection helper
-32b9334 feat(zkpor): tier_3bucket host — AccountLeafHash + PaddingAccounts + Encode/DecodeBatchWitness
+32b9334 feat(zkpor): t4_tiered_haircut_margin_3pool host — AccountLeafHash + PaddingAccounts + Encode/DecodeBatchWitness
 c96018d feat(zkpor/core/tree): SMT account tree wrapper + empty-leaf hash
 ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 9f889ad feat(zkpor): zkpor/cmd/verifier — first R3 step 4 service
@@ -51,19 +51,19 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 | `zkpor/core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
 | `zkpor/core/host/*` | ✅ off-circuit (native) universal 헬퍼 — `VerifyMerkleProof` (Poseidon BN254 SMT, legacy parity). R3 step 4 prep (commit 5f98fdd) |
 | `zkpor/core/tree/*` | ✅ bsmt depth-28 SMT wrapper + `EmptyAccountLeafHash` (Poseidon(0,0,0,0,0)). memory/redis 백엔드. **default=memory, redis=opt-in** (A0 결정: snapshot-SoT 와 정합). witness + userproof 공유 (commit c96018d) |
-| `zkpor/core/solvency/tier_3bucket/host/*` | ✅ off-circuit model-specific 헬퍼 — `ComputeUserAssetsCommitment` + `ComputeCexAssetsCommitment(slice, capacity)` (5f98fdd + E refactor 1d5571b) + `AccountLeafHash` + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (32b9334; **DecodeBatchWitness 가 capacity 를 witness 의 BeforeCexAssets 길이로 자기-기술**, E refactor) + 공유 `UserConfig` 타입 (4e85757). 모두 legacy byte-equivalence/round-trip 테스트 통과 |
+| `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host/*` | ✅ off-circuit model-specific 헬퍼 — `ComputeUserAssetsCommitment` + `ComputeCexAssetsCommitment(slice, capacity)` (5f98fdd + E refactor 1d5571b) + `AccountLeafHash` + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (32b9334; **DecodeBatchWitness 가 capacity 를 witness 의 BeforeCexAssets 길이로 자기-기술**, E refactor) + 공유 `UserConfig` 타입 (4e85757). 모두 legacy byte-equivalence/round-trip 테스트 통과 |
 | `zkpor/store/*` | ✅ gorm 영속화 계층 — `Open` + `ConvertMySQLErr` + 3 모델 (`BatchWitness` 78acd39, `Proof` + witness 상태머신 메서드 16f36bd, `UserProof` b7e57e6) + **`ProofStore.ListAllInOrder()` (A4, f1ba54a)** for verifier DB 직접 읽기 경로. 단일 instance DB-poll (`ClaimOldestByStatus` 트랜잭션) 채택 — Redis BLPOP 큐는 multi-worker scaling 시 follow-up. PostgreSQL adapter 는 slice D (deferred) |
-| `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service — legacy `src/verifier` 의 zkpor-native 대체 (3-mode CLI: batch / -user / -hash). src/utils + legacy circuit import 0. `UserConfig` 는 tier_3bucket/host 공유 타입 (4e85757). **DB 직접 읽기 모드 추가 (A4, f1ba54a)** — `MysqlDataSource` 설정 시 proof.csv hop 제거, `ProofStore.ListAllInOrder` 로 직접 ingest. **AssetCapacity config (E)**. **per-asset equity<debt 가 panic → warning** (A5 d7c23f3) — tier_3bucket 은 자산별 차용 허용 |
+| `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service — legacy `src/verifier` 의 zkpor-native 대체 (3-mode CLI: batch / -user / -hash). src/utils + legacy circuit import 0. `UserConfig` 는 t4_tiered_haircut_margin_3pool/host 공유 타입 (4e85757). **DB 직접 읽기 모드 추가 (A4, f1ba54a)** — `MysqlDataSource` 설정 시 proof.csv hop 제거, `ProofStore.ListAllInOrder` 로 직접 ingest. **AssetCapacity config (E)**. **per-asset equity<debt 가 panic → warning** (A5 d7c23f3) — t4_tiered_haircut_margin_3pool 은 자산별 차용 허용 |
 | `zkpor/cmd/witness/*` | ✅ R3 step 4 service — snapshot → BatchCreateUserWitness → DB (commit 5332f40). **G6 closure 동반** (`PriceMultiplier × BalanceMultiplier == ValueScale` startup assert). `AssetCapacity` config (E refactor). `BeforeCexAssets` slice 가 snapshot 길이로 sizing. `accountTree.Commit(nil)` (pruning off; A5 fix d7c23f3). `-dump-final-cex <path>` smoke harness 플래그. 핵심 경로 only — multi-worker 병렬 / DB resume / tree rollback 은 follow-up |
 | `zkpor/cmd/prover/*` | ✅ R3 step 4 service — DB-poll Published → groth16.Prove+Verify → proof 테이블 (commit 8045c37). **G1 hint closure** (`solver.RegisterHint(corecircuit.IntegerDivision)`). idempotent persist + lazy snarkParams cache. Decode self-infers capacity from witness data (E). Redis BLPOP 큐 / -rerun 모드는 follow-up |
 | `zkpor/cmd/userproof/*` | ✅ R3 step 4 service — self-contained tree 재구축 (witness redis 의존 제거) → per-account inclusion proof → DB (commit fdf4a63). 동일 padding 으로 root parity. `AssetCapacity` config (E refactor). `-dump-user-index/-dump-user-path` smoke harness 플래그. 핵심 경로 only — multi-worker 병렬 / -memory_tree 플래그 / resume 은 follow-up |
-| `zkpor/cmd/keygen/*` | ✅ **새 service (A3, 1d5b2e9)** — zkpor-native trusted setup. `binance.NewBatchShape()` (override 가능) 와 `-asset-capacity` 플래그로 (userAssetCounts, assetCapacity, batchCounts) 회로 compile + groth16.Setup. StandardKeyName 파일 (`zkpor.tier_3bucket.<tier>_<users>.{pk,vk,r1cs}`), `-legacy-names` 옵션. Tiny smoke (5,5,10): 286k constraints, ~21s, .pk 113MB. |
-| `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
-| `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음. **Alpha wiring (R3 step 2)** + **R1CS byte-equivalence vs legacy (R3 step 3 / G1)**. **A5 fix d7c23f3** — `SetBatchCreateUserCircuitWitness` 의 padding UserAssetInfo entries 가 legacy 처럼 6개 collateral 필드를 명시적 0 으로 초기화 (이전엔 nil 이라 gnark `can't set fr.Element with <nil>` 실패). |
-| `zkpor/core/solvency/spot_simple/{spec,circuit,host}/*` | ✅ **R4 + R5-0 done** — spec/circuit (R4) + host helpers (R5-0): `ComputeUserAssetsCommitment` (2-field per asset) + `ComputeCexAssetsCommitment(slice, capacity)` (TotalEquity×2^64+BasePrice 1-field per asset) + `AccountLeafHash` (5-input zero-padded) + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (capacity self-describing) + `UserConfig` (no debt/collateral fields). NbConstraints=33,306 at tiny shape. RiskPolicy 부재. |
-| `zkpor/core/solvency/{merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved. R6 (3rd model) rule-of-three 대기. |
+| `zkpor/cmd/keygen/*` | ✅ **새 service (A3, 1d5b2e9)** — zkpor-native trusted setup. `binance.NewBatchShape()` (override 가능) 와 `-asset-capacity` 플래그로 (userAssetCounts, assetCapacity, batchCounts) 회로 compile + groth16.Setup. StandardKeyName 파일 (`zkpor.t4_tiered_haircut_margin_3pool.<tier>_<users>.{pk,vk,r1cs}`), `-legacy-names` 옵션. Tiny smoke (5,5,10): 286k constraints, ~21s, .pk 113MB. |
+| `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
+| `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음. **Alpha wiring (R3 step 2)** + **R1CS byte-equivalence vs legacy (R3 step 3 / G1)**. **A5 fix d7c23f3** — `SetBatchCreateUserCircuitWitness` 의 padding UserAssetInfo entries 가 legacy 처럼 6개 collateral 필드를 명시적 0 으로 초기화 (이전엔 nil 이라 gnark `can't set fr.Element with <nil>` 실패). |
+| `zkpor/core/solvency/t1_simple_margin/{spec,circuit,host}/*` | ✅ **R4 + R5-0 done** — spec/circuit (R4) + host helpers (R5-0): `ComputeUserAssetsCommitment` (2-field per asset) + `ComputeCexAssetsCommitment(slice, capacity)` (TotalEquity×2^64+BasePrice 1-field per asset) + `AccountLeafHash` (5-input zero-padded) + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (capacity self-describing) + `UserConfig` (no debt/collateral fields). NbConstraints=33,306 at tiny shape. RiskPolicy 부재. |
+| `zkpor/core/solvency/{t1_simple_margin,t2_static_haircut_margin,t3_tiered_haircut_margin_1pool}/` | ⏸ doc.go only — 카탈로그 reserved. R6 (3rd model) rule-of-three 대기. |
 | `zkpor/profile/sea_reference/*` | ✅ **R5-1 + R5-2 done** — 두 번째 customer profile (hypothetical SEA spot-only 거래소). 7 어댑터: `catalog` (capacity-aware), `pricing` (uniform default scales), `identity` (same `passthrough_hex_bn254_reduced.v0` scheme as binance — universal contract), `insolvent`, `batch_shape` (single {50, 1000} default + same `ZKPOR_BATCH_SHAPE_OVERRIDE` env), `constraint_noop` (spot-typed), `snapshot` (spot 단순 CSV ETL: `rn,id,<asset>,...,sum` + `cex_assets_info.csv` symbol/usdt_price/total_equity). testdata/happy fixture 포함. 14 단위 테스트 통과. |
-| `zkpor/profile/declarative/*` | ✅ **R5-3 done** — `profile.toml` schema (struct + Load + Validate) + 두 customer 의 sample 인스턴스 (`profile/binance/binance.toml` tier_3bucket, `profile/sea_reference/sea_reference.toml` spot_simple). dep: `github.com/pelletier/go-toml/v2` (parent go.mod). 5 테스트 통과. **service-startup 에서 toml 을 consume 하는 wiring 은 별도 슬라이스 — R7 freeze 전 candidate**. |
+| `zkpor/profile/declarative/*` | ✅ **R5-3 done** — `profile.toml` schema (struct + Load + Validate) + 두 customer 의 sample 인스턴스 (`profile/binance/binance.toml` t4_tiered_haircut_margin_3pool, `profile/sea_reference/sea_reference.toml` t1_simple_margin). dep: `github.com/pelletier/go-toml/v2` (parent go.mod). 5 테스트 통과. **service-startup 에서 toml 을 consume 하는 wiring 은 별도 슬라이스 — R7 freeze 전 candidate**. |
 | `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료. **G2 closed** (Scheme `passthrough_hex_bn254_reduced.v0`). **G13 closed** (snapshot AccountID fr.Element 정규화). `NewCatalog(orderedSymbols, capacity)` (E refactor — capacity 가 catalog 인스턴스 필드). `SnapshotConfig.AssetCapacity` 추가. `NewBatchShape()` 가 `ZKPOR_BATCH_SHAPE_OVERRIDE` env var 지원 (A1 11f2d0a). multi-shard concurrency 는 여전히 sequential (follow-up) |
 | `zkpor/deploy/` | ✅ **smoke MySQL fixture (A2, 1d5b2e9)** — `docker-compose.yml` 단일 컨테이너 (mysql:8.0, healthcheck, 영속 볼륨). Memory tree 라 Redis 컨테이너 불필요. 사용: `docker compose -f deploy/docker-compose.yml up -d` |
 | `zkpor/scripts/` | ✅ **end-to-end smoke 하네스 (A5, d7c23f3)** — `smoke.sh` 가 docker compose → keygen (캐시) → witness → prover → verifier(batch) → userproof → verifier(-user) 순으로 전체 파이프라인 실행. R3 step 4 exit criteria 검증 완료. |
@@ -104,38 +104,38 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
          insolvent + batch_shape ({50,1000} default + same env
          override) + constraint_noop (spot-typed). doc.go 가 'rename
          path on real customer confirm' 명시. 9 test.)
-<R5/0>   feat(zkpor): R5-0 — spot_simple host helpers (off-circuit)
-        (commit e8eabed. core/solvency/spot_simple/host/{commitment,
-         account,serialize}.go. tier_3bucket/host 패턴 모방, spot
+<R5/0>   feat(zkpor): R5-0 — t1_simple_margin host helpers (off-circuit)
+        (commit e8eabed. core/solvency/t1_simple_margin/host/{commitment,
+         account,serialize}.go. t4_tiered_haircut_margin_3pool/host 패턴 모방, spot
          단순화: 2-field per asset user commit, 1-field per asset
          cex commit, 5-input leaf with nil zero positions (Poseidon
          Bytes converts nil → fr.Element{0}). 6 test.)
-<R4/2>   feat(zkpor): R4-2 — spot_simple Setup smoke + Commitment fix
+<R4/2>   feat(zkpor): R4-2 — t1_simple_margin Setup smoke + Commitment fix
         (commit f511dcb. setup_test.go (Compile+Setup at tiny shape
          5_10_2, NbConstraints=33,306, R1CS sha256 baseline 기록 +
          noop-module zero-cost regression guard). 부수로 core/circuit
          /commitment.go 의 잠재 버그 fix: ComputeFlatUint64Commitment
          가 flatten length % 3 != 0 시 trailing partial field 를
          `_ = last` 로 discard 해 tmp[nEles-1] 이 nil 인 채 Poseidon
-         호출 → panic. tier_3bucket 의 6-field-per-asset 가 3 의
-         배수라 안 걸렸음, spot_simple 의 2-field-per-asset 첫 노출.
-         tier_3bucket R1CS sha256 (678eb23f…) + coefficients sha256
-         불변 확인 — 새 partial-field 분기가 tier_3bucket 에선 미진입.)
-<R4/1>   feat(zkpor): R4-1 — spot_simple circuit 본체
+         호출 → panic. t4_tiered_haircut_margin_3pool 의 6-field-per-asset 가 3 의
+         배수라 안 걸렸음, t1_simple_margin 의 2-field-per-asset 첫 노출.
+         t4_tiered_haircut_margin_3pool R1CS sha256 (678eb23f…) + coefficients sha256
+         불변 확인 — 새 partial-field 분기가 t4_tiered_haircut_margin_3pool 에선 미진입.)
+<R4/1>   feat(zkpor): R4-1 — t1_simple_margin circuit 본체
         (commit 466ef55. BatchCreateUserCircuit + Define + 
          SetBatchCreateUserCircuitWitness + paddingAsset 헬퍼.
-         tier_3bucket circuit 구조 모방하되 simplify: no tier table /
+         t4_tiered_haircut_margin_3pool circuit 구조 모방하되 simplify: no tier table /
          no haircut / no 3-bucket collateral, AssetsForUpdateCex 가
-         1-field-per-slot (vs tier_3bucket 의 5). Random-linear-
+         1-field-per-slot (vs t4_tiered_haircut_margin_3pool 의 5). Random-linear-
          combination cross-check 도 1-power-per-slot. 5-input account
-         leaf 로 substrate 호환. PowersOfSixteenBits 는 tier_3bucket
+         leaf 로 substrate 호환. PowersOfSixteenBits 는 t4_tiered_haircut_margin_3pool
          에서 복제 (R6 promotion candidate).)
-<R4/0>   feat(zkpor): R4-0 — spot_simple spec 패키지 신설
+<R4/0>   feat(zkpor): R4-0 — t1_simple_margin spec 패키지 신설
         (commit e4dc0cb. types (1-tuple AccountAsset, no debt/
          collateral) + snapshot (SnapshotSource interface) + witness
          (BatchCreateUserWitness + helpers) + constraint (Constraint
          Module + slim Context). RiskPolicy 부재 — doc 의 "Notably
-         absent (vs tier_3bucket)" 정합.)
+         absent (vs t4_tiered_haircut_margin_3pool)" 정합.)
 <R3/4n>  feat(zkpor): A5 — end-to-end smoke harness + 3 bug fixes
         (commit d7c23f3. R3 step 4 exit criteria 종결. scripts/smoke.sh
          가 docker mysql → keygen (cache) → witness → prover → verifier
@@ -148,7 +148,7 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
          TooHigh. (2) SetBatchCreateUserCircuitWitness padding entries
          의 6개 collateral 필드가 nil 이라 gnark 실패 — legacy 처럼
          명시적 0 으로 초기화. (3) verifier 의 per-asset equity<debt
-         panic → warning (tier_3bucket 은 자산별 차용 허용).)
+         panic → warning (t4_tiered_haircut_margin_3pool 은 자산별 차용 허용).)
 <R3/4m>  feat(zkpor): keygen service + smoke MySQL fixture (A2 + A3)
         (commit 1d5b2e9. zkpor/cmd/keygen — binance.NewBatchShape() 의
          shape 들에 대해 frontend.Compile + groth16.Setup, .pk/.vk/.r1cs
@@ -202,7 +202,7 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
          + buildUserProofRow Config round-trip via tier3host.UserConfig.)
 <R3/4f>  feat(zkpor/store): user-proof model + refactor UserConfig
         (store.UserProof gorm 모델 + UserProofStore. UserConfig 가
-         tier_3bucket/host 공유 타입으로 이동 — userproof writer +
+         t4_tiered_haircut_margin_3pool/host 공유 타입으로 이동 — userproof writer +
          verifier -user reader 단일 소스, base64 hop 제거. verifier
          도 tier3host.UserConfig 직접 import.)
 <R3/4e>  feat(zkpor): zkpor/cmd/prover — R3 step 4 service + G1 hint closure
@@ -234,21 +234,21 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
          batch (proof-table groth16 검증 + 체이닝 + 최종 CEX
          commitment) / -user (단일 계정 leaf 재계산 + Merkle path)
          / -hash (Poseidon of 2 base64). src/utils + legacy circuit
-         import 0. cmd/verifier/config 가 tier_3bucket spec 타입.
+         import 0. cmd/verifier/config 가 t4_tiered_haircut_margin_3pool spec 타입.
          worker-pool small-input panic 가드. main_test.go —
          assetCountTiers {50,500} + decodeBatchMetadata. G2/G6 는
          call site 없어 witness/userproof 로 이연. proof-table
          end-to-end 는 witness+prover 후.)
 <R3/4a>  feat(zkpor): extract off-circuit host helpers (R3 step 4 prep)
         (core/host/merkle.go — VerifyMerkleProof, universal,
-         Poseidon BN254 SMT. tier_3bucket/host/commitment.go —
+         Poseidon BN254 SMT. t4_tiered_haircut_margin_3pool/host/commitment.go —
          ComputeUserAssetsCommitment + ComputeCexAssetsCommitment,
          trusted-setup byte packing. 4 테스트 legacy byte-equivalence
          통과. 발견: gnark-crypto bn254 poseidon Write 가
          ≥fr.Modulus() 입력을 silent drop — test fixture 가
          mod-safe 해야 함.)
 <R3/3>   test(zkpor): legacy↔zkpor R1CS + AccountID byte-equivalence
-        (G1 closure. tier_3bucket/circuit/legacy_compare_test.go —
+        (G1 closure. t4_tiered_haircut_margin_3pool/circuit/legacy_compare_test.go —
          tiny shape (5, 50, 2) 에서 legacy + zkpor R1CS L·R==O 행렬을
          `bn254.R1CS.GetR1Cs()` 로 추출, SHA256 동일 (678eb23f…).
          Coefficient table SHA256 도 동일. Hint identifier 차이는
@@ -270,7 +270,7 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
          AccountStream multi-shard 테스트 (0xaa…aa / 0xbb…bb) 는 같은
          round-trip 으로 expected 계산. parseAccountRow 단위 테스트
          1건 추가 (all-FF 입력 → reduced output).)
-<R3/0>   test(circuit): add tier_3bucket Compile+Setup smoke
+<R3/0>   test(circuit): add t4_tiered_haircut_margin_3pool Compile+Setup smoke
         (NewBatchCreateUserCircuit(5,50,2) → frontend.Compile +
          groth16.Setup. tiny shape — IR-defect smoke 한 건. 8s compile
          + 62s setup, NbConstraints=723790 (informational only). 정확
@@ -306,7 +306,7 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
          까지 패딩. AccountStream() stub 유지.)
 8aaf4c3 feat: scaffold zkpor engine — productization of Binance OSS PoR v2
         (root-commit: methodology docs, core/spec, core/circuit,
-         core/solvency catalog with tier_3bucket spec+circuit ported,
+         core/solvency catalog with t4_tiered_haircut_margin_3pool spec+circuit ported,
          profile/binance adapter set)
 ```
 
@@ -315,7 +315,7 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 - 모든 universal 인터페이스 (`zkpor/core/spec/`).
 - universal zk 헬퍼 (`zkpor/core/circuit/`) — legacy `circuit/utils.go` 에서
   Merkle/commitment/arithmetic 부분만 추출.
-- tier_3bucket model spec (`zkpor/core/solvency/tier_3bucket/spec/`).
+- t4_tiered_haircut_margin_3pool model spec (`zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec/`).
 - Binance 어댑터 8개 (constructor 형태) — 단일 Go 패키지.
 - `binance.csvSnapshot.CexAssets()` — legacy `ParseAssetIndexFromUserFile` +
   `ParseCexAssetInfoFromFile` 흡수. sync.Once 캐싱, 두 자리 가격
@@ -358,7 +358,7 @@ R3 step 4 follow-ups (post-smoke):
 
 Stage 미진입:
 
-- **R4 — second model 회로 `spot_simple`** (SEA GTM driver, model-first
+- **R4 — second model 회로 `t1_simple_margin`** (SEA GTM driver, model-first
   swap). docs/01-project-context.md SEA zoom-in 참조. customer signal
   안 기다림.
 - **R5 — SEA reference customer profile** (Indonesia/Thailand 우선) +
@@ -486,7 +486,7 @@ Engine boundary 외 (V1 scope 미포함):
 
 - **verifier per-asset equity≥debt 가정 완화 (A5 d7c23f3)** — legacy
   verifier 가 모든 자산에서 TotalEquity ≥ TotalDebt 를 panic 으로
-  강제했으나 tier_3bucket 모델은 자산별 차용을 허용 (account-level
+  강제했으나 t4_tiered_haircut_margin_3pool 모델은 자산별 차용을 허용 (account-level
   collateral≥debt 만 불변식). 자산별 위반 시 warning log 만 출력
   하도록 강등.
 
@@ -496,7 +496,7 @@ Engine boundary 외 (V1 scope 미포함):
   가 ~1 commit. Smoke 와 무관하게 진행 가능 — DEFERRED 작업 표.
 
 - **R4 substrate audit (R4-3 done)** — core/circuit substrate 가
-  spot_simple 을 신규 helper 없이 수용함 확인. 두 model 양쪽이 쓰는
+  t1_simple_margin 을 신규 helper 없이 수용함 확인. 두 model 양쪽이 쓰는
   universal symbols 7개 (`API`, `Variable`, `BatchCommitment`,
   `ComputeFlatUint64Commitment`, `AccountIndexToMerkleHelper`,
   `VerifyMerkleProof`, `UpdateMerkleProof`, `TwoToTheSixtyFour`).
@@ -507,17 +507,17 @@ Engine boundary 외 (V1 scope 미포함):
 
 - **R6 promotion candidates (rule-of-three first event)** — 두 model
   사이에 중복된 항목들 (R6 G11 trigger 시 promote):
-  · `PowersOfSixteenBits` 가 tier_3bucket/circuit/constants.go +
-    spot_simple/circuit/constants.go 양쪽에 동일 정의로 존재. 의미는
+  · `PowersOfSixteenBits` 가 t4_tiered_haircut_margin_3pool/circuit/constants.go +
+    t1_simple_margin/circuit/constants.go 양쪽에 동일 정의로 존재. 의미는
     universal (2^16 powers — asset id packing). R6 에서 core/circuit
     로 옮긴다.
   · R1CS hash test helpers (`bn254R1Cs`, `hashR1Cs`, `hashCoefficients`,
-    `writeLinearExpr`, `writeUint64`) 가 tier_3bucket legacy_compare
-    _test.go + spot_simple setup_test.go 양쪽에 중복. R6 에서 test
+    `writeLinearExpr`, `writeUint64`) 가 t4_tiered_haircut_margin_3pool legacy_compare
+    _test.go + t1_simple_margin setup_test.go 양쪽에 중복. R6 에서 test
     helper 패키지 또는 core/circuit/testhelper 로 promote.
 
 - **noop ConstraintModule promotion 보류 (R4-4 reassessed)** — 두 model
-  의 `ConstraintContext` 가 다른 field 셋을 가지므로 (tier_3bucket 은
+  의 `ConstraintContext` 가 다른 field 셋을 가지므로 (t4_tiered_haircut_margin_3pool 은
   collateral/tier ratios, spot 은 equity only) 진정한 universal noop
   은 generic constraint 가 필요. 단순 promotion 가치가 limited —
   binance/constraint_noop.go 는 profile-specific 으로 유지, R6 (3rd
@@ -537,7 +537,7 @@ Engine boundary 외 (V1 scope 미포함):
 - **미결정·spec 공백·계약 불일치는 debate/question으로 surface** — agent
   임의 결정 금지.
 - **검증 명령 실제 실행 없이 완료 선언 금지** — go build / go vet 통과 필수.
-- **거래소 이름을 model id에 박지 않는다** — `tier_3bucket` ≠ `binance_v2`.
+- **거래소 이름을 model id에 박지 않는다** — `t4_tiered_haircut_margin_3pool` ≠ `binance_v2`.
 
 ## Source Priority
 
@@ -590,11 +590,11 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
     │   │   ├── tree.go                       (NewAccountTree memory/redis, EmptyAccountLeafHash)
     │   │   └── tree_test.go                  (memory round-trip via corehost.VerifyMerkleProof)
     │   └── solvency/                         audited math 카탈로그
-    │       ├── spot_simple/doc.go            (★ R4 model-first priority — SEA GTM driver)
-    │       ├── merkle_classic/doc.go
-    │       ├── over_collateral_simple/doc.go
-    │       ├── tier_1bucket/doc.go
-    │       └── tier_3bucket/                 (★ 유일 spec+circuit+host 구현)
+    │       ├── t1_simple_margin/doc.go            (★ R4 model-first priority — SEA GTM driver)
+    │       ├── t1_simple_margin/doc.go
+    │       ├── t2_static_haircut_margin/doc.go
+    │       ├── t3_tiered_haircut_margin_1pool/doc.go
+    │       └── t4_tiered_haircut_margin_3pool/                 (★ 유일 spec+circuit+host 구현)
     │           ├── doc.go
     │           ├── spec/                     (types, risk, snapshot, constraint, witness)
     │           ├── circuit/                  (BatchCreateUserCircuit + helpers)
@@ -663,7 +663,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | AccountID fr.Element 정규화 위치 결정 (G13) | ✅ closed — (a) snapshot 어댑터 | R3 step 1 |
 | Constraint Architecture alpha wiring + fr.Element impl | ✅ done — `module` 필드 + setter, snapshot round-trip, noop-baseline regression guard | R3 step 2 |
 | G1 byte-equivalence 절차 합의 + 실행 | ✅ closed — (a) R1CS L·R==O SHA256 채택, tiny shape match + sample-corpus AccountID parity (commit 1398e04) | R3 step 3 |
-| off-circuit host 헬퍼 추출 (Merkle verify + commitment) | ✅ done — `core/host` + `tier_3bucket/host`, legacy byte-equivalence | R3 step 4 prep |
+| off-circuit host 헬퍼 추출 (Merkle verify + commitment) | ✅ done — `core/host` + `t4_tiered_haircut_margin_3pool/host`, legacy byte-equivalence | R3 step 4 prep |
 | service rewiring — verifier | ✅ done — `zkpor/cmd/verifier` (9f889ad) | R3 step 4 |
 | service rewiring — witness | ✅ done — `zkpor/cmd/witness` (5332f40) + 의존 (c96018d core/tree, 32b9334 tier3host, 78acd39 store) | R3 step 4 |
 | service rewiring — prover | ✅ done — `zkpor/cmd/prover` (8045c37) + store 확장 (16f36bd) | R3 step 4 |
@@ -685,7 +685,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | AccountIDProvider derivation 정식화 (HMAC/salt) | deferred (V2 candidate) | post-V1 |
 | Store driver abstraction + PG adapter (slice D) | pending — `store.Open(driver, dsn)` + ConvertDriverErr 매핑 + MaxExecutionTime context 추상화 | post-A / DEFERRED |
 | EC2 원격 sync 스크립트 (slice F) | pending — rsync + ssh helper, m6i.{2,4}xlarge 권장 | post-A / DEFERRED |
-| Second model 회로 구현 — `spot_simple` (SEA GTM driver, model-first) | ✅ done — spec + circuit + setup smoke (NbConstraints=33,306 baseline). Substrate audit 통과 (R4-3) | **R4 종결** |
+| Second model 회로 구현 — `t1_simple_margin` (SEA GTM driver, model-first) | ✅ done — spec + circuit + setup smoke (NbConstraints=33,306 baseline). Substrate audit 통과 (R4-3) | **R4 종결** |
 | Second customer profile — SEA reference (Indonesia/Thailand 우선) | ✅ done (sea_reference, hypothetical) — host helpers (R5-0) + 7 어댑터 (R5-1) + snapshot CSV ETL + fixture (R5-2). 실제 customer 결정 시 rename | **R5 종결** |
 | Declarative `profile.toml` 첫 추출 | ✅ done — `profile/declarative/profile.go` schema + Load + Validate, binance/binance.toml + sea_reference/sea_reference.toml (R5-3) | R5 |
 | G12 multi-customer `.vk` 공유/분리 정책 | ✅ closed — (model, asset_capacity, batch_shape, module) tuple 단위, customer-blind. docs/02-module-architecture.md §6.1 (R5-4) | R5 |
@@ -721,7 +721,7 @@ R3 step 4 산출물: 4 services + 3 gate (G1/G2/G6) + AssetCounts
 재배치 (E) + end-to-end smoke (A5) — `scripts/smoke.sh` 풀 파이프
 라인 통과 (commit chain a6469c6 … 11f2d0a).
 
-R4 산출물: spot_simple model (spec + circuit + setup smoke) — 두번째
+R4 산출물: t1_simple_margin model (spec + circuit + setup smoke) — 두번째
 model 이 substrate 위에 안정 안착, NbConstraints=33,306 (tiny shape).
 core/circuit 의 universal helpers 가 신규 추가 없이 수용. 부수로
 `ComputeFlatUint64Commitment` 잠재 버그 fix (commit chain f511dcb →
@@ -752,8 +752,8 @@ PRODUCTION_ROADMAP G11 row 참조.
 
 ```text
 PRODUCTION_ROADMAP §R6. 카탈로그 5 model 중 3번째 회로 구현 진입.
-후보: tier_1bucket (single-bucket collateral, tier_3bucket 의 sub-
-shape) / over_collateral_simple / merkle_classic 중 하나. 동시에
+후보: t3_tiered_haircut_margin_1pool (single-bucket collateral, t4_tiered_haircut_margin_3pool 의 sub-
+shape) / t2_static_haircut_margin / t1_simple_margin 중 하나. 동시에
 R5 까지 누적된 R6 promotion candidates 를 정리 (PowersOfSixteenBits,
 R1CS hash helpers, parseShapeOverride, snapshot CSV helpers, identity
 derivation) 를 core 로 이동.
@@ -767,7 +767,7 @@ scripts/smoke.sh 를 sea_reference 변형. 차이:
     smoke 가 profile.toml 선택 가능하게 generic 화)
   - sample data: src/sampledata/ 대신 profile/sea_reference/testdata/
     happy/ 사용 (또는 별도 sea sample 작성)
-  - keygen 의 모델/capacity 인자 spot_simple, capacity=10 정도
+  - keygen 의 모델/capacity 인자 t1_simple_margin, capacity=10 정도
 
 R5 의 "고객사 sample data 로 end-to-end PoR 통과" exit criterion 의
 명시적 마감. R4-R5 종결 후 R6 진입 전 자연 연결고리.
@@ -815,7 +815,7 @@ R3 step 4 follow-ups (각각 별 슬라이스, 우선순위 user 결정):
   결정 필요. code-only flow 검증이 우선이라면 hypothetical SEA
   fixture (Indonesia/Thailand 합성 데이터) 로도 진행 가능.
 - R3/R4 follow-ups (multi-worker scaling, prover/userproof
-  parallelism, host helpers for spot_simple) 는 production scale
+  parallelism, host helpers for t1_simple_margin) 는 production scale
   prove SLA 가 측정될 때 필요. F 의 EC2 환경에서 한 번 production
   keygen + smoke 하면 SLA 데이터 확보 가능 — follow-up 우선순위가
   그 시점에 정해짐.
@@ -843,7 +843,7 @@ go build ./...              # legacy + 신규 — legacy 영향 없음 확인
 
 ```bash
 # trusted setup byte-equivalence (G1 검증 절차 — R1 진입 전 결정 필요)
-# 예: sha256sum legacy/zkpor50_700.pk new/zkpor.tier_3bucket.50_700.pk
+# 예: sha256sum legacy/zkpor50_700.pk new/zkpor.t4_tiered_haircut_margin_3pool.50_700.pk
 ```
 
 End-to-end smoke (R3 step 4 exit criteria — ✅ A5 슬라이스로 마감):

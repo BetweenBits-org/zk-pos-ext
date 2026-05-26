@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
 )
 
@@ -42,9 +42,9 @@ func TestPricingValueScaleInvariant_DefaultPath(t *testing.T) {
 // 50-tier bucket (smallest tier ≥ 3).
 func TestStreamAndBucket_RoutesAccountsByNonEmptyCount(t *testing.T) {
 	tiers := []int{50, 500}
-	src := &fakeSnapshot{accounts: []tier3spec.AccountInfo{
+	src := &fakeSnapshot{accounts: []t4spec.AccountInfo{
 		// 3 non-empty assets → tier 50
-		{AccountIndex: 0, Assets: padAssets([]tier3spec.AccountAsset{
+		{AccountIndex: 0, Assets: padAssets([]t4spec.AccountAsset{
 			{Index: 0, Equity: 10},
 			{Index: 5, Loan: 1},
 			{Index: 8, Margin: 2},
@@ -63,14 +63,14 @@ func TestStreamAndBucket_RoutesAccountsByNonEmptyCount(t *testing.T) {
 }
 
 type fakeSnapshot struct {
-	accounts []tier3spec.AccountInfo
+	accounts []t4spec.AccountInfo
 }
 
-func (f *fakeSnapshot) CexAssets(context.Context) ([]tier3spec.CexAssetInfo, error) {
+func (f *fakeSnapshot) CexAssets(context.Context) ([]t4spec.CexAssetInfo, error) {
 	return nil, nil
 }
-func (f *fakeSnapshot) AccountStream(context.Context) (<-chan tier3spec.AccountInfo, error) {
-	ch := make(chan tier3spec.AccountInfo, len(f.accounts))
+func (f *fakeSnapshot) AccountStream(context.Context) (<-chan t4spec.AccountInfo, error) {
+	ch := make(chan t4spec.AccountInfo, len(f.accounts))
 	for _, a := range f.accounts {
 		ch <- a
 	}
@@ -83,10 +83,10 @@ func (f *fakeSnapshot) SnapshotID() string   { return "fake" }
 // padAssets returns a tier-sized slice with non-zero entries at the
 // indices in `nonEmpty` and zero entries at every other slot up to
 // totalLen.
-func padAssets(nonEmpty []tier3spec.AccountAsset, totalLen int) []tier3spec.AccountAsset {
-	out := make([]tier3spec.AccountAsset, totalLen)
+func padAssets(nonEmpty []t4spec.AccountAsset, totalLen int) []t4spec.AccountAsset {
+	out := make([]t4spec.AccountAsset, totalLen)
 	for i := range totalLen {
-		out[i] = tier3spec.AccountAsset{Index: uint16(i)}
+		out[i] = t4spec.AccountAsset{Index: uint16(i)}
 	}
 	for _, a := range nonEmpty {
 		out[a.Index] = a
@@ -96,10 +96,10 @@ func padAssets(nonEmpty []tier3spec.AccountAsset, totalLen int) []tier3spec.Acco
 
 // nonEmpty returns a totalLen-sized slice with the first `count`
 // entries carrying a non-zero balance.
-func nonEmpty(count, totalLen int) []tier3spec.AccountAsset {
-	out := make([]tier3spec.AccountAsset, totalLen)
+func nonEmpty(count, totalLen int) []t4spec.AccountAsset {
+	out := make([]t4spec.AccountAsset, totalLen)
 	for i := range totalLen {
-		out[i] = tier3spec.AccountAsset{Index: uint16(i)}
+		out[i] = t4spec.AccountAsset{Index: uint16(i)}
 	}
 	for i := range count {
 		out[i].Equity = 1

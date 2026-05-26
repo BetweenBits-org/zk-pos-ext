@@ -30,9 +30,9 @@ import (
 
 	vconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/verifier/config"
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	tier3circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/circuit"
-	tier3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/host"
-	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
+	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
+	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	"github.com/consensys/gnark-crypto/ecc"
@@ -110,7 +110,7 @@ func runUserVerification() {
 	if err != nil {
 		panic(err.Error())
 	}
-	userConfig := &tier3host.UserConfig{}
+	userConfig := &t4host.UserConfig{}
 	if err := json.Unmarshal(content, userConfig); err != nil {
 		panic(err.Error())
 	}
@@ -129,7 +129,7 @@ func runUserVerification() {
 	}
 	proof := userConfig.Proof
 
-	assetCommitment := tier3host.ComputeUserAssetsCommitment(userConfig.Assets, assetCountTiers())
+	assetCommitment := t4host.ComputeUserAssetsCommitment(userConfig.Assets, assetCountTiers())
 
 	accountIDHash, err := hex.DecodeString(userConfig.AccountIdHash)
 	if err != nil || len(accountIDHash) != 32 {
@@ -201,11 +201,11 @@ func runBatchVerification() {
 	// Index the published CEX totals by their declared asset index and
 	// enforce the per-asset equity >= debt floor before computing the
 	// expected final commitment.
-	cexAssetsInfo := make([]tier3spec.CexAssetInfo, len(verifierConfig.CexAssetsInfo))
+	cexAssetsInfo := make([]t4spec.CexAssetInfo, len(verifierConfig.CexAssetsInfo))
 	for i := range verifierConfig.CexAssetsInfo {
 		entry := verifierConfig.CexAssetsInfo[i]
 		cexAssetsInfo[entry.Index] = entry
-		// Per-asset equity < debt is allowed under tier_3bucket: model
+		// Per-asset equity < debt is allowed under t4_tiered_haircut_margin_3pool: model
 		// invariants are per-account (sum collateral ≥ sum debt across
 		// the user's portfolio), not per-asset. Surface as a warning so
 		// operators notice unusual distributions, but do not panic.
@@ -214,7 +214,7 @@ func runBatchVerification() {
 				entry.Symbol, entry.TotalEquity, entry.TotalDebt)
 		}
 	}
-	emptyCexAssetsInfo := make([]tier3spec.CexAssetInfo, len(cexAssetsInfo))
+	emptyCexAssetsInfo := make([]t4spec.CexAssetInfo, len(cexAssetsInfo))
 	copy(emptyCexAssetsInfo, cexAssetsInfo)
 	for i := range emptyCexAssetsInfo {
 		emptyCexAssetsInfo[i].TotalDebt = 0
@@ -226,8 +226,8 @@ func runBatchVerification() {
 	if verifierConfig.AssetCapacity <= 0 {
 		panic("verifier config: AssetCapacity must be set (> 0); see config docs")
 	}
-	emptyCexAssetListCommitment := tier3host.ComputeCexAssetsCommitment(emptyCexAssetsInfo, verifierConfig.AssetCapacity)
-	expectFinalCexAssetsInfoComm := tier3host.ComputeCexAssetsCommitment(cexAssetsInfo, verifierConfig.AssetCapacity)
+	emptyCexAssetListCommitment := t4host.ComputeCexAssetsCommitment(emptyCexAssetsInfo, verifierConfig.AssetCapacity)
+	expectFinalCexAssetsInfoComm := t4host.ComputeCexAssetsCommitment(cexAssetsInfo, verifierConfig.AssetCapacity)
 
 	prevCexAssetListCommitments := make([][]byte, 2)
 	prevAccountTreeRoots := make([][]byte, 2)
@@ -450,7 +450,7 @@ func verifyProofRange(rows []proofRow, cfg *vconfig.Config) bool {
 			panic("verify proof " + strconv.Itoa(batchNumber) + " failed")
 		}
 
-		verifyWitness := tier3circuit.NewVerifyBatchCreateUserCircuit(actualHash)
+		verifyWitness := t4circuit.NewVerifyBatchCreateUserCircuit(actualHash)
 		vWitness, err := frontend.NewWitness(verifyWitness, ecc.BN254.ScalarField(), frontend.PublicOnly())
 		if err != nil {
 			panic(err.Error())

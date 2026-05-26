@@ -11,8 +11,8 @@ import (
 )
 
 // shapeProvider supplies sea_reference's per-batch shapes. The
-// production default is a single shape (50, 1000) — spot_simple's
-// in-circuit cost per user is much lower than tier_3bucket so larger
+// production default is a single shape (50, 1000) — t1_simple_margin's
+// in-circuit cost per user is much lower than t4_tiered_haircut_margin_3pool so larger
 // usersPerBatch is feasible at audit-comparable Setup cost.
 //
 // If a real SEA customer needs a multi-tier layout (e.g. retail +

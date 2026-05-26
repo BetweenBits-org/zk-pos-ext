@@ -12,7 +12,7 @@
 
 [profile]
 name = "sea_reference"
-model = "spot_simple"
+model = "t1_simple_margin"
 asset_capacity = 50
 
 [identity]

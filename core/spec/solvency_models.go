@@ -9,9 +9,14 @@ import "slices"
 //
 // Stable, filesystem-safe (lowercase letters, digits, underscores;
 // no dots).
+//
+// Naming convention (R6 freeze): "t<N>_<math_dimension>_margin[_pool_suffix]".
+// T<N> is the catalog tier (1..4 in ascending verification richness /
+// circuit cost). All entries share the same 5-input Poseidon account
+// leaf — see docs/04-solvency-models.md §3.
 type SolvencyModelID string
 
-// Solvency-model catalog.
+// Solvency-model catalog (R6, 4-entry).
 //
 // This is the public, audited list of models supported by the engine.
 // Each entry maps to a directory under zkpor/core/solvency/<id>/ and
@@ -25,70 +30,92 @@ type SolvencyModelID string
 //     proofs reference it. Deprecate before removal.
 //   - Each batch proof targets exactly one model (single-selection —
 //     composition is intentionally not supported at v1).
+//
+// Spot use case: T1 with all user.TotalDebt = 0 (constraint trivially
+// satisfied). The former separate `t1_simple_margin` entry was absorbed
+// into T1 in R6 — see docs/04-solvency-models.md §8.1.
 const (
-	// ModelSpotSimple — Basic tier.
+	// T1SimpleMargin — Basic / Standard tier (spot absorbed).
 	//
-	// Solvency: published_total[asset] == sum_users(user[asset]).
-	// No user-level debt or collateral logic; assumes users carry no
-	// liabilities to the exchange.
+	// Solvency: per-user TotalEquity >= TotalDebt (account-level only;
+	// no risk-weighted collateral). Spot-only deployments supply
+	// TotalDebt = 0 and the constraint is trivially satisfied — one
+	// ceremony serves both spot and simple-margin customers.
 	//
-	// Target customers: regulated spot-only exchanges (Korea, EU,
-	// Japan), stablecoin issuers, custodians.
-	ModelSpotSimple SolvencyModelID = "spot_simple"
+	// Reference: Binance OSS PoR v2 (non-negative net constraint),
+	// Bybit / KuCoin / HTX off-chain Merkle PoR (in-circuit hoist),
+	// OKX zk-STARK Merkle Sum Tree (3 constraints: Total / Non-neg /
+	// Inclusion).
+	//
+	// Target customers: regulated spot exchanges (Korea, EU, Japan,
+	// SEA) + mid-tier margin exchanges (Bybit, KuCoin, HTX class)
+	// upgrading from legacy Merkle-only PoR.
+	T1SimpleMargin SolvencyModelID = "t1_simple_margin"
 
-	// ModelMerkleClassic — Standard tier.
+	// T2StaticHaircutMargin — Pro-A tier.
 	//
-	// Solvency: spot_simple + per-account Merkle inclusion proof in
-	// the zk circuit. Equivalent to the historical off-chain Merkle-PoR
-	// pattern (Bybit, KuCoin, HTX) but composed end-to-end in zk.
+	// Solvency: per-user sum_i(collateral_i * haircut_i) >= TotalDebt,
+	// where haircut_i is a per-asset constant supplied by RiskPolicy.
 	//
-	// Target customers: mid-tier margin exchanges upgrading from
-	// legacy Merkle-only PoR.
-	ModelMerkleClassic SolvencyModelID = "merkle_classic"
-
-	// ModelOverCollateralSimple — Pro tier (variant A).
-	//
-	// Solvency: single per-user collateral bucket, fixed (non-tiered)
-	// haircut per asset.
-	//   for each user: sum_i(collateral_i * haircut_i) >= user.totalDebt
+	// Reference: Aave V3 LTV / Liquidation Threshold per-asset
+	// configuration.
 	//
 	// Target customers: margin exchanges with simple risk models —
 	// one collateral pool, asset-level (not size-tiered) haircuts.
-	ModelOverCollateralSimple SolvencyModelID = "over_collateral_simple"
+	T2StaticHaircutMargin SolvencyModelID = "t2_static_haircut_margin"
 
-	// ModelTier1Bucket — Pro tier (variant B).
+	// T3TieredHaircutMargin1Pool — Pro-B tier.
 	//
-	// Solvency: tier-based piecewise-linear haircut with a single
-	// collateral bucket. Same curve shape as tier_3bucket without the
-	// Loan/Margin/PortfolioMargin split.
+	// Solvency: per-user sum_i haircut_curve_i(collateral_i) >= TotalDebt,
+	// where haircut_curve_i is a piecewise-linear, size-tiered function
+	// of the collateral amount in asset i. Single collateral pool.
+	//
+	// Reference: dYdX IMF curve (piecewise-linear over open notional),
+	// Bitget / Gate tiered MMR.
 	//
 	// Target customers: derivatives-heavy exchanges that have not
 	// segmented collateral by business line.
-	ModelTier1Bucket SolvencyModelID = "tier_1bucket"
+	T3TieredHaircutMargin1Pool SolvencyModelID = "t3_tiered_haircut_margin_1pool"
 
-	// ModelTier3Bucket — Enterprise tier.
+	// T4TieredHaircutMargin3Pool — Enterprise tier.
 	//
-	// Solvency: three-bucket collateral (Loan / Margin /
-	// PortfolioMargin), tier-based piecewise-linear haircut per
-	// bucket. Full per-user solvency.
+	// Solvency: per-user sum_{b in {Loan,Margin,PortfolioMargin}}
+	//                       sum_i haircut_curve_b_i(collateral_b_i)
+	//                       >= TotalDebt
+	// — three independent collateral pools, each with its own
+	// tier-haircut curve table.
 	//
-	// Reference implementation in core/solvency/tier_3bucket/ —
-	// circuit inherited from the Binance OSS PoR v2 codebase.
+	// Reference implementation: Binance OSS PoR v2 (zkpor R1-R3 is
+	// the productization of this circuit). Also: OKX zk-STARK PoR v2.
 	//
-	// Target customers: Binance-class exchanges with VIP loan +
+	// Target customers: Binance / OKX class exchanges with VIP loan +
 	// cross margin + portfolio margin business lines.
-	ModelTier3Bucket SolvencyModelID = "tier_3bucket"
+	T4TieredHaircutMargin3Pool SolvencyModelID = "t4_tiered_haircut_margin_3pool"
 )
 
 // CatalogedModels lists every model in the audited catalog in tier
-// order (Basic → Enterprise). Adding to this list is a versioned,
-// audited change.
+// order (T1 → T4 = ascending verification richness / circuit cost).
+// Adding to this list is a versioned, audited change.
 var CatalogedModels = []SolvencyModelID{
-	ModelSpotSimple,
-	ModelMerkleClassic,
-	ModelOverCollateralSimple,
-	ModelTier1Bucket,
-	ModelTier3Bucket,
+	T1SimpleMargin,
+	T2StaticHaircutMargin,
+	T3TieredHaircutMargin1Pool,
+	T4TieredHaircutMargin3Pool,
+}
+
+// ModelDisplay maps the audited catalog ID to a human-readable
+// marketing label. Service code MUST use the ID (lowercase, filename-
+// safe); display strings are for UI / docs / report headers only.
+//
+// The display label intentionally exposes the catalog-tier (Basic /
+// Pro / Enterprise) framing from docs/01-project-context.md so the
+// marketing surface stays consistent with the engineering catalog
+// while the on-disk identifiers stay stable.
+var ModelDisplay = map[SolvencyModelID]string{
+	T1SimpleMargin:             "T1 · Simple Margin (spot-friendly)",
+	T2StaticHaircutMargin:      "T2 · Static-Haircut Margin",
+	T3TieredHaircutMargin1Pool: "T3 · Tiered-Haircut Margin · 1 Pool",
+	T4TieredHaircutMargin3Pool: "T4 · Tiered-Haircut Margin · 3 Pool",
 }
 
 // IsCataloged reports whether the given ID is in the audited catalog.

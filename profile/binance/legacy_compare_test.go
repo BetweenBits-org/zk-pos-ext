@@ -9,7 +9,7 @@ import (
 	"sort"
 	"testing"
 
-	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	legacy "github.com/binance/zkmerkle-proof-of-solvency/src/utils"
 )
 

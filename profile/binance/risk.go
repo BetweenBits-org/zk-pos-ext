@@ -3,7 +3,7 @@ package binance
 import (
 	"strings"
 
-	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 )
 
 // Ratios is the per-symbol tier-ratio bundle loaded from a snapshot's

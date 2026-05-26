@@ -48,7 +48,7 @@ flowchart TB
   subgraph Code["📦 Code stack (zkpor packages)"]
     direction TB
     Profile["profile/{binance, sea_reference, declarative}<br/>(customer-specific adapters + profile.toml)"]
-    Model["core/solvency/{tier_3bucket, spot_simple}<br/>(spec + circuit + host — 2 model)"]
+    Model["core/solvency/{t4_tiered_haircut_margin_3pool, t1_simple_margin}<br/>(spec + circuit + host — 2 model)"]
     Universal["core/<br/>(spec · circuit · host · tree)"]
     Store["store/<br/>(gorm models)"]
   end
@@ -122,7 +122,7 @@ sequenceDiagram
 flowchart TB
   Top["BatchCreateUserCircuit.Define(api)"]
   L1["Layer 1 — Universal mandatory (c1..c4)<br/>Merkle · Commitment · Batch chain · Sum equality"]
-  L2["Layer 2 — Catalog selection L[k] ∈ { tier_3bucket | spot_simple }<br/>(현재 회로 구현 2/5)"]
+  L2["Layer 2 — Catalog selection L[k] ∈ { t4_tiered_haircut_margin_3pool | t1_simple_margin }<br/>(현재 회로 구현 2/5)"]
   L3["Layer 3 — alpha(profile) ConstraintModule<br/>module.Define(api, ctx) — 현재 noop"]
 
   Top --> L1
@@ -135,9 +135,9 @@ flowchart TB
 - **add-only** — 어느 layer 도 위 layer 의 제약을 약화·제거 못 함.
   이게 alpha layer 의 N-module composition 안전성의 수학적 근거
   (`docs/02-module-architecture.md` §1).
-- 5 model 카탈로그 중 회로 구현 = `tier_3bucket` (R1) + `spot_simple`
-  (R4, SEA GTM). 나머지 3 (`tier_1bucket`, `over_collateral_simple`,
-  `merkle_classic`) 는 doc.go reserved — R6 rule-of-three trigger 대기.
+- 5 model 카탈로그 중 회로 구현 = `t4_tiered_haircut_margin_3pool` (R1) + `t1_simple_margin`
+  (R4, SEA GTM). 나머지 3 (`t3_tiered_haircut_margin_1pool`, `t2_static_haircut_margin`,
+  `t1_simple_margin`) 는 doc.go reserved — R6 rule-of-three trigger 대기.
 
 ---
 
@@ -159,15 +159,15 @@ flowchart TB
 
   subgraph L4["📦 Layer 4 — Customer profile"]
     direction LR
-    L4a["profile/binance<br/>(tier_3bucket)"]
-    L4b["profile/sea_reference<br/>(spot_simple, hypothetical)"]
+    L4a["profile/binance<br/>(t4_tiered_haircut_margin_3pool)"]
+    L4b["profile/sea_reference<br/>(t1_simple_margin, hypothetical)"]
     L4c["profile/declarative<br/>(profile.toml schema)"]
   end
 
   subgraph L3p["🔧 Layer 3 — Models (2/5 구현)"]
     direction LR
-    L3a["tier_3bucket/<br/>(spec · circuit · host)"]
-    L3b["spot_simple/<br/>(spec · circuit · host)"]
+    L3a["t4_tiered_haircut_margin_3pool/<br/>(spec · circuit · host)"]
+    L3b["t1_simple_margin/<br/>(spec · circuit · host)"]
   end
 
   subgraph L2p["🧱 Layer 2 — Universal core"]
@@ -220,10 +220,10 @@ flowchart LR
 | Stage | 목표 | 상태 |
 |---|---|---|
 | R0 | Decision gate triage | ✅ closed |
-| R1 | tier_3bucket 회로 이식 | ✅ closed |
+| R1 | t4_tiered_haircut_margin_3pool 회로 이식 | ✅ closed |
 | R2 | CSV ETL absorb | ✅ closed |
 | R3 | 회로/Setup 검증 + 4 service rewiring + end-to-end smoke | ✅ closed (commit d7c23f3) |
-| R4 | `spot_simple` 회로 (SEA GTM driver) | ✅ closed (commit f511dcb) |
+| R4 | `t1_simple_margin` 회로 (SEA GTM driver) | ✅ closed (commit f511dcb) |
 | R5 | SEA reference customer profile + declarative `profile.toml` | ✅ closed (commit b5b3236) |
 | R6 | 3번째 model + core/circuit 헬퍼 promotion | ⏳ next (rule-of-three trigger) |
 | R7 | v1 catalog freeze | ⏳ pending |
@@ -242,7 +242,7 @@ flowchart LR
 | R3 step 4 E | AssetCounts → profile-owned + catalog source-of-truth | ✅ |
 | R3 step 4 A1..A5 | shape override + MySQL fixture + keygen + DB direct read + end-to-end smoke | ✅ |
 
-**R4 — second model `spot_simple`**:
+**R4 — second model `t1_simple_margin`**:
 
 | Sub-slice | 내용 | 상태 |
 |---|---|---|
@@ -255,7 +255,7 @@ flowchart LR
 
 | Sub-slice | 내용 | 상태 |
 |---|---|---|
-| R5-0 | spot_simple host helpers (off-circuit) | ✅ |
+| R5-0 | t1_simple_margin host helpers (off-circuit) | ✅ |
 | R5-1 | sea_reference 6 어댑터 (no snapshot) | ✅ |
 | R5-2 | sea_reference snapshot CSV adapter + happy fixture | ✅ |
 | R5-3 | declarative `profile.toml` schema + 2 instantiations | ✅ |

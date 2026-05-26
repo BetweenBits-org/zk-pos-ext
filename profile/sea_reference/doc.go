@@ -1,6 +1,6 @@
 // Package sea_reference is a hypothetical Southeast Asia (SEA)
 // spot-only exchange profile, used to validate the model→customer flow
-// for the spot_simple solvency model end-to-end (R5).
+// for the t1_simple_margin solvency model end-to-end (R5).
 //
 // Status: synthetic reference, NOT a real customer integration. Once
 // a concrete SEA partner (Indodax / Tokocrypto / Pintu / Bitkub /
@@ -8,7 +8,7 @@
 // and adjust catalog + snapshot to match their actual asset list and
 // CSV layout. The adapter shapes here are stable across that rename.
 //
-// Model: spot_simple — single-balance-per-asset user state, no debt,
+// Model: t1_simple_margin — single-balance-per-asset user state, no debt,
 // no collateral. The model invariant is per-asset sum equality:
 //
 //	cex.TotalEquity[asset] == Σ user.Equity[asset]
@@ -20,12 +20,12 @@
 //   - core/spec.AccountIDProvider       → identity.go
 //   - core/spec.InvalidAccountPolicy    → insolvent.go
 //   - core/spec.BatchShapeProvider      → batch_shape.go
-//   - core/solvency/spot_simple/spec.ConstraintModule (noop choice)
+//   - core/solvency/t1_simple_margin/spec.ConstraintModule (noop choice)
 //                                       → constraint_noop.go
-//   - core/solvency/spot_simple/spec.SnapshotSource
+//   - core/solvency/t1_simple_margin/spec.SnapshotSource
 //                                       → snapshot.go (R5-2)
 //
-// Notably absent (vs profile/binance): risk.go — spot_simple has no
+// Notably absent (vs profile/binance): risk.go — t1_simple_margin has no
 // RiskPolicy interface (no haircut math).
 package sea_reference
 
@@ -36,4 +36,4 @@ import (
 // SolvencyModel is the SolvencyModelID this profile targets.
 // Re-exported so wiring code doesn't need to import core/spec just
 // for the constant.
-const SolvencyModel = corespec.ModelSpotSimple
+const SolvencyModel = corespec.T1SimpleMargin

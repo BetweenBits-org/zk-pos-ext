@@ -28,8 +28,8 @@ import (
 	"sort"
 
 	wconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/witness/config"
-	tier3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/host"
-	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
+	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
@@ -133,17 +133,17 @@ func tiersFromShapes(shapes []corespec.BatchShape) []int {
 // streamAndBucket drains the snapshot's account stream and groups
 // accounts by the smallest BatchShape AssetCountTier that fits their
 // non-empty asset count. Returns map[tier] -> []AccountInfo.
-func streamAndBucket(ctx context.Context, snapshot tier3spec.SnapshotSource, tiers []int) map[int][]tier3spec.AccountInfo {
+func streamAndBucket(ctx context.Context, snapshot t4spec.SnapshotSource, tiers []int) map[int][]t4spec.AccountInfo {
 	ch, err := snapshot.AccountStream(ctx)
 	if err != nil {
 		panic(err.Error())
 	}
-	out := make(map[int][]tier3spec.AccountInfo)
+	out := make(map[int][]t4spec.AccountInfo)
 	for account := range ch {
-		tier := tier3spec.PickAssetCountTier(tier3spec.CountNonEmptyAssets(account.Assets), tiers)
+		tier := t4spec.PickAssetCountTier(t4spec.CountNonEmptyAssets(account.Assets), tiers)
 		if tier == 0 {
 			panic(fmt.Sprintf("account %d has %d non-empty assets — no tier in %v fits",
-				account.AccountIndex, tier3spec.CountNonEmptyAssets(account.Assets), tiers))
+				account.AccountIndex, t4spec.CountNonEmptyAssets(account.Assets), tiers))
 		}
 		out[tier] = append(out[tier], account)
 	}
@@ -155,8 +155,8 @@ func streamAndBucket(ctx context.Context, snapshot tier3spec.SnapshotSource, tie
 // BatchWitness row per batch. Sequential — multi-worker account
 // hashing is a follow-up slice.
 func runBatches(
-	accountsByTier map[int][]tier3spec.AccountInfo,
-	cexAssets []tier3spec.CexAssetInfo,
+	accountsByTier map[int][]t4spec.AccountInfo,
+	cexAssets []t4spec.CexAssetInfo,
 	accountTree bsmt.SparseMerkleTree,
 	witnessStore *store.WitnessStore,
 	assetCountTiers []int,
@@ -178,7 +178,7 @@ func runBatches(
 		}
 		usersPerBatch := shape.UsersPerBatch
 
-		paddingStart, accountsByTier[assetKey] = tier3host.PaddingAccounts(
+		paddingStart, accountsByTier[assetKey] = t4host.PaddingAccounts(
 			accountsByTier[assetKey], assetKey, paddingStart, usersPerBatch,
 		)
 		accounts := accountsByTier[assetKey]
@@ -189,7 +189,7 @@ func runBatches(
 			batch := accounts[b*usersPerBatch : (b+1)*usersPerBatch]
 			wit := buildBatch(batch, cexAssets, accountTree, assetCountTiers)
 
-			encoded, err := tier3host.EncodeBatchWitness(wit)
+			encoded, err := t4host.EncodeBatchWitness(wit)
 			if err != nil {
 				panic(err.Error())
 			}
@@ -221,18 +221,18 @@ func runBatches(
 // commitment. Mutates cexAssets in place (running running-sum of
 // per-asset totals) and writes new leaves to accountTree.
 func buildBatch(
-	batch []tier3spec.AccountInfo,
-	cexAssets []tier3spec.CexAssetInfo,
+	batch []t4spec.AccountInfo,
+	cexAssets []t4spec.CexAssetInfo,
 	accountTree bsmt.SparseMerkleTree,
 	assetCountTiers []int,
-) *tier3spec.BatchCreateUserWitness {
-	wit := &tier3spec.BatchCreateUserWitness{
+) *t4spec.BatchCreateUserWitness {
+	wit := &t4spec.BatchCreateUserWitness{
 		BeforeAccountTreeRoot: accountTree.Root(),
-		BeforeCexAssets:       make([]tier3spec.CexAssetInfo, len(cexAssets)),
-		CreateUserOps:         make([]tier3spec.CreateUserOperation, len(batch)),
+		BeforeCexAssets:       make([]t4spec.CexAssetInfo, len(cexAssets)),
+		CreateUserOps:         make([]t4spec.CreateUserOperation, len(batch)),
 	}
 	copy(wit.BeforeCexAssets, cexAssets)
-	wit.BeforeCEXAssetsCommitment = tier3host.ComputeCexAssetsCommitment(cexAssets, len(cexAssets))
+	wit.BeforeCEXAssetsCommitment = t4host.ComputeCexAssetsCommitment(cexAssets, len(cexAssets))
 
 	for i, account := range batch {
 		op := &wit.CreateUserOps[i]
@@ -253,7 +253,7 @@ func buildBatch(
 			cexAssets[a.Index].PortfolioMarginCollateral = safeAdd(cexAssets[a.Index].PortfolioMarginCollateral, a.PortfolioMargin)
 		}
 
-		leaf := tier3host.AccountLeafHash(&account, assetCountTiers)
+		leaf := t4host.AccountLeafHash(&account, assetCountTiers)
 		if err := accountTree.Set(uint64(account.AccountIndex), leaf); err != nil {
 			panic(err.Error())
 		}
@@ -264,7 +264,7 @@ func buildBatch(
 		op.Assets = account.Assets
 	}
 
-	wit.AfterCEXAssetsCommitment = tier3host.ComputeCexAssetsCommitment(cexAssets, len(cexAssets))
+	wit.AfterCEXAssetsCommitment = t4host.ComputeCexAssetsCommitment(cexAssets, len(cexAssets))
 	wit.AfterAccountTreeRoot = accountTree.Root()
 	wit.BatchCommitment = poseidon.PoseidonBytes(
 		wit.BeforeAccountTreeRoot,

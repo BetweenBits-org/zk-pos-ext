@@ -26,8 +26,8 @@ import (
 	"sort"
 
 	uconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/userproof/config"
-	tier3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/host"
-	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
+	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
@@ -61,7 +61,7 @@ func main() {
 	}
 	fmt.Printf("loaded %d real accounts across %d tiers\n", totalReal, len(accountsByTier))
 
-	// Per-tier real-vs-padding boundary. After tier3host.PaddingAccounts,
+	// Per-tier real-vs-padding boundary. After t4host.PaddingAccounts,
 	// accounts[0..realCount[tier]) are real; the rest are padding.
 	realCount := make(map[int]int, len(accountsByTier))
 	for k, v := range accountsByTier {
@@ -75,7 +75,7 @@ func main() {
 		if err != nil {
 			panic(err.Error())
 		}
-		paddingStart, accountsByTier[k] = tier3host.PaddingAccounts(accountsByTier[k], k, paddingStart, shape.UsersPerBatch)
+		paddingStart, accountsByTier[k] = t4host.PaddingAccounts(accountsByTier[k], k, paddingStart, shape.UsersPerBatch)
 	}
 
 	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
@@ -143,17 +143,17 @@ func tiersFromShapes(shapes []corespec.BatchShape) []int {
 // streamAndBucket drains the snapshot's account stream and groups
 // accounts by the smallest BatchShape AssetCountTier that fits their
 // non-empty asset count.
-func streamAndBucket(ctx context.Context, snapshot tier3spec.SnapshotSource, tiers []int) map[int][]tier3spec.AccountInfo {
+func streamAndBucket(ctx context.Context, snapshot t4spec.SnapshotSource, tiers []int) map[int][]t4spec.AccountInfo {
 	ch, err := snapshot.AccountStream(ctx)
 	if err != nil {
 		panic(err.Error())
 	}
-	out := make(map[int][]tier3spec.AccountInfo)
+	out := make(map[int][]t4spec.AccountInfo)
 	for account := range ch {
-		tier := tier3spec.PickAssetCountTier(tier3spec.CountNonEmptyAssets(account.Assets), tiers)
+		tier := t4spec.PickAssetCountTier(t4spec.CountNonEmptyAssets(account.Assets), tiers)
 		if tier == 0 {
 			panic(fmt.Sprintf("account %d has %d non-empty assets — no tier in %v fits",
-				account.AccountIndex, tier3spec.CountNonEmptyAssets(account.Assets), tiers))
+				account.AccountIndex, t4spec.CountNonEmptyAssets(account.Assets), tiers))
 		}
 		out[tier] = append(out[tier], account)
 	}
@@ -163,7 +163,7 @@ func streamAndBucket(ctx context.Context, snapshot tier3spec.SnapshotSource, tie
 // sortedKeys returns the map's keys in ascending order — the
 // tier-iteration order witness and userproof must agree on so the
 // resulting tree state matches.
-func sortedKeys(m map[int][]tier3spec.AccountInfo) []int {
+func sortedKeys(m map[int][]t4spec.AccountInfo) []int {
 	out := make([]int, 0, len(m))
 	for k := range m {
 		out = append(out, k)
@@ -178,14 +178,14 @@ func sortedKeys(m map[int][]tier3spec.AccountInfo) []int {
 // hash so the resulting root matches the witness's published root.
 func populateTree(
 	accountTree bsmt.SparseMerkleTree,
-	accountsByTier map[int][]tier3spec.AccountInfo,
+	accountsByTier map[int][]t4spec.AccountInfo,
 	tiers []int,
 	assetCountTiers []int,
 ) {
 	for _, k := range tiers {
 		for i := range accountsByTier[k] {
 			account := &accountsByTier[k][i]
-			leaf := tier3host.AccountLeafHash(account, assetCountTiers)
+			leaf := t4host.AccountLeafHash(account, assetCountTiers)
 			if err := accountTree.Set(uint64(account.AccountIndex), leaf); err != nil {
 				panic(err.Error())
 			}
@@ -200,7 +200,7 @@ func populateTree(
 // written.
 func writeUserProofs(
 	accountTree bsmt.SparseMerkleTree,
-	accountsByTier map[int][]tier3spec.AccountInfo,
+	accountsByTier map[int][]t4spec.AccountInfo,
 	tiers []int,
 	realCount map[int]int,
 	assetCountTiers []int,
@@ -229,7 +229,7 @@ func writeUserProofs(
 			if err != nil {
 				panic(err.Error())
 			}
-			leaf := tier3host.AccountLeafHash(account, assetCountTiers)
+			leaf := t4host.AccountLeafHash(account, assetCountTiers)
 
 			row, err := buildUserProofRow(account, leaf, proof, rootHex)
 			if err != nil {
@@ -249,7 +249,7 @@ func writeUserProofs(
 // including the JSON-marshalled UserConfig payload the verifier
 // -user mode reads to recompute the leaf.
 func buildUserProofRow(
-	account *tier3spec.AccountInfo,
+	account *t4spec.AccountInfo,
 	leaf []byte,
 	proof [][]byte,
 	rootHex string,
@@ -262,7 +262,7 @@ func buildUserProofRow(
 	if err != nil {
 		return store.UserProof{}, fmt.Errorf("marshal assets: %w", err)
 	}
-	userConfig := tier3host.UserConfig{
+	userConfig := t4host.UserConfig{
 		AccountIndex:    account.AccountIndex,
 		AccountIdHash:   hex.EncodeToString(account.AccountID),
 		TotalEquity:     account.TotalEquity,

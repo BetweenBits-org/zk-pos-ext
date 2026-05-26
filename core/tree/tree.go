@@ -28,7 +28,7 @@ import (
 // that has never been written: Poseidon over BN254 of five zero field
 // elements — (accountID, totalEquity, totalDebt, totalCollateral,
 // assetsCommitment) all zero. Embedded as the SparseMerkleTree's
-// nil-leaf so an untouched leaf hashes to the value the tier_3bucket
+// nil-leaf so an untouched leaf hashes to the value the t4_tiered_haircut_margin_3pool
 // circuit's EmptyAccountLeafNodeHash expects.
 var EmptyAccountLeafHash []byte
 

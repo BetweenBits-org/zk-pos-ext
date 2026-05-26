@@ -105,7 +105,7 @@ Composite 의 ID 는 **constituent ID 들의 lexicographic sort 결과를
 
 # 3. ConstraintContext — Read-Only
 
-`ConstraintContext` (tier_3bucket/spec/constraint.go) 는 module 에게
+`ConstraintContext` (t4_tiered_haircut_margin_3pool/spec/constraint.go) 는 module 에게
 witness 의 read-only view 만 제공한다. 다음이 명시적으로 금지:
 
 - module 이 ctx 의 필드를 수정 (없는 동작 — ctx 는 value struct).
@@ -231,8 +231,8 @@ constraint_module) tuple 으로 결정되며 customer profile 은 이 tuple
 
 1. **`(model, asset_capacity, batch_shape, module)` tuple 이 같은
    customer 끼리 같은 `.vk` 디렉터리를 공유**. e.g. binance 와 SEA-
-   customer 가 둘 다 `tier_3bucket`, capacity 500, shape `{50, 700}`,
-   noop module 이면 같은 `zkpor.tier_3bucket.50_700.{pk,vk,r1cs}` 사용.
+   customer 가 둘 다 `t4_tiered_haircut_margin_3pool`, capacity 500, shape `{50, 700}`,
+   noop module 이면 같은 `zkpor.t4_tiered_haircut_margin_3pool.50_700.{pk,vk,r1cs}` 사용.
 
 2. **`asset_capacity` 는 `StandardKeyName` 에 인코드되지 않으므로
    operator 가 명시적으로 일관성을 보장해야 한다**. `cmd/keygen` 의

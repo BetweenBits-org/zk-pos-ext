@@ -12,10 +12,11 @@ N-customer **PoR 엔진 제품**으로 생산화하는 R&D 작업 공간이다. 
 
 초기 제품 범위 전제:
 
-- **V1 scope**: `tier_3bucket` 모델 (Binance reference 이식) + `binance`
+- **V1 scope**: `t4_tiered_haircut_margin_3pool` 모델 (Binance reference 이식) + `binance`
   프로파일 end-to-end 동작.
-- **확장 방향**: `spot_simple`, `merkle_classic`, `over_collateral_simple`,
-  `tier_1bucket` — 카탈로그 등재만 유지, 회로 구현은 고객 신호 따라.
+- **확장 방향**: `t1_simple_margin` (Basic+Standard, R6 통합),
+  `t2_static_haircut_margin`, `t3_tiered_haircut_margin_1pool` — 카탈로그 등재만
+  유지, 회로 구현은 고객 신호 따라.
 - **목표 고객 / 운영 / SLA**: 마진·론 사업 거래소(Binance/OKX-class) 우선 +
   한국·EU 규제 spot 거래소 / managed SaaS 엔진 통합 / 고객 onboarding 1~4개월.
 
@@ -32,9 +33,9 @@ scheme 공개 + 외부 audit.
   금지**. 현재 동작하며 trusted setup 그대로 유효.
 - `zkpor/` — 신규 modular engine. 자체 git 저장소 (`zkpor/.git/`).
   모든 신규 작업은 여기.
-  - `zkpor/core/spec/` — universal interfaces + 5-tier catalog 상수.
+  - `zkpor/core/spec/` — universal interfaces + 4-tier catalog 상수 (R6 freeze).
   - `zkpor/core/circuit/` — universal zk helpers (Merkle, commitment, arith).
-  - `zkpor/core/solvency/<model>/` — audited math 카탈로그. 5-tier.
+  - `zkpor/core/solvency/<model>/` — audited math 카탈로그. T1~T4.
   - `zkpor/profile/<customer>/` — 고객사 deployment.
   - `zkpor/docs/` — methodology 문서 (project-context).
   - `zkpor/PRODUCTION_ROADMAP.md` — Part 3 (stages + gates).
@@ -73,7 +74,7 @@ scheme 공개 + 외부 audit.
   ceremony 가 필요한 변경이다. 단순 PR로 처리 금지, 별도 거버넌스로 처리.
 - `ConstraintModule`은 add only — 기존 base-circuit 제약을 weaken/remove
   하지 않는다. trusted setup 분기됨.
-- 고객사 이름을 model identifier에 박지 않는다. `tier_3bucket`, not
+- 고객사 이름을 model identifier에 박지 않는다. `t4_tiered_haircut_margin_3pool`, not
   `binance_v2`. 고객사 이름은 `zkpor/profile/<customer>/` 디렉터리 이름에만.
 - `PriceMultiplier × BalanceMultiplier == ValueScale` 불변식. 기본 1e16
   (1e8 × 1e8). 서비스가 startup에서 assert 한다.

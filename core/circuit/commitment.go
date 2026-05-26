@@ -10,8 +10,8 @@ import (
 //
 // Universal — works for any flat layout of uint64 values. Each
 // solvency model decides which fields go into `flatValues` and in
-// what order. For tier_3bucket the layout is
-// {Index, Equity, Debt, Loan, Margin, PM} per asset; for spot_simple
+// what order. For t4_tiered_haircut_margin_3pool the layout is
+// {Index, Equity, Debt, Loan, Margin, PM} per asset; for t1_simple_margin
 // it might be {Index, Balance} per asset.
 //
 // Migrated verbatim (modulo constant references) from the legacy
@@ -32,9 +32,9 @@ func ComputeFlatUint64Commitment(api API, flatValues []Variable) Variable {
 	// loop's {2^128, 2^64, 1} weighting). Missing low/mid entries
 	// pad with 0. Pre-fix this branch discarded its computed value
 	// (`_ = last`) and left tmp[nEles-1] nil — invisible bug under
-	// tier_3bucket's 6-field-per-asset layout (always a multiple of 3),
+	// t4_tiered_haircut_margin_3pool's 6-field-per-asset layout (always a multiple of 3),
 	// but it panics in Poseidon under any layout whose flatten length
-	// is not 3-divisible (e.g. spot_simple's 2-field-per-asset).
+	// is not 3-divisible (e.g. t1_simple_margin's 2-field-per-asset).
 	if remainderEles > 0 {
 		var last Variable = 0
 		for i := 0; i < remainderEles; i++ {

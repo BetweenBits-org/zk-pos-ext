@@ -2,11 +2,11 @@
 // the zkpor verifier CLI. It is the zkpor-native replacement for legacy
 // src/verifier/config — the structs mirror the legacy fields so an
 // existing config.json / user_config.json keeps working, but the asset
-// types are the zkpor tier_3bucket spec types (no src/utils import).
+// types are the zkpor t4_tiered_haircut_margin_3pool spec types (no src/utils import).
 package config
 
 import (
-	tier3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/tier_3bucket/spec"
+	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 )
 
 // Config drives the batch-verification mode of the verifier: it points
@@ -54,9 +54,9 @@ type Config struct {
 	// commitment. Entries MUST carry full corespec.TierCount-length
 	// ratio tables — an operator-supplied incomplete table yields a
 	// commitment mismatch, not a silent pass.
-	CexAssetsInfo []tier3spec.CexAssetInfo
+	CexAssetsInfo []t4spec.CexAssetInfo
 }
 
 // UserConfig (per-user inclusion-proof artifact) is defined in
-// zkpor/core/solvency/tier_3bucket/host so the userproof writer and
-// verifier reader share one type. Import tier3host.UserConfig.
+// zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host so the userproof writer and
+// verifier reader share one type. Import t4host.UserConfig.

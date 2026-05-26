@@ -8,7 +8,7 @@
 //
 // Schema is operational infrastructure, not a frozen engine contract —
 // table layout MAY evolve between minor versions. The on-wire witness
-// bytes (tier_3bucket/host.EncodeBatchWitness output) ARE part of the
+// bytes (t4_tiered_haircut_margin_3pool/host.EncodeBatchWitness output) ARE part of the
 // witness↔prover contract; the WitnessData column merely transports
 // them as a base64 string.
 package store
