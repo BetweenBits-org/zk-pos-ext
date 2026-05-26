@@ -133,7 +133,9 @@ func Load(path string) (*Profile, error) {
 // field layout cannot express alone:
 //   - profile.{name,model} must be non-empty
 //   - asset_capacity > 0 and >= len(catalog.symbols)
-//   - identity.scheme non-empty
+//   - identity.scheme non-empty (registry lookup happens at service
+//     startup; this only guards against forgotten / empty values)
+//   - insolvent.action non-empty (same rationale)
 //   - at least one batch_shape
 //   - each batch_shape.{asset_count_tier,users_per_batch} > 0
 //   - pricing.default_* multipliers > 0
@@ -155,6 +157,9 @@ func (p *Profile) Validate() error {
 	}
 	if p.Identity.Scheme == "" {
 		return fmt.Errorf("identity.scheme is empty")
+	}
+	if p.Insolvent.Action == "" {
+		return fmt.Errorf("insolvent.action is empty")
 	}
 	if len(p.BatchShapes) == 0 {
 		return fmt.Errorf("batch_shapes is empty")

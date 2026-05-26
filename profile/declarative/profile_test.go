@@ -92,8 +92,9 @@ func TestValidateRejectsEmpty(t *testing.T) {
 // catalog/capacity invariant is enforced.
 func TestValidateRejectsCapacityBelowSymbols(t *testing.T) {
 	p := &declarative.Profile{
-		Profile:  declarative.ProfileMeta{Name: "x", Model: "t4_tiered_haircut_margin_3pool", AssetCapacity: 2},
-		Identity: declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
+		Profile:   declarative.ProfileMeta{Name: "x", Model: "t4_tiered_haircut_margin_3pool", AssetCapacity: 2},
+		Identity:  declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
+		Insolvent: declarative.Insolvent{Action: "drop_and_log.v0"},
 		BatchShapes: []declarative.BatchShape{
 			{AssetCountTier: 50, UsersPerBatch: 700},
 		},
@@ -105,13 +106,31 @@ func TestValidateRejectsCapacityBelowSymbols(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsEmptyInsolventAction asserts the new R8-A guard
+// catches the easy mistake of leaving insolvent.action blank — host
+// registry lookup would also panic at service startup, but profile
+// load is the earlier, cheaper failure surface.
+func TestValidateRejectsEmptyInsolventAction(t *testing.T) {
+	p := &declarative.Profile{
+		Profile:  declarative.ProfileMeta{Name: "x", Model: "t1_simple_margin", AssetCapacity: 50},
+		Identity: declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
+		// Insolvent.Action intentionally empty.
+		BatchShapes: []declarative.BatchShape{{AssetCountTier: 50, UsersPerBatch: 1000}},
+		Pricing:     declarative.Pricing{DefaultPriceScale: 1e8, DefaultBalanceScale: 1e8},
+	}
+	if err := p.Validate(); err == nil {
+		t.Fatal("Validate accepted empty insolvent.action")
+	}
+}
+
 // TestValidateRejectsTwoDigitWithoutScales asserts the cross-field
 // dependency: if two_digit_assets is non-empty, the two_digit_*
 // multiplier fields must be positive.
 func TestValidateRejectsTwoDigitWithoutScales(t *testing.T) {
 	p := &declarative.Profile{
-		Profile:  declarative.ProfileMeta{Name: "x", Model: "t4_tiered_haircut_margin_3pool", AssetCapacity: 500},
-		Identity: declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
+		Profile:   declarative.ProfileMeta{Name: "x", Model: "t4_tiered_haircut_margin_3pool", AssetCapacity: 500},
+		Identity:  declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
+		Insolvent: declarative.Insolvent{Action: "drop_and_log.v0"},
 		BatchShapes: []declarative.BatchShape{
 			{AssetCountTier: 50, UsersPerBatch: 700},
 		},

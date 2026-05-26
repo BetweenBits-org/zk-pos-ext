@@ -15,7 +15,9 @@ asset_capacity = 500
 scheme = "passthrough_hex_bn254_reduced.v0"
 
 [insolvent]
-action = "drop_and_log"
+# G17 registry key: "<id>.v<version>". "drop_and_log.v0" is the
+# engine-default policy registered by core/host (R8-A).
+action = "drop_and_log.v0"
 
 [constraint]
 module = ""  # NoExtensionID — noop

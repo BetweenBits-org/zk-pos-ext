@@ -20,7 +20,9 @@ asset_capacity = 50
 scheme = "passthrough_hex_bn254_reduced.v0"
 
 [insolvent]
-action = "drop_and_log"
+# Same engine-default policy as binance — G17 registry key
+# "drop_and_log.v0" (R8-A).
+action = "drop_and_log.v0"
 
 [constraint]
 module = ""  # noop
