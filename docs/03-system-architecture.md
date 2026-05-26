@@ -1,13 +1,22 @@
 # zkpor System Architecture (overview)
 
-**Snapshot 시점**: 2026-05-26 / R6 종결 직후 (4-슬라이스 chain
-`b0318e1 → 829e81c → 722a133 → R6-close`).  
+**Snapshot 시점**: 2026-05-26 / R7 종결 직후 (V1 catalog freeze 완료).  
 **기준**: 코드 (`zkpor/` 트리) + `PRODUCTION_ROADMAP.md` stage 정의.
 
-R6 변경 요약: 카탈로그 5→4 통합 (`spot_simple` + `merkle_classic` →
-`t1_simple_margin` superset), Tn naming v1, 4 model 통일 5-input Poseidon
-AccountLeaf signature, `core/host.AccountLeafHash` universal helper
-promotion (G11 first entry). 자세한 결정 트레일은 `docs/04-solvency-models.md`.
+R6 → R7 변경 요약:
+
+- **R6**: 카탈로그 5→4 통합 (`spot_simple` + `merkle_classic` →
+  `t1_simple_margin` superset), Tn naming v1, 4 model 통일 5-input Poseidon
+  AccountLeaf signature, `core/host.AccountLeafHash` universal helper
+  promotion (G11 first entry).
+- **R6 follow-up**: T2/T3 회로 구현 (T4 → T3 → T2 단순화 chain).
+- **R6.5**: bw6 env fix (Go module cache 의 stale package list).
+  setup smoke baseline 4 model 기록.
+- **R7**: catalog v1 FROZEN (G4 closed). LegacyKeyName 즉시 제거 (G10
+  closed). Profile descriptor schema v1 frozen. Module 카탈로그 v1
+  frozen at zero entries.
+
+자세한 결정 트레일은 `docs/04-solvency-models.md`.
 
 이 문서는 다이어그램 중심의 system overview 다. 한 번에 한 다이어그램,
 한 다이어그램이 한 가지 질문만 답하도록 설계 — "전체 어디에 뭐가 있나",
@@ -54,8 +63,8 @@ flowchart TB
   subgraph Code["📦 Code stack (zkpor packages)"]
     direction TB
     Profile["profile/{binance, sea_reference, declarative}<br/>(customer-specific adapters + profile.toml)"]
-    Model["core/solvency/{t1, t2, t3, t4}<br/>(4-tier catalog — 모두 spec+circuit+host 구현 완료 R6+follow-up)"]
-    Universal["core/<br/>(spec · circuit · host · tree)<br/>incl. universal AccountLeafHash (G11 first entry)"]
+    Model["core/solvency/{t1, t2, t3, t4}<br/>(4-tier catalog v1 FROZEN R7 — spec+circuit+host 모두 구현)"]
+    Universal["core/<br/>(spec · circuit · host · tree · constraint_modules)<br/>incl. universal AccountLeafHash (G11) + module governance (R7)"]
     Store["store/<br/>(gorm models)"]
   end
 

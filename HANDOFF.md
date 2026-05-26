@@ -721,7 +721,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 4 + R4 + R5 + R6 종결**.
+**R3 step 4 + R4 + R5 + R6 + R7 종결**. V1 catalog freeze 완료.
 
 R3 step 4 산출물: 4 services + 3 gate (G1/G2/G6) + AssetCounts
 재배치 (E) + end-to-end smoke (A5) — `scripts/smoke.sh` 풀 파이프
@@ -759,6 +759,20 @@ R6 follow-up — **T2 + T3 구현** (T4 → T3 → T2 단순화 chain):
   assetHaircutTable lookup. 회로 가장 가벼움 (T1 < T2 < T3 < T4).
 
 **4 model 모두 구현 완료**. G4 (catalog stability) 의 회로 측 prereq 충족.
+
+R7 산출물 (catalog v1 FROZEN, commit chain 9388694 → 17429e4 → 08cce42):
+
+- **R7-A** (9388694) — `core/spec/solvency_models.go` v1 FROZEN 헤더 +
+  CatalogedModels add-only. `BatchShape.LegacyKeyName()` 즉시 제거 +
+  cmd/keygen `-legacy-names` 플래그 제거 (G10 closed).
+- **R7-B** (17429e4) — `profile/declarative/profile.go` v1 FROZEN docstring.
+  schema 변경 규약 (additive = minor bump, removal/rename disallowed).
+  docs/02 §6.0 신설. service-startup wiring 은 R7+1 carry.
+- **R7-C** (08cce42) — `core/constraint_modules/` 디렉터리 + governance
+  doc.go. ID prefix 규약 (regulator/business/customer-local) + rule-of-
+  three promotion gate + noop v2 carry. v1 entry 0개 (intentional).
+
+**G4 closed**, **G10 closed**. v1 catalog freeze 완전 충족.
 
 **R6.5 — bw6 env fix + setup smoke baseline 기록** (closed):
 
@@ -808,26 +822,30 @@ R6 후 surface 된 환경 이슈 (별 슬라이스 후보):
   backend/groth16/bn254 명시 import, 또는 module cache 의 bw6 패키지
   복원. 별 슬라이스 (R6.5 env fix) 로 처리.
 
-다음 슬라이스 갈래 — agent 가 선택 (또는 user 와 합의):
+다음 슬라이스 갈래 (post-R7) — agent 가 선택 (또는 user 와 합의):
 
-**갈래 R6.5 — bw6 env fix (R6 follow-up, prereq for full test)**:
+**갈래 V1-PROD — Production deployment (post-R7 자연 다음)**:
 
 ```text
-go.mod 의 bnb-chain/gnark + bnb-chain/gnark-crypto fork 가 bw6 패키지를
-제거. gnark backend/groth16 의 init 이 bw6 transitive import 라 일부
-test 실행 fail. 작업: (a) fork 버전 매칭 확인 (b) backend/groth16/bn254
-명시 import 로 변경 (c) module cache 복원 / replace 갱신. 끝나면 setup
-smoke + binance legacy_compare + host round-trip 모두 통과 — R6 의
-NbConstraints + R1CS sha256 baseline 도 이때 기록.
+첫 customer 통합 + service-startup wiring (profile.toml 을 service 가
+직접 consume — 각 adapter constructor 가 toml 값 인자 받는 refactor).
+R3 production .pk 1회 마이그레이션 (legacy stem → StandardKeyName, byte
+불변, 단순 file rename). production keygen + scripts/smoke.sh 풀 파이프
+라인 production 환경 검증 (m6i.{2,4}xlarge 권장).
 ```
 
-**갈래 R7 — v1 catalog freeze (장기, 3rd model 후보 narrowing 필요)**:
+**갈래 R5-FU — sea_reference end-to-end smoke**:
 
 ```text
-PRODUCTION_ROADMAP §R7. 카탈로그 4 model 중 남은 2개 (T2 / T3) 구현 +
-profile descriptor schema v1 freeze + module 카탈로그 freeze + G4 + G10
-closure. 3rd model 후보 narrowing (customer signal) 가 prereq —
-T2 (static haircut) 또는 T3 (tiered 1-pool) 중 시장 신호 기반.
+scripts/smoke.sh 를 sea_reference 변형. 차이:
+  - profile/binance → profile/sea_reference 로 import 교체 (또는
+    smoke 가 profile.toml 선택 가능하게 generic 화)
+  - sample data: src/sampledata/ 대신 profile/sea_reference/testdata/
+    happy/ 사용 (또는 별도 sea sample 작성)
+  - keygen 의 모델/capacity 인자 t1_simple_margin, capacity=10 정도
+
+R5 의 "고객사 sample data 로 end-to-end PoR 통과" exit criterion 의
+명시적 마감. T1 의 production-grade 검증.
 ```
 
 **갈래 R5-FU — sea_reference end-to-end smoke**:

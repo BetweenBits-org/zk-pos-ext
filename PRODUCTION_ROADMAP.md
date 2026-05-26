@@ -541,29 +541,45 @@ R6 후 차기 단계 (선택):
 
 ### Stage R7 — v1 catalog freeze
 
-목표: 4-tier (T1~T4) 카탈로그 모두 (또는 우선 정해진 subset) 구현 완료. v1
-카탈로그 stable 선언. 추가 model은 v2 카탈로그로 미룬다.
+**CLOSED** (commit chain 9388694 → 17429e4 → 08cce42 → R7-close).
+
+목표 달성: 4-tier (T1~T4) 카탈로그 v1 stable 선언. 추가 model 은 v2
+카탈로그로 격상 — v1 entries 는 add-only governance.
 
 산출물:
 
-- 4개 model 모두 회로·spec·trusted setup 완료 (혹은 일부 deprecated 처리).
-- `zkpor/core/spec/solvency_models.go` 가 v1 카탈로그로 freeze.
-- LegacyKeyName deprecate 일정 결정 (G10 closed).
-- **Profile descriptor schema v1 freeze** — R4 부터 emerging 한
-  profile.toml 의 필드·타입·버전 표기 확정. `docs/02-module-architecture.md`
-  §8 의 "lock 되지 않은 것" 중 schema 부분 closure.
-- **Module 카탈로그 freeze** — `core/constraint_modules/` 의 entry list
-  + ID prefix 규약 v1 확정. 신규 module 은 v2 로 미룸.
+- 4 model 회로 구현 완료 (R6 + T2/T3 + R6.5 baseline).
+- `core/spec/solvency_models.go` 의 4-entry list **v1 FROZEN** —
+  CatalogedModels + ModelDisplay + IsCataloged 모두 frozen. versioned
+  change policy 명문화 (new entry = v2, removal = deprecate-then-remove
+  2 cycles, rename = disallowed).
+- `BatchShape.LegacyKeyName()` 제거 — StandardKeyName 단일 사용
+  (G10 closed, R7-A 9388694).
+- **Profile descriptor schema v1 FROZEN** — `profile/declarative/profile.go`
+  의 schema struct + Load + Validate. additive field 는 minor bump,
+  removal/rename 은 v1 disallowed. service-startup wiring 은 R7+1 carry
+  (각 adapter constructor 가 toml 값 받는 refactor 동반).
+- **Module 카탈로그 v1 FROZEN at zero entries** — `core/constraint_modules/`
+  디렉터리 + doc.go 만. ID prefix 규약 (regulator/business) 및 rule-of-
+  three promotion gate 명문화. 첫 entry 는 R7+1 (customer signal).
 
-Exit criteria:
+Exit criteria (모두 충족):
 
-- 카탈로그 stability 선언 문서화.
-- 신규 model 제안은 v2 정의서로 격상.
-- profile descriptor v1 schema 문서화 (`docs/02-module-architecture.md`
-  업데이트 또는 신규 docs/03-...).
-- module 카탈로그 v1 list 확정.
+- ✅ 카탈로그 stability 선언 (`core/spec/solvency_models.go` 헤더 코멘트).
+- ✅ 신규 model 제안은 v2 정의서로 격상 (policy 명문화).
+- ✅ profile descriptor v1 schema 문서화 (`docs/02-module-architecture.md`
+  §6.0 신설).
+- ✅ module 카탈로그 v1 layout + governance 확정.
 
-Blocking gates: G4, G10.
+Blocking gates: G4 ✅, G10 ✅ — 모두 closed.
+
+R7 close 후 다음 갈래 (post-R7):
+
+- **V1 production deployment** — service-startup 의 profile.toml wiring
+  refactor + 첫 customer 통합 + production .pk 마이그레이션 (legacy stem
+  → StandardKeyName).
+- **R5-FU** — sea_reference end-to-end smoke (T1 path).
+- **G15** — first production prove SLA 측정 후 GPU 가속 (ICICLE) 결정.
 
 ## Decision Gate Register
 
@@ -580,13 +596,13 @@ Blocking gates: G4, G10.
 | **G1** trusted-setup byte-equivalence 검증 방법 + 실행 | closed | R3 step 3 | **(a) R1CS L·R==O matrix SHA256 채택** (commit 1398e04). `bn254.R1CS.GetR1Cs()` 로 L/R/O 추출 후 직렬화 SHA256. Tiny shape (5, 50, 2) 에서 legacy + zkpor 모두 `678eb23f62a9932bb93a8f0811db3b64a4bfd8eadb5e743791d93b27c0b95b32`. (b) `.pk` SHA256 은 `groth16.Setup` 의 toxic-waste randomness 로 deterministic 하지 않음 — production ceremony 의 waste 가 파기되어 재사용 불가, 기각. Hint identifier divergence (legacy `circuit.IntegerDivision` vs zkpor `corecircuit.IntegerDivision` 의 reflect-derived ID) 는 solver-side metadata 라 .pk/.vk 에 무관 — 각 service 가 R3 step 4 에서 zkpor 의 IntegerDivision 을 `solver.RegisterHint` 로 등록. Sample-corpus AccountID byte-equivalence 도 동시 검증 (90 valid + 10 invalid 분류 까지 parity). | 후속 production-shape 검증은 ROADMAP R3 step 3 산출물 박스의 절차 참조 (optional). |
 | **G2** AccountIDProvider scheme v1 freeze | closed | R3 step 4 | **`passthrough_hex_bn254_reduced.v0`** 채택. binance/identity.go 의 `DeriveAccountID` 가 hex-decode 후 BN254 fr.Element SetBytes→Marshal 적용 — snapshot 의 G13 정규화와 동일한 출력. 정직한 freeze 위해 함수 동작도 이름과 일치시킴 (과거 placeholder 는 hex passthrough 였고 절반의 입력에서 leaf hash 와 어긋났다). Customer-side derivation 가정 유지 — HMAC/salt 정식화는 V2 이후 별도 결정. | — |
 | **G3** ConstraintModule 공개 API freeze | deferred | R3 후 | 현재 `ConstraintContext` 가 minimal surface. 두 번째 module 등장 시 확정. | 첫 비-noop module 등장 시 API surface 검토. |
-| **G4** catalog stability 선언 | deferred | R7 | 4-tier 잠정 확정 (R6 통합: T1~T4). **회로 구현 4/4 완료** (T1 R6/A-B, T4 R3, T2 + T3 R6 follow-up). **setup smoke baseline 기록 4/4 완료** (R6.5 env fix 후): T1=38,149 / T2=48,886 / T3=274,650 / T4=723,790 (tiny shape 5_10_2). R7 entry 잔여 항목은 profile descriptor schema freeze + module 카탈로그 freeze 만. | R7 entry 가능. |
+| **G4** catalog stability 선언 | closed | R7 | **4-tier v1 FROZEN** (T1~T4, commit chain 9388694 → 17429e4 → 08cce42). 회로 구현 4/4, setup smoke baseline 4/4 (T1=38,149 / T2=48,886 / T3=274,650 / T4=723,790 at tiny shape). Profile descriptor schema v1 frozen. Module 카탈로그 v1 frozen at zero entries (governance only). v2 catalog 신규 추가 시 별도 정의서. | — |
 | **G5** RiskPolicy 데이터 schema | deferred | R2 | 현재 `cex_assets_info.csv` 형식 (legacy). | CSV 유지 vs JSON/YAML schema 도입 결정. |
 | **G6** ValueScale invariant assert 위치 | closed | R3 step 4 | **witness service startup assert** 채택 (commit 5332f40). `binance.NewPricing()` 의 default-symbol 경로에서 `PriceMultiplier × BalanceMultiplier == ValueScale` 위반 시 panic. witness 가 첫 PriceScaleProvider 소비자라 자연 call site. 두-자리-자산 경로 등 per-symbol split 은 `profile/binance` 자체 테스트 책임 (services 가 enumerate 하지 않음). | — |
 | **G7** InvalidAccountPolicy 운영 정책 | closed | R0 | drop + log (legacy 동등). | customer 요구 시 별도 정책. 변경 시 customer review. |
 | **G8** BatchShape v1 정착 (binance) | closed | R0 | `{50,700}` + `{500,92}` (Binance reference). | 다른 customer 시 별도 shape 정의. |
 | **G9** module ID 명명 규약 | closed | R0 | `<exchange>.<rule>_v<version>` 형식. filename-safe (lowercase, digits, dots, underscores). | — |
-| **G10** LegacyKeyName 폐기 일정 | deferred | R7 | 현재 호환 유지 (`BatchShape.LegacyKeyName()`). | catalog freeze 후 한 release에서 deprecate. |
+| **G10** LegacyKeyName 폐기 일정 | closed | R7 | **즉시 제거** (R7-A 9388694). `BatchShape.LegacyKeyName()` 함수 제거, cmd/keygen 의 `-legacy-names` 플래그 제거. R3 의 production .pk 는 1회 마이그레이션 (단순 파일 rename, byte 불변): `zkpor50_700.pk` → `zkpor.t4_tiered_haircut_margin_3pool.50_700.pk`. | — |
 | **G11** core/circuit 추가 헬퍼 승격 규약 | closed | R6 | **rule-of-three 의 *두 model 일치* 시점에 universal signature 만 promote** 정착 (R6/FU). 첫 entry: `core/host.AccountLeafHash` — 4 model 통일 5-input Poseidon leaf signature 의 universal off-circuit emitter. 5 carry candidates (PowersOfSixteenBits / R1CS hash helpers / parseShapeOverride / snapshot CSV helpers / identity DeriveAccountID body) 는 3rd model 등장 또는 R7 freeze 직전 promote. | — |
 | **G12** multi-customer profile 충돌 정책 | closed | R5 step 4 | **`.vk` 공유는 `(model, asset_capacity, batch_shape, constraint_module)` tuple 단위**. customer profile 은 회로에 흐르지 않으므로 두 customer 가 동일 tuple 이면 같은 ceremony 의 .vk 가 byte-equivalent. `StandardKeyName` 은 이미 customer-blind (`zkpor.<model>.<tier>_<users>[.<module>]`). `asset_capacity` 는 stem 에 인코드되지 않아 operator 가 capacity 별 디렉터리 컨벤션 (예: `.artifacts/cap-<N>/`) 으로 일관성 보장 책임. 자세한 내용 `docs/02-module-architecture.md §6.1` 참조. R7 freeze 직전 capacity 를 stem 에 추가 인코드 여부 재검토 후보. | — |
 | **G13** AccountID fr.Element 정규화 위치 | closed | R3 step 1 | **(a) snapshot 어댑터** 채택. legacy `src/utils/utils.go:553` 와 동일 layer 에서 `new(fr.Element).SetBytes(id).Marshal()` round-trip. 근거: G1 byte-equivalence 비용 최저 (snapshot 출력 hex 직접 비교 가능), `AccountInfo.AccountID == userproof.AccountID == field input` 단일 형태 유지, R3 step 4 service rewire 시 호출 누락 위험 없음. 트레이드오프: `profile/binance/snapshot.go` 가 bn254 에 직접 결합 — 현재 카탈로그 5 model 전부 bn254 라 실질 충돌 없음, 두 번째 customer profile (R4) 등장 시 R6 helper 승격 후보로 carry. (b)/(c) 는 layering 더 깔끔하나 user-facing inconsistency / interface 확장 / 회귀 위험으로 기각. | impl: R3 step 2 (alpha wiring 과 동반). `AccountIDProvider.Scheme()` 명칭 갱신은 R3 step 4 (G2 closure) 동반. |
