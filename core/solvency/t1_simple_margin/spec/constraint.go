@@ -31,9 +31,11 @@ type ConstraintModule interface {
 // ConstraintContext is the read-only view of t1_simple_margin standard
 // witness data that ConstraintModule sees.
 //
-// Compared to t4_tiered_haircut_margin_3pool's ConstraintContext: no collateral / tier-
-// ratio fields, no TotalUserDebt / TotalUserCollateralReal — spot
-// users have no liabilities. Only TotalUserEquity is exposed.
+// Compared to t4_tiered_haircut_margin_3pool's ConstraintContext: no
+// collateral / tier-ratio fields, no TotalUserCollateralReal — T1
+// carries no risk-weighted collateral. TotalUserEquity and
+// TotalUserDebt are both exposed so modules can layer additional
+// constraints over the per-user net balance.
 type ConstraintContext struct {
 	// BeforeCexAssets are the per-asset global totals as input to the
 	// batch (length == deployment capacity).
@@ -52,18 +54,20 @@ type ConstraintContext struct {
 }
 
 // CircuitCexAsset is the gnark Variable view of CexAssetInfo as
-// exposed to constraint modules. Single-equity field plus BasePrice;
+// exposed to constraint modules. TotalEquity + TotalDebt + BasePrice;
 // no tier ratios.
 type CircuitCexAsset struct {
 	TotalEquity corecircuit.Variable
+	TotalDebt   corecircuit.Variable
 	BasePrice   corecircuit.Variable
 }
 
 // CircuitUserOp is the gnark Variable view of a per-user batch entry
-// as exposed to constraint modules. Only the totals modules need at
-// v0 — add fields as concrete use-cases emerge.
+// as exposed to constraint modules. Totals modules need at v0 — add
+// fields as concrete use-cases emerge.
 type CircuitUserOp struct {
 	AccountIndex    corecircuit.Variable
 	AccountIDHash   corecircuit.Variable
 	TotalUserEquity corecircuit.Variable
+	TotalUserDebt   corecircuit.Variable
 }

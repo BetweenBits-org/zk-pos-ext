@@ -35,9 +35,9 @@ type BatchCreateUserWitness struct {
 }
 
 // IsAccountAssetEmpty reports whether the per-user, per-asset record
-// has zero equity. Empty assets are skipped by the witness builder
-// when sizing the in-circuit per-user asset slice.
-func IsAccountAssetEmpty(a *AccountAsset) bool { return a.Equity == 0 }
+// has zero equity AND zero debt. Empty assets are skipped by the
+// witness builder when sizing the in-circuit per-user asset slice.
+func IsAccountAssetEmpty(a *AccountAsset) bool { return a.Equity == 0 && a.Debt == 0 }
 
 // CountNonEmptyAssets returns the number of non-empty AccountAssets.
 func CountNonEmptyAssets(assets []AccountAsset) int {

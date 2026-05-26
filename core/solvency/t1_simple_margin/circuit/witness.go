@@ -31,6 +31,7 @@ func SetBatchCreateUserCircuitWitness(
 	for i := range w.BeforeCexAssets {
 		src := &batchWitness.BeforeCexAssets[i]
 		w.BeforeCexAssets[i].TotalEquity = src.TotalEquity
+		w.BeforeCexAssets[i].TotalDebt = src.TotalDebt
 		w.BeforeCexAssets[i].BasePrice = src.BasePrice
 	}
 
@@ -48,7 +49,10 @@ func SetBatchCreateUserCircuitWitness(
 		existingKeys := make([]int, 0)
 		for j := range batchWitness.CreateUserOps[i].Assets {
 			u := batchWitness.CreateUserOps[i].Assets[j]
-			w.CreateUserOps[i].AssetsForUpdateCex[j] = UserAssetMeta{Equity: u.Equity}
+			w.CreateUserOps[i].AssetsForUpdateCex[j] = UserAssetMeta{
+				Equity: u.Equity,
+				Debt:   u.Debt,
+			}
 			if !t1spec.IsAccountAssetEmpty(&u) {
 				existingKeys = append(existingKeys, int(u.Index))
 			}
@@ -60,14 +64,15 @@ func SetBatchCreateUserCircuitWitness(
 		currentAssetIndex := 0
 		index := 0
 		// paddingAsset returns a fully zero-initialised UserAssetInfo at
-		// the given asset slot. AssetIndex set, Equity explicitly 0 (vs
-		// nil — gnark rejects nil Variables with
+		// the given asset slot. AssetIndex set, Equity AND Debt
+		// explicitly 0 (vs nil — gnark rejects nil Variables with
 		// "can't set fr.Element with <nil>" — same bug class as the
 		// t4_tiered_haircut_margin_3pool fix in commit d7c23f3).
 		paddingAsset := func(slot uint32) UserAssetInfo {
 			return UserAssetInfo{
 				AssetIndex: slot,
 				Equity:     uint64(0),
+				Debt:       uint64(0),
 			}
 		}
 		for _, v := range existingKeys {
@@ -84,6 +89,7 @@ func SetBatchCreateUserCircuitWitness(
 			u := UserAssetInfo{
 				AssetIndex: uint32(v),
 				Equity:     batchWitness.CreateUserOps[i].Assets[v].Equity,
+				Debt:       batchWitness.CreateUserOps[i].Assets[v].Debt,
 			}
 			w.CreateUserOps[i].Assets[index] = u
 			index++

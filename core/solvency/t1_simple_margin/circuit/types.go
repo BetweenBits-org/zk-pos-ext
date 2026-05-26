@@ -13,19 +13,21 @@ type (
 )
 
 // CexAssetInfo is the per-asset CEX global state in gnark-Variable
-// form for the t1_simple_margin model. Only the two fields the commitment
-// hashes; no debt, no collateral, no tier ratios.
+// form for the t1_simple_margin model. TotalEquity + TotalDebt +
+// BasePrice; no collateral, no tier ratios.
 type CexAssetInfo struct {
 	TotalEquity Variable
+	TotalDebt   Variable
 	BasePrice   Variable
 }
 
 // UserAssetInfo is the per-user, per-asset record exposed inside the
-// circuit. Spot users own a balance; no collateral tier index/flag is
+// circuit. T1 carries (Equity, Debt); no collateral tier index/flag
 // needed (vs t4_tiered_haircut_margin_3pool's UserAssetInfo).
 type UserAssetInfo struct {
 	AssetIndex Variable
 	Equity     Variable
+	Debt       Variable
 }
 
 // UserAssetMeta is the per-user, per-asset slot in the
@@ -34,6 +36,7 @@ type UserAssetInfo struct {
 // linear-combination across the batch.
 type UserAssetMeta struct {
 	Equity Variable
+	Debt   Variable
 }
 
 // CreateUserOperation is one batch entry: the per-user delta applied

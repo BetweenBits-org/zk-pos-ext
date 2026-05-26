@@ -8,11 +8,20 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 )
 
-// BatchCreateUserCircuit is the gnark Circuit type for the t1_simple_margin
-// model. Substantially simpler than t4_tiered_haircut_margin_3pool — no haircut, no
-// 3-bucket collateral, no tier table — but follows the same
-// architectural pattern (sum equality enforced via After=Before+Δ on
-// the CEX side and per-user Merkle tree updates).
+// BatchCreateUserCircuit is the gnark Circuit type for the
+// t1_simple_margin model. Substantially simpler than
+// t4_tiered_haircut_margin_3pool — no haircut, no 3-bucket collateral,
+// no tier table — but enforces:
+//
+//   - per-asset sum equality (After = Before + Δ on the CEX side, for
+//     both Equity and Debt)
+//   - per-user account-level TotalEquity ≥ TotalDebt
+//   - Merkle tree before/after consistency per user op.
+//
+// Spot customers use this circuit with Debt = 0 throughout (sum
+// equality on debt becomes 0 = 0, account-level constraint trivially
+// satisfied). See docs/04-solvency-models.md §4 for the absorption
+// trail.
 //
 // module is the unexported alpha-layer ConstraintModule hook. gnark's
 // frontend reflects only on exported, Variable-bearing fields, so this
@@ -77,17 +86,18 @@ func NewBatchCreateUserCircuit(userAssetCounts, allAssetCounts, batchCounts uint
 //
 //  1. BatchCommitment == Poseidon(BeforeRoot, AfterRoot, BeforeCEX, AfterCEX)
 //  2. BeforeCEXAssetsCommitment is the Poseidon of the packed BeforeCexAssets
-//     (TotalEquity ∥ BasePrice per asset, one field element per asset).
+//     (TotalEquity ∥ TotalDebt ∥ BasePrice per asset, one field element per asset).
 //  3. Each user's account proof verifies (before) and updates (after).
 //  4. Asset indexes in the user's Assets slice are strictly increasing
 //     (uniqueness across the user's assets).
-//  5. Linear-combination check: the user's Assets slice covers every
-//     non-zero AssetsForUpdateCex entry. Challenge = Poseidon of the
-//     per-user asset-id hashes ++ batch commitment.
-//  6. AfterCEXAssetsCommitment is the Poseidon of the packed AfterCexAssets
-//     (accumulated from BeforeCexAssets + per-user Equity deltas).
-//  7. CreateUserOps roots chain (op[i].After == op[i+1].Before).
-//  8. ConstraintModule hook (if non-nil) fires last with the same
+//  5. Linear-combination check (twice — Equity side AND Debt side): the
+//     user's Assets slice covers every non-zero AssetsForUpdateCex entry.
+//     Challenge = Poseidon of the per-user asset-id hashes ++ batch commitment.
+//  6. Per-user TotalEquity ≥ TotalDebt (account-level solvency).
+//  7. AfterCEXAssetsCommitment is the Poseidon of the packed AfterCexAssets
+//     (accumulated from BeforeCexAssets + per-user Equity / Debt deltas).
+//  8. CreateUserOps roots chain (op[i].After == op[i+1].Before).
+//  9. ConstraintModule hook (if non-nil) fires last with the same
 //     before/after CEX view + per-user totals the base circuit produced.
 func (b BatchCreateUserCircuit) Define(api API) error {
 	actualBatchCommitment := corecircuit.BatchCommitment(
@@ -96,13 +106,14 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 	)
 	api.AssertIsEqual(b.BatchCommitment, actualBatchCommitment)
 
-	const countOfCexAsset = 1 // {TotalEquity, BasePrice} packed in one field element
+	const countOfCexAsset = 1 // {TotalEquity, TotalDebt, BasePrice} packed in one field element (192 bits < bn254 modulus)
 	cexAssets := make([]Variable, len(b.BeforeCexAssets)*countOfCexAsset)
 	afterCexAssets := make([]CexAssetInfo, len(b.BeforeCexAssets))
 
 	r := rangecheck.New(api)
 	for i := range b.BeforeCexAssets {
 		r.Check(b.BeforeCexAssets[i].TotalEquity, 64)
+		r.Check(b.BeforeCexAssets[i].TotalDebt, 64)
 		r.Check(b.BeforeCexAssets[i].BasePrice, 64)
 
 		fillCexAssetCommitment(api, b.BeforeCexAssets[i], i, cexAssets)
@@ -114,7 +125,8 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 	api.AssertIsEqual(b.AfterAccountTreeRoot, b.CreateUserOps[len(b.CreateUserOps)-1].AfterAccountTreeRoot)
 
 	userAssetIdHashes := make([]Variable, len(b.CreateUserOps)+1)
-	userAssetsResults := make([][]Variable, len(b.CreateUserOps))
+	userAssetsEquityResults := make([][]Variable, len(b.CreateUserOps))
+	userAssetsDebtResults := make([][]Variable, len(b.CreateUserOps))
 	userAssetsQueries := make([][]Variable, len(b.CreateUserOps))
 	moduleUserOps := make([]t1spec.CircuitUserOp, len(b.CreateUserOps))
 
@@ -127,10 +139,12 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 
 		userAssets := b.CreateUserOps[i].Assets
 
-		// Per-slot Equity lookup table for the linear-combination check.
-		userAssetsLookupTable := logderivlookup.New(api)
+		// Per-slot Equity AND Debt lookup tables for the linear-combination check.
+		userEquityLookup := logderivlookup.New(api)
+		userDebtLookup := logderivlookup.New(api)
 		for j := range b.CreateUserOps[i].AssetsForUpdateCex {
-			userAssetsLookupTable.Insert(b.CreateUserOps[i].AssetsForUpdateCex[j].Equity)
+			userEquityLookup.Insert(b.CreateUserOps[i].AssetsForUpdateCex[j].Equity)
+			userDebtLookup.Insert(b.CreateUserOps[i].AssetsForUpdateCex[j].Debt)
 		}
 
 		// Strictly-increasing AssetIndex enforces uniqueness across the user's assets.
@@ -141,8 +155,8 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 		}
 
 		// Pack 15 asset indexes (each <2^16) per field element, then hash —
-		// matches t4_tiered_haircut_margin_3pool's identical step so the challenge derivation
-		// stays universal in shape.
+		// matches t4_tiered_haircut_margin_3pool's identical step so the
+		// challenge derivation stays universal in shape.
 		assetIdsToVariables := make([]Variable, (len(userAssets)+14)/15)
 		for j := range assetIdsToVariables {
 			var v Variable = 0
@@ -153,42 +167,61 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 		}
 		userAssetIdHashes[i] = poseidon.Poseidon(api, assetIdsToVariables...)
 
-		// One lookup query per asset for the linear-combination cross-check.
+		// One lookup query per asset for the linear-combination cross-check
+		// (same queries serve both Equity and Debt lookups).
 		userAssetsQueries[i] = make([]Variable, len(userAssets))
-		flattenAssetFieldsForHash := make([]Variable, len(userAssets)*2)
+		flattenAssetFieldsForHash := make([]Variable, len(userAssets)*3)
 		for j := range userAssets {
 			userAssetsQueries[i][j] = userAssets[j].AssetIndex
 
 			r.Check(userAssets[j].Equity, 64)
-			flattenAssetFieldsForHash[j*2] = userAssets[j].AssetIndex
-			flattenAssetFieldsForHash[j*2+1] = userAssets[j].Equity
+			r.Check(userAssets[j].Debt, 64)
+			flattenAssetFieldsForHash[j*3] = userAssets[j].AssetIndex
+			flattenAssetFieldsForHash[j*3+1] = userAssets[j].Equity
+			flattenAssetFieldsForHash[j*3+2] = userAssets[j].Debt
 		}
-		userAssetsResults[i] = userAssetsLookupTable.Lookup(userAssetsQueries[i]...)
+		userAssetsEquityResults[i] = userEquityLookup.Lookup(userAssetsQueries[i]...)
+		userAssetsDebtResults[i] = userDebtLookup.Lookup(userAssetsQueries[i]...)
 
-		// Cross-check: each lookup result must equal the user's claimed Equity.
-		// This binds the user's Assets slice values to the AssetsForUpdateCex
-		// accumulation vector at the same indexes.
+		// Cross-check: each lookup result must equal the user's claimed
+		// Equity / Debt at the same asset index. This binds the user's
+		// Assets slice values to the AssetsForUpdateCex accumulation
+		// vector at the same indexes.
 		var totalUserEquity Variable = 0
+		var totalUserDebt Variable = 0
 		for j := range userAssets {
-			api.AssertIsEqual(userAssetsResults[i][j], userAssets[j].Equity)
+			api.AssertIsEqual(userAssetsEquityResults[i][j], userAssets[j].Equity)
+			api.AssertIsEqual(userAssetsDebtResults[i][j], userAssets[j].Debt)
 			totalUserEquity = api.Add(totalUserEquity, userAssets[j].Equity)
+			totalUserDebt = api.Add(totalUserDebt, userAssets[j].Debt)
 		}
 		r.Check(totalUserEquity, 128)
+		r.Check(totalUserDebt, 128)
 
-		// Accumulate per-slot equity into the running AfterCex view.
+		// Account-level solvency: TotalEquity ≥ TotalDebt. Trivially
+		// satisfied for spot users (debt=0). The defining T1 constraint.
+		api.AssertIsLessOrEqual(totalUserDebt, totalUserEquity)
+
+		// Accumulate per-slot equity AND debt into the running AfterCex view.
 		for j := range b.CreateUserOps[i].AssetsForUpdateCex {
 			afterCexAssets[j].TotalEquity = api.Add(
 				afterCexAssets[j].TotalEquity,
 				b.CreateUserOps[i].AssetsForUpdateCex[j].Equity,
 			)
+			afterCexAssets[j].TotalDebt = api.Add(
+				afterCexAssets[j].TotalDebt,
+				b.CreateUserOps[i].AssetsForUpdateCex[j].Debt,
+			)
 		}
 
-		// Account leaf is 5-input Poseidon with debt and collateral positions
-		// pinned to zero — keeps the universal core/tree empty-leaf hash
-		// (Poseidon(0,0,0,0,0)) valid for spot.
+		// Account leaf: universal 5-input Poseidon
+		// (AccountID, TotalEquity, TotalDebt, 0, AssetsCommitment).
+		// Slot 4 (TotalCollateral) is pinned to zero — T1 has no
+		// risk-weighted collateral. Empty slots remain at the universal
+		// core/tree empty-leaf hash (Poseidon(0,0,0,0,0)).
 		userAssetsCommitment := corecircuit.ComputeFlatUint64Commitment(api, flattenAssetFieldsForHash)
 		accountHash := poseidon.Poseidon(
-			api, b.CreateUserOps[i].AccountIdHash, totalUserEquity, 0, 0, userAssetsCommitment,
+			api, b.CreateUserOps[i].AccountIdHash, totalUserEquity, totalUserDebt, 0, userAssetsCommitment,
 		)
 		actualAccountTreeRoot := corecircuit.UpdateMerkleProof(
 			api, accountHash, b.CreateUserOps[i].AccountProof[:], accountIndexHelper,
@@ -199,42 +232,56 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 			AccountIndex:    b.CreateUserOps[i].AccountIndex,
 			AccountIDHash:   b.CreateUserOps[i].AccountIdHash,
 			TotalUserEquity: totalUserEquity,
+			TotalUserDebt:   totalUserDebt,
 		}
 	}
 
 	// Random-linear-combination cross-check across the whole batch: the
 	// user.Assets sequence must cover every non-zero AssetsForUpdateCex
-	// entry. Challenge = Poseidon(userAssetIdHashes... ∥ batchCommitment).
-	// Only one challenge power per CEX slot (vs five for t4_tiered_haircut_margin_3pool)
-	// since spot users carry only Equity.
+	// entry, for BOTH Equity and Debt. Challenge = Poseidon(userAssetIdHashes
+	// ∥ batchCommitment); one challenge power per CEX slot, applied twice.
 	userAssetIdHashes[len(b.CreateUserOps)] = b.BatchCommitment
 	randomChallenge := poseidon.Poseidon(api, userAssetIdHashes...)
 	powersOfRandomChallenge := make([]Variable, len(b.BeforeCexAssets))
 	powersOfRandomChallenge[0] = randomChallenge
-	powersOfRandomChallengeLookupTable := logderivlookup.New(api)
-	powersOfRandomChallengeLookupTable.Insert(randomChallenge)
+	powersOfRCLookup := logderivlookup.New(api)
+	powersOfRCLookup.Insert(randomChallenge)
 	for i := 1; i < len(powersOfRandomChallenge); i++ {
 		powersOfRandomChallenge[i] = api.Mul(powersOfRandomChallenge[i-1], randomChallenge)
-		powersOfRandomChallengeLookupTable.Insert(powersOfRandomChallenge[i])
+		powersOfRCLookup.Insert(powersOfRandomChallenge[i])
 	}
 
 	for i := range b.CreateUserOps {
-		powersOfRCResults := powersOfRandomChallengeLookupTable.Lookup(userAssetsQueries[i]...)
-		var sumA Variable = 0
+		powersOfRCResults := powersOfRCLookup.Lookup(userAssetsQueries[i]...)
+
+		// Equity side.
+		var sumAEquity Variable = 0
 		for j := range powersOfRCResults {
-			sumA = api.Add(sumA, api.Mul(powersOfRCResults[j], userAssetsResults[i][j]))
+			sumAEquity = api.Add(sumAEquity, api.Mul(powersOfRCResults[j], userAssetsEquityResults[i][j]))
 		}
-		var sumB Variable = 0
+		var sumBEquity Variable = 0
 		for j := range b.CreateUserOps[i].AssetsForUpdateCex {
-			sumB = api.Add(sumB, api.Mul(b.CreateUserOps[i].AssetsForUpdateCex[j].Equity, powersOfRandomChallenge[j]))
+			sumBEquity = api.Add(sumBEquity, api.Mul(b.CreateUserOps[i].AssetsForUpdateCex[j].Equity, powersOfRandomChallenge[j]))
 		}
-		api.AssertIsEqual(sumA, sumB)
+		api.AssertIsEqual(sumAEquity, sumBEquity)
+
+		// Debt side.
+		var sumADebt Variable = 0
+		for j := range powersOfRCResults {
+			sumADebt = api.Add(sumADebt, api.Mul(powersOfRCResults[j], userAssetsDebtResults[i][j]))
+		}
+		var sumBDebt Variable = 0
+		for j := range b.CreateUserOps[i].AssetsForUpdateCex {
+			sumBDebt = api.Add(sumBDebt, api.Mul(b.CreateUserOps[i].AssetsForUpdateCex[j].Debt, powersOfRandomChallenge[j]))
+		}
+		api.AssertIsEqual(sumADebt, sumBDebt)
 	}
 
 	// After-CEX commitment over the accumulated state.
 	tempAfterCexAssets := make([]Variable, len(b.BeforeCexAssets)*countOfCexAsset)
 	for j := range b.BeforeCexAssets {
 		r.Check(afterCexAssets[j].TotalEquity, 64)
+		r.Check(afterCexAssets[j].TotalDebt, 64)
 		fillCexAssetCommitment(api, afterCexAssets[j], j, tempAfterCexAssets)
 	}
 	actualAfterCEXAssetsCommitment := poseidon.Poseidon(api, tempAfterCexAssets...)
@@ -260,11 +307,16 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 
 // fillCexAssetCommitment writes the field-element representation of one
 // CexAssetInfo into commitments[currentIndex]. t1_simple_margin packs
-// TotalEquity ∥ BasePrice in a single field element (each 64 bits, so
-// the 128-bit packing fits well under the field modulus).
+// TotalEquity ∥ TotalDebt ∥ BasePrice in a single field element
+// (3*64 = 192 bits, well under the bn254 modulus ~254 bits) — matches
+// t4_tiered_haircut_margin_3pool's 3-field-per-asset packing layout
+// (without the Loan/Margin/PM extension).
 func fillCexAssetCommitment(api API, asset CexAssetInfo, currentIndex int, commitments []Variable) {
 	commitments[currentIndex] = api.Add(
-		api.Mul(asset.TotalEquity, corecircuit.TwoToTheSixtyFour),
+		api.Add(
+			api.Mul(asset.TotalEquity, corecircuit.TwoToTheOneTwentyEight),
+			api.Mul(asset.TotalDebt, corecircuit.TwoToTheSixtyFour),
+		),
 		asset.BasePrice,
 	)
 }
@@ -278,6 +330,7 @@ func toCircuitCexAssetView(src []CexAssetInfo) []t1spec.CircuitCexAsset {
 	for i := range src {
 		out[i] = t1spec.CircuitCexAsset{
 			TotalEquity: src[i].TotalEquity,
+			TotalDebt:   src[i].TotalDebt,
 			BasePrice:   src[i].BasePrice,
 		}
 	}
