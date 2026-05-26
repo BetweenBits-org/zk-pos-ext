@@ -104,6 +104,58 @@ func BuildBatchShape(cfgShapes []BatchShape) ([]spec.BatchShape, error) {
 	return out, nil
 }
 
+// BuildBatchShapeProvider wraps BuildBatchShape's []BatchShape into a
+// corespec.BatchShapeProvider — the witness/prover/userproof path
+// requires Model/SelectFor/KeyName methods, not just the raw slice.
+//
+// Returns the same errors as BuildBatchShape plus the empty-model
+// guard. Validate() already catches empty model strings; this re-check
+// keeps the builder safe against direct callers that bypass the loader.
+func BuildBatchShapeProvider(model spec.SolvencyModelID, cfgShapes []BatchShape) (spec.BatchShapeProvider, error) {
+	if model == "" {
+		return nil, fmt.Errorf("profile.model is empty")
+	}
+	shapes, err := BuildBatchShape(cfgShapes)
+	if err != nil {
+		return nil, err
+	}
+	return &declarativeBatchShapeProvider{model: model, shapes: shapes}, nil
+}
+
+// declarativeBatchShapeProvider is the universal corespec.BatchShapeProvider
+// implementation promoted from profile/{binance,sea_reference}/batch_shape.go.
+// Model is supplied by the caller (drawn from profile.toml) rather than
+// hard-coded — the provider is otherwise customer/model-blind.
+type declarativeBatchShapeProvider struct {
+	model  spec.SolvencyModelID
+	shapes []spec.BatchShape
+}
+
+func (p *declarativeBatchShapeProvider) Model() spec.SolvencyModelID { return p.model }
+
+func (p *declarativeBatchShapeProvider) Shapes() []spec.BatchShape {
+	out := make([]spec.BatchShape, len(p.shapes))
+	copy(out, p.shapes)
+	return out
+}
+
+func (p *declarativeBatchShapeProvider) SelectFor(nonEmptyAssetCount int) (spec.BatchShape, error) {
+	for _, s := range p.shapes {
+		if nonEmptyAssetCount <= s.AssetCountTier {
+			return s, nil
+		}
+	}
+	last := p.shapes[len(p.shapes)-1]
+	return spec.BatchShape{}, fmt.Errorf(
+		"no batch shape fits %d non-empty assets (max tier is %d)",
+		nonEmptyAssetCount, last.AssetCountTier,
+	)
+}
+
+func (p *declarativeBatchShapeProvider) KeyName(s spec.BatchShape, module string) string {
+	return s.StandardKeyName(p.model, module)
+}
+
 // parseShapeOverride decodes "<tier>_<users>[,<tier>_<users>...]" into
 // BatchShape values. Same syntax + checks as the legacy
 // profile/binance.parseShapeOverride (R8-B/1 promotion).

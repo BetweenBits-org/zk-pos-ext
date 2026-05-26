@@ -111,12 +111,13 @@ write_service_configs() {
   local zk_key_name_json
   zk_key_name_json="$(shape_stem_paths_json "$artifacts_abs")"
 
+  # witness now sources AssetCapacity / UserDataFile from
+  # profile.toml (override via -asset-capacity / -user-data-dir
+  # flags below); config.json keeps only DB + TreeDB.
   cat > cmd/witness/config/config.json <<EOF
 {
   "MysqlDataSource": "$DSN",
-  "UserDataFile": "$SAMPLE_DATA",
   "DbSuffix": "",
-  "AssetCapacity": $ASSET_CAPACITY,
   "TreeDB": { "Driver": "memory", "Option": { "Addr": "" } }
 }
 EOF
@@ -144,7 +145,15 @@ EOF
 run_witness() {
   log "running witness (snapshot → BatchWitness rows)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
-    bash -c 'cd cmd/witness && go run . -dump-final-cex ../../.artifacts/final_cex_assets.json'
+  ZKPOR_SMOKE_SAMPLE_DATA="$SAMPLE_DATA" \
+  ZKPOR_SMOKE_ASSET_CAPACITY="$ASSET_CAPACITY" \
+    bash -c '
+      cd cmd/witness && go run . \
+        -profile ../../profile/binance/binance.toml \
+        -user-data-dir "$ZKPOR_SMOKE_SAMPLE_DATA" \
+        -asset-capacity "$ZKPOR_SMOKE_ASSET_CAPACITY" \
+        -dump-final-cex ../../.artifacts/final_cex_assets.json
+    '
 }
 
 run_prover() {

@@ -113,6 +113,42 @@ func TestBuildBatchShape_OverrideParseError(t *testing.T) {
 	}
 }
 
+// TestBuildBatchShapeProvider_Wires verifies the wrapper exposes
+// Model/SelectFor/KeyName off the underlying []BatchShape from
+// BuildBatchShape.
+func TestBuildBatchShapeProvider_Wires(t *testing.T) {
+	os.Unsetenv("ZKPOR_BATCH_SHAPE_OVERRIDE")
+	p, err := declarative.BuildBatchShapeProvider("t4_tiered_haircut_margin_3pool",
+		[]declarative.BatchShape{
+			{AssetCountTier: 500, UsersPerBatch: 92},
+			{AssetCountTier: 50, UsersPerBatch: 700},
+		})
+	if err != nil {
+		t.Fatalf("BuildBatchShapeProvider: %v", err)
+	}
+	if p.Model() != "t4_tiered_haircut_margin_3pool" {
+		t.Fatalf("Model() = %q", p.Model())
+	}
+	got, err := p.SelectFor(20)
+	if err != nil || got.AssetCountTier != 50 {
+		t.Fatalf("SelectFor(20) = %+v, %v; want tier=50", got, err)
+	}
+	if name := p.KeyName(got, ""); name != "zkpor.t4_tiered_haircut_margin_3pool.50_700" {
+		t.Fatalf("KeyName = %q", name)
+	}
+}
+
+// TestBuildBatchShapeProvider_EmptyModelRejected guards against
+// direct callers that bypass declarative.Load (which Validates the
+// model field).
+func TestBuildBatchShapeProvider_EmptyModelRejected(t *testing.T) {
+	_, err := declarative.BuildBatchShapeProvider("",
+		[]declarative.BatchShape{{AssetCountTier: 50, UsersPerBatch: 700}})
+	if err == nil {
+		t.Fatal("expected error on empty model")
+	}
+}
+
 // TestBuildPricing_Default verifies the no-two-digit-list path — every
 // symbol returns the default scales and ValueScale is their product.
 func TestBuildPricing_Default(t *testing.T) {

@@ -1,21 +1,25 @@
-// Command witness is the zkpor-native witness builder for the Binance
-// deployment. Reads the customer snapshot, builds the depth-28 account
-// SMT, walks accounts in tier-grouped batches, and writes one
-// BatchCreateUserWitness per batch into the witness MySQL table for
-// the prover to pick up.
+// Command witness is the zkpor-native witness builder. Reads the
+// customer snapshot, builds the depth-28 account SMT, walks accounts
+// in tier-grouped batches, and writes one BatchCreateUserWitness per
+// batch into the witness MySQL table for the prover to pick up.
+//
+// R8-C/2 swap: profile-specific constructors (binance.NewPricing,
+// binance.NewSnapshotCSV, binance.NewBatchShape) are replaced with
+// declarative.Load(profilePath) → builders/registries. config.json
+// keeps the deployment-secret/ops fields (DB DSN, TreeDB) but
+// AssetCapacity / UserDataFile / Pricing / BatchShape now flow from
+// profile.toml; flags exist to override per-run (smoke + production
+// snapshot-by-snapshot operation).
 //
 // This is the R3 step 4 core-path service: sequential per-account
 // hashing, fresh-start only (no DB resume, no tree rollback). Resume
-// and rollback are tracked as follow-up slices — see HANDOFF Resume
-// Actions and the legacy src/witness for the full state machine they
-// will eventually replace.
+// and rollback are tracked as follow-up slices.
 //
-// G6 (ValueScale invariant) closes here: the witness is the first
-// pipeline stage that takes a PriceScaleProvider dependency, so it
-// asserts PriceMultiplier × BalanceMultiplier == ValueScale on
-// startup. Two-digit-asset deployments rely on the per-symbol split
-// (1e14 × 1e2 == 1e16) — services that touch raw symbols are expected
-// to extend the assert with their own coverage.
+// G6 (ValueScale invariant) closure now happens inside
+// declarative.BuildPricing — the builder rejects pricing configs whose
+// default × default != two_digit × two_digit before returning, so the
+// witness inherits the assert transparently. Per-symbol coverage stays
+// the responsibility of the profile's own test suite.
 package main
 
 import (
@@ -32,36 +36,75 @@ import (
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
+
+	// _ imports register snapshot/identity/insolvent entries in the
+	// engine registries (R8-A/B). Every customer profile package that
+	// may be referenced from profile.toml MUST appear here so its
+	// init() runs.
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
 )
 
+// expectedModel is the solvency model this witness binary supports.
+// V1-PROD scope is t4_tiered_haircut_margin_3pool only — a sea_reference (T1)
+// witness build is a separate cmd/witness_t1 or a future dispatch in
+// this file (the runBatches / buildBatch helpers below are T4-typed).
+const expectedModel corespec.SolvencyModelID = "t4_tiered_haircut_margin_3pool"
+
 func main() {
+	profilePath := flag.String("profile", "", "path to the declarative profile.toml (required)")
+	userDataDir := flag.String("user-data-dir", "", "override profile.snapshot.user_data_dir (smoke + per-snapshot ops)")
+	snapshotID := flag.String("snapshot-id", "", "override profile.snapshot.snapshot_id (per-snapshot ops)")
+	capacityOverride := flag.Int("asset-capacity", 0, "override profile.asset_capacity (smoke only; 0 = use toml value)")
 	dumpFinalCex := flag.String("dump-final-cex", "", "if set, write the post-batch CexAssetsInfo slice as JSON to this path (smoke harness convenience)")
 	flag.Parse()
 
-	cfg := loadConfig("config/config.json")
-
-	// G6 — PriceMultiplier × BalanceMultiplier == ValueScale invariant.
-	// Asserted at the deployment-default symbol path; per-symbol splits
-	// (e.g. binance's two-digit assets) are exercised by the profile's
-	// own test suite.
-	pricing := binance.NewPricing()
-	if got := pricing.PriceMultiplier("") * pricing.BalanceMultiplier(""); got != pricing.ValueScale() {
-		panic(fmt.Sprintf(
-			"pricing invariant violated: PriceMultiplier × BalanceMultiplier = %d, ValueScale = %d",
-			got, pricing.ValueScale(),
-		))
+	if *profilePath == "" {
+		fmt.Fprintln(os.Stderr, "-profile is required (path to profile.toml)")
+		os.Exit(2)
 	}
 
-	snapshot := binance.NewSnapshotCSV(binance.SnapshotConfig{
-		UserDataDir:   cfg.UserDataFile,
-		AssetCapacity: cfg.AssetCapacity,
-	})
-	shapeProvider := binance.NewBatchShape()
+	cfg := loadConfig("config/config.json")
+	prof, err := declarative.Load(*profilePath)
+	if err != nil {
+		panic(err.Error())
+	}
+	if model := corespec.SolvencyModelID(prof.Profile.Model); model != expectedModel {
+		panic(fmt.Sprintf("witness binary supports %q only; profile.toml model = %q", expectedModel, model))
+	}
+
+	// G6 closure: BuildPricing rejects invariant violations at build time.
+	// The returned provider is kept around in case downstream wiring (per-
+	// asset normalisation) needs it — current T4 witness operates entirely
+	// on uint64 totals already scaled at snapshot time.
+	if _, err := declarative.BuildPricing(prof.Pricing); err != nil {
+		panic(fmt.Sprintf("BuildPricing: %v", err))
+	}
+
+	shapeProvider, err := declarative.BuildBatchShapeProvider(
+		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
+	if err != nil {
+		panic(fmt.Sprintf("BuildBatchShapeProvider: %v", err))
+	}
 	assetCountTiers := tiersFromShapes(shapeProvider.Shapes())
+
+	capacity := prof.Profile.AssetCapacity
+	if *capacityOverride > 0 {
+		capacity = *capacityOverride
+	}
+	dataDir := prof.Snapshot.UserDataDir
+	if *userDataDir != "" {
+		dataDir = *userDataDir
+	}
+	snapID := prof.Snapshot.SnapshotID
+	if *snapshotID != "" {
+		snapID = *snapshotID
+	}
+	snapshot := t4host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity)
 
 	ctx := context.Background()
 	cexAssets, err := snapshot.CexAssets(ctx)
