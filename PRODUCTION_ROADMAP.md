@@ -288,19 +288,49 @@ Exit criteria:
 
 - sample data 기준 **CLI** end-to-end PoR 생성·검증 통과 (witness →
   proof → verifier). userproof 서비스가 사용자별 inclusion proof
-  데이터를 DB 행으로 적재.
+  데이터를 DB 행으로 적재. **CLOSED** — `scripts/smoke.sh` 가 docker
+  compose mysql → keygen → witness → prover → verifier(batch, DB
+  direct) → userproof → verifier(-user) 풀 파이프라인을 통과 (commit
+  d7c23f3, A5). Sample data (170 valid accounts, 17 batches) tiny
+  shape (5, 5, 10), 모든 stage 가 account tree root `142c03677f6f…`
+  일치 + account #0 inclusion `verify pass!!!`.
 - G2, G6 closed.
 - **Engine boundary**: 사용자-facing UI / web frontend / inclusion 검증
   페이지는 engine 밖, V1 scope 미포함 (`## Scope Boundary` 참조).
 
-부수 작업 (이 stage 안에서 또는 직후에 가능):
+R3 step 4 안에서 fold 된 부수 작업 (이번 closure 에서 동반 완료):
 
-- `core/constraint_modules/noop/` promotion — 현재
-  `profile/binance/constraint_noop.go` 의 noopModule 을 core 로 옮긴다.
-  rule-of-three 면제 (noop 은 universal). `docs/02-module-architecture.md`
-  §5 참조. 1 commit 분량.
+- **AssetCounts 재배치 (slice E, commit 1d5571b)** — `corespec.AssetCounts
+  = 500` 이 core/spec 에 박혀 있었으나 실제로는 deployment cap.
+  `AssetCatalog.Capacity()` 가 단일 진실원으로 격상, `SnapshotConfig.
+  AssetCapacity` + 4 service config 의 `AssetCapacity` 로 흐름. R5 의
+  declarative `profile.toml` (G12) 슬롯에 자연 매핑. Smoke 가 tiny
+  capacity 로 가능해진 부수 효과 (286k constraints, keygen 21s).
+- **Shape override env var (slice A1, commit 11f2d0a)** —
+  `ZKPOR_BATCH_SHAPE_OVERRIDE` 가 binance production shape 을 smoke
+  shape 으로 swap. 서비스/테스트/config 무변경.
+- **Verifier DB direct proof read (slice A4, commit f1ba54a)** —
+  proof.csv 중간 hop 제거, `ProofStore.ListAllInOrder` 로 verifier 가
+  직접 ingest. legacy CSV 경로도 backward-compat.
+- **3 버그 fix (A5 commit d7c23f3)** — bsmt `Commit(&v)` 가 pruning
+  version 임을 발견, `Commit(nil)` 로 통일. `SetBatchCreateUserCircuit
+  Witness` padding entries 의 6개 collateral 필드 zero-init 누락
+  (gnark `can't set fr.Element with <nil>`) → `paddingAsset` 헬퍼로
+  통일. verifier 의 per-asset equity≥debt panic → warning (tier_3bucket
+  모델은 자산별 차용 허용).
+
+R3 step 4 미잔존 follow-ups (post-smoke, 별도 슬라이스):
+
+- witness multi-worker 병렬 + DB resume + tree rollback
+- prover Redis BLPOP 큐 + -rerun 모드 + multi-worker
+- userproof multi-worker + resume + -memory_tree 플래그
+- snapshot multi-shard concurrency
+- `core/constraint_modules/noop/` promotion (universal layer 로 이동)
+- Store driver 인터페이스 + PG adapter (slice D, deferred)
+- EC2 원격 sync 스크립트 (slice F, deferred)
 
 Blocking gates: G1 (step 3), G2 (step 4), G6 (step 4), G13 (step 1).
+**모두 closed.**
 
 ### Stage R4 — Second model implementation: `spot_simple` (SEA GTM driver)
 
