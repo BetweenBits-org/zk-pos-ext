@@ -8,6 +8,11 @@
 Latest implementation commit (`zkpor/.git/`, branch `main`):
 
 ```text
+f511dcb feat(zkpor): R4-2 — spot_simple Setup smoke + ComputeFlatUint64Commitment fix
+466ef55 feat(zkpor): R4-1 — spot_simple circuit (BatchCreateUserCircuit + witness builder)
+e4dc0cb feat(zkpor): R4-0 — spot_simple spec package (model 2 entry)
+a6469c6 feat(zkpor): F — EC2 remote-test helpers + smoke.sh shape parametrisation
+6cb6a37 docs(handoff+roadmap): close R3 step 4 with smoke + 3 supporting slices
 d7c23f3 feat(zkpor): A5 — end-to-end smoke harness + 3 bug fixes surfaced en route
 1d5b2e9 feat(zkpor): keygen service + smoke MySQL fixture (A2 + A3)
 1d5571b refactor(zkpor): AssetCounts — profile-owned, catalog as source of truth (E)
@@ -49,7 +54,8 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 | `zkpor/cmd/keygen/*` | ✅ **새 service (A3, 1d5b2e9)** — zkpor-native trusted setup. `binance.NewBatchShape()` (override 가능) 와 `-asset-capacity` 플래그로 (userAssetCounts, assetCapacity, batchCounts) 회로 compile + groth16.Setup. StandardKeyName 파일 (`zkpor.tier_3bucket.<tier>_<users>.{pk,vk,r1cs}`), `-legacy-names` 옵션. Tiny smoke (5,5,10): 286k constraints, ~21s, .pk 113MB. |
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
 | `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음. **Alpha wiring (R3 step 2)** + **R1CS byte-equivalence vs legacy (R3 step 3 / G1)**. **A5 fix d7c23f3** — `SetBatchCreateUserCircuitWitness` 의 padding UserAssetInfo entries 가 legacy 처럼 6개 collateral 필드를 명시적 0 으로 초기화 (이전엔 nil 이라 gnark `can't set fr.Element with <nil>` 실패). |
-| `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved. **`spot_simple` 은 R4 model-first 우선순위 (SEA GTM driver)**. 나머지는 rule-of-three 대기. |
+| `zkpor/core/solvency/spot_simple/{spec,circuit}/*` | ✅ **R4 done** — spec (types, snapshot, witness, constraint) + circuit (BatchCreateUserCircuit + Define + SetBatchCreateUserCircuitWitness) + setup smoke (NbConstraints=33,306 at tiny shape (5,10,2), R1CS sha256 baseline 기록). 5-input account leaf (`Poseidon(accountID, totalEquity, 0, 0, assetsCommitment)`) 로 substrate 의 universal `EmptyAccountLeafHash` 공유. RiskPolicy 부재 (doc 명시). |
+| `zkpor/core/solvency/{merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved. R6 (3rd model) rule-of-three 대기. |
 | `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료. **G2 closed** (Scheme `passthrough_hex_bn254_reduced.v0`). **G13 closed** (snapshot AccountID fr.Element 정규화). `NewCatalog(orderedSymbols, capacity)` (E refactor — capacity 가 catalog 인스턴스 필드). `SnapshotConfig.AssetCapacity` 추가. `NewBatchShape()` 가 `ZKPOR_BATCH_SHAPE_OVERRIDE` env var 지원 (A1 11f2d0a). multi-shard concurrency 는 여전히 sequential (follow-up) |
 | `zkpor/deploy/` | ✅ **smoke MySQL fixture (A2, 1d5b2e9)** — `docker-compose.yml` 단일 컨테이너 (mysql:8.0, healthcheck, 영속 볼륨). Memory tree 라 Redis 컨테이너 불필요. 사용: `docker compose -f deploy/docker-compose.yml up -d` |
 | `zkpor/scripts/` | ✅ **end-to-end smoke 하네스 (A5, d7c23f3)** — `smoke.sh` 가 docker compose → keygen (캐시) → witness → prover → verifier(batch) → userproof → verifier(-user) 순으로 전체 파이프라인 실행. R3 step 4 exit criteria 검증 완료. |
@@ -61,6 +67,32 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 최근 작업 흐름:
 
 ```text
+<R4/2>   feat(zkpor): R4-2 — spot_simple Setup smoke + Commitment fix
+        (commit f511dcb. setup_test.go (Compile+Setup at tiny shape
+         5_10_2, NbConstraints=33,306, R1CS sha256 baseline 기록 +
+         noop-module zero-cost regression guard). 부수로 core/circuit
+         /commitment.go 의 잠재 버그 fix: ComputeFlatUint64Commitment
+         가 flatten length % 3 != 0 시 trailing partial field 를
+         `_ = last` 로 discard 해 tmp[nEles-1] 이 nil 인 채 Poseidon
+         호출 → panic. tier_3bucket 의 6-field-per-asset 가 3 의
+         배수라 안 걸렸음, spot_simple 의 2-field-per-asset 첫 노출.
+         tier_3bucket R1CS sha256 (678eb23f…) + coefficients sha256
+         불변 확인 — 새 partial-field 분기가 tier_3bucket 에선 미진입.)
+<R4/1>   feat(zkpor): R4-1 — spot_simple circuit 본체
+        (commit 466ef55. BatchCreateUserCircuit + Define + 
+         SetBatchCreateUserCircuitWitness + paddingAsset 헬퍼.
+         tier_3bucket circuit 구조 모방하되 simplify: no tier table /
+         no haircut / no 3-bucket collateral, AssetsForUpdateCex 가
+         1-field-per-slot (vs tier_3bucket 의 5). Random-linear-
+         combination cross-check 도 1-power-per-slot. 5-input account
+         leaf 로 substrate 호환. PowersOfSixteenBits 는 tier_3bucket
+         에서 복제 (R6 promotion candidate).)
+<R4/0>   feat(zkpor): R4-0 — spot_simple spec 패키지 신설
+        (commit e4dc0cb. types (1-tuple AccountAsset, no debt/
+         collateral) + snapshot (SnapshotSource interface) + witness
+         (BatchCreateUserWitness + helpers) + constraint (Constraint
+         Module + slim Context). RiskPolicy 부재 — doc 의 "Notably
+         absent (vs tier_3bucket)" 정합.)
 <R3/4n>  feat(zkpor): A5 — end-to-end smoke harness + 3 bug fixes
         (commit d7c23f3. R3 step 4 exit criteria 종결. scripts/smoke.sh
          가 docker mysql → keygen (cache) → witness → prover → verifier
@@ -420,6 +452,34 @@ Engine boundary 외 (V1 scope 미포함):
   number 매핑을 driver-aware 추상화로 분리하면 PostgreSQL adapter
   가 ~1 commit. Smoke 와 무관하게 진행 가능 — DEFERRED 작업 표.
 
+- **R4 substrate audit (R4-3 done)** — core/circuit substrate 가
+  spot_simple 을 신규 helper 없이 수용함 확인. 두 model 양쪽이 쓰는
+  universal symbols 7개 (`API`, `Variable`, `BatchCommitment`,
+  `ComputeFlatUint64Commitment`, `AccountIndexToMerkleHelper`,
+  `VerifyMerkleProof`, `UpdateMerkleProof`, `TwoToTheSixtyFour`).
+  tier-only 3개 (`CheckedDivByConstant`, `IntegerDivision`,
+  `TwoToTheOneTwentyEight`) 는 spot 미사용일 뿐 model-bound 가 아니라
+  잠재 universal (3rd model 이 division 등을 쓰면 자연 활용).
+  Substrate 가 sound — 추가 promotion 불필요.
+
+- **R6 promotion candidates (rule-of-three first event)** — 두 model
+  사이에 중복된 항목들 (R6 G11 trigger 시 promote):
+  · `PowersOfSixteenBits` 가 tier_3bucket/circuit/constants.go +
+    spot_simple/circuit/constants.go 양쪽에 동일 정의로 존재. 의미는
+    universal (2^16 powers — asset id packing). R6 에서 core/circuit
+    로 옮긴다.
+  · R1CS hash test helpers (`bn254R1Cs`, `hashR1Cs`, `hashCoefficients`,
+    `writeLinearExpr`, `writeUint64`) 가 tier_3bucket legacy_compare
+    _test.go + spot_simple setup_test.go 양쪽에 중복. R6 에서 test
+    helper 패키지 또는 core/circuit/testhelper 로 promote.
+
+- **noop ConstraintModule promotion 보류 (R4-4 reassessed)** — 두 model
+  의 `ConstraintContext` 가 다른 field 셋을 가지므로 (tier_3bucket 은
+  collateral/tier ratios, spot 은 equity only) 진정한 universal noop
+  은 generic constraint 가 필요. 단순 promotion 가치가 limited —
+  binance/constraint_noop.go 는 profile-specific 으로 유지, R6 (3rd
+  model) 시 재검토.
+
 ## Non-Negotiable Rules
 
 작업 내내 어기면 안 되는 규칙.
@@ -582,7 +642,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | AccountIDProvider derivation 정식화 (HMAC/salt) | deferred (V2 candidate) | post-V1 |
 | Store driver abstraction + PG adapter (slice D) | pending — `store.Open(driver, dsn)` + ConvertDriverErr 매핑 + MaxExecutionTime context 추상화 | post-A / DEFERRED |
 | EC2 원격 sync 스크립트 (slice F) | pending — rsync + ssh helper, m6i.{2,4}xlarge 권장 | post-A / DEFERRED |
-| Second model 회로 구현 — `spot_simple` (SEA GTM driver, model-first) | pending | **R4 (model-first swap)** |
+| Second model 회로 구현 — `spot_simple` (SEA GTM driver, model-first) | ✅ done — spec + circuit + setup smoke (NbConstraints=33,306 baseline). Substrate audit 통과 (R4-3) | **R4 종결** |
 | Second customer profile — SEA reference (Indonesia/Thailand 우선) | pending | **R5 (was R4)** / G12 |
 | Third model + core/circuit/ 추가 헬퍼 승격 | awaits signal | R6 / G11 |
 | 카탈로그 v1 freeze | awaits R7 | R7 / G4 |
@@ -607,61 +667,53 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 4 종결**. 4 services + 3 gate (G1/G2/G6) + 카탈로그 재배치 (E) +
-end-to-end smoke (A5) 모두 done:
+**R3 step 4 + R4 종결**.
 
-- service: verifier (9f889ad + f1ba54a) / witness (5332f40) / prover
-  (8045c37) / userproof (fdf4a63) / **keygen (1d5b2e9)** (★ A3)
-- gate: G1 hint (8045c37) / G6 ValueScale (5332f40) / G2 Scheme
-  (3c691cb)
-- arch: AssetCounts profile-owned (1d5571b, E)
-- ops infra: docker-compose mysql fixture (1d5b2e9, A2), shape override
-  env var (11f2d0a, A1), verifier DB direct read (f1ba54a, A4)
-- exit smoke: `scripts/smoke.sh` 풀 파이프라인 통과 (d7c23f3, A5) —
-  17/17 proofs verify, account #0 inclusion "verify pass!!!"
+R3 step 4 산출물: 4 services + 3 gate (G1/G2/G6) + AssetCounts
+재배치 (E) + end-to-end smoke (A5) — `scripts/smoke.sh` 풀 파이프
+라인 통과, 17/17 proofs verify, account #0 inclusion "verify
+pass!!!" (commit chain a6469c6 … 11f2d0a).
+
+R4 산출물: spot_simple model (spec + circuit + setup smoke) — 두번째
+model이 substrate 위에 안정 안착. NbConstraints=33,306 (tiny shape),
+core/circuit 의 universal helpers 가 신규 추가 없이 수용. 부수로
+`ComputeFlatUint64Commitment` 잠재 버그 1건 fix (commit chain
+f511dcb → 466ef55 → e4dc0cb).
+
+R6 promotion candidates 식별 (substrate audit): `PowersOfSixteenBits`,
+R1CS hash test helpers — 두 model 양쪽에 중복, rule-of-three 첫
+event. 3rd model 시 promote.
 
 다음 슬라이스 갈래 — agent 가 선택 (또는 user 와 합의):
 
-**갈래 B — R4 진입 (SEA GTM driver model-first)**:
+**갈래 B' — R5 진입 (SEA reference customer + declarative profile)**:
 
 ```text
-spot_simple model spec + circuit 구현:
+R4 가 spot_simple model 위에 customer 어댑터를 빠르게 받을 수 있는지를
+검증할 차례. R5 산출물:
+  - SEA reference customer (Indonesia/Thailand 후보) profile 패키지
+    (`zkpor/profile/<customer>/*`) — 어댑터 8개.
+  - 그 customer 의 spot_simple host helpers
+    (`zkpor/core/solvency/spot_simple/host/{commitment,account,serialize}.go`)
+    — tier_3bucket/host 패턴 모방. ComputeUserAssetsCommitment +
+    ComputeCexAssetsCommitment + AccountLeafHash + Encode/Decode
+    BatchWitness.
+  - declarative `profile.toml` 첫 추출 — binance + SEA 두 어댑터를
+    같은 toml schema 위에서 표현. schema freeze 는 R7.
+  - multi-customer `.vk` 공유/분리 정책 (G12 closure).
 
-  zkpor/core/solvency/spot_simple/{spec,circuit}/* 신규 구현. 현재는
-  doc.go only. tier_3bucket 의 spec/circuit/host 패턴을 reference 로
-  하되, spot_simple 의 단순한 (no tier table, no 3-bucket collateral)
-  수학을 가진다.
-
-  핵심 차이 (tier_3bucket vs spot_simple):
-    - per-user per-asset 5-tuple (Equity, Debt, Loan, Margin, PM) →
-      2-tuple (Equity, Debt). 단순.
-    - 3-bucket collateral haircut 사라짐.
-    - tier ratio table 사라짐.
-    - 하지만 sum equality + Merkle proof + AccountID + CexCommitment
-      구조는 동일 (universal).
-
-  검증 순서 (R3 와 유사한 sub-slice 구조 추천):
-    R4 step 0 — Compile + Setup smoke
-    R4 step 1 — alpha wiring (tier_3bucket 에서 패턴 검증됨, 재사용)
-    R4 step 2 — trusted setup ceremony + .pk/.vk publish
-
-  customer profile (SEA reference) 는 R5 — model 위에 어댑터 8개 +
-  declarative profile.toml 첫 추출.
-
-  R4 진입 전 권장:
-  - docs/01-project-context.md 의 SEA zoom-in 재확인
-  - tier_3bucket 의 4 layer 구조 (spec / circuit / host / cmd) 가
-    universal substrate 로 잘 작동하는지 audit (R6 의 core/circuit
-    promotion 후보 식별 시작)
+전제: SEA customer 후보 narrow-down 이 user/partner 측에서 진행돼
+있어야 함. 코드만이면 hypothetical SEA fixture 로 진행 가능 (실제
+customer 데이터 없이도 model→customer flow 검증).
 ```
 
 **갈래 C — 작은 정리 작업** (low-risk, 언제든 가능):
 
 ```text
-- core/constraint_modules/noop/ promotion (현재 profile/binance/
-  constraint_noop.go 에 있는 noopModule 을 universal layer 로). 1 commit.
 - goroutine leak guard (uber-go/goleak dep 도입 검토).
-- (A6 doc sweep 자체는 이 HANDOFF/ROADMAP 업데이트로 완료)
+- R4 가 surface 한 R6 promotion candidates 의 사전 정리
+  (PowersOfSixteenBits, R1CS hash helpers — 단순 복제 → core 로
+  이동 — rule-of-three 엄격 적용 안 하면 가능, 보수적이면 R6 대기).
 ```
 
 **갈래 D — Store Driver 추상화 + PG adapter** (DEFERRED 슬라이스):
@@ -689,11 +741,18 @@ R3 step 4 follow-ups (각각 별 슬라이스, 우선순위 user 결정):
   - snapshot multi-shard concurrency
 
 갈래 선택 기준 (suggested):
-- R3 step 4 종결됐으므로 다음 큰 가치 흐름은 **B (R4 spot_simple
-  진입)** — SEA GTM driver 와 정합.
-- R3 step 4 follow-ups 는 production scale prove SLA 가 측정될 때
-  필요해짐 — F 의 EC2 환경에서 한 번 production keygen + smoke
-  하면 SLA 데이터 확보 가능. follow-up 우선순위가 그 시점에 정해짐.
+- R3 step 4 + R4 종결됐으므로 다음 큰 가치 흐름은 **B' (R5 SEA
+  reference customer 진입)** — model 위에 customer adapter 가 빠르게
+  올라가는지를 검증하는 첫 event 이자 declarative profile.toml 추출
+  trigger.
+- R5 진입 전제로 SEA customer 후보 narrow-down 이 user/partner 측
+  결정 필요. code-only flow 검증이 우선이라면 hypothetical SEA
+  fixture (Indonesia/Thailand 합성 데이터) 로도 진행 가능.
+- R3/R4 follow-ups (multi-worker scaling, prover/userproof
+  parallelism, host helpers for spot_simple) 는 production scale
+  prove SLA 가 측정될 때 필요. F 의 EC2 환경에서 한 번 production
+  keygen + smoke 하면 SLA 데이터 확보 가능 — follow-up 우선순위가
+  그 시점에 정해짐.
 - D 는 DBaaS 선택지가 정해질 때 (Supabase/RDS PG vs Aurora MySQL 등)
   진행. 그 전까지는 deferred.
 
