@@ -31,7 +31,7 @@ ccc3fe4 feat(zkpor): alpha wiring + AccountID fr.Element @ snapshot (R3 step 2)
 | `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service — legacy `src/verifier` 의 zkpor-native 대체 (3-mode CLI: batch / -user / -hash). src/utils + legacy circuit import 0. proof-table end-to-end 검증은 witness+prover 착지 후 (artifact 의존) |
 | `zkpor/core/solvency/tier_3bucket/spec/*` | ✅ complete — types, RiskPolicy, SnapshotSource (`InvalidCount()` 추가됨, R2/2 step 2), ConstraintModule, witness (BatchCreateUserWitness 등) |
 | `zkpor/core/solvency/tier_3bucket/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음 (global 의존 제거). **Alpha wiring 적용 (R3 step 2)** — unexported `module` 필드 + `SetConstraintModule` setter, Define 끝에서 `ConstraintModule.Define(api, ctx)` 호출. noopModule 일 때 NbConstraints == 723790 (R3 step 0 baseline 과 동일). **R1CS byte-equivalence vs legacy 통과 (R3 step 3 / G1, tiny shape, commit 1398e04)** — `bn254.R1CS.GetR1Cs()` L·R==O SHA256 일치 (`678eb23f…`). |
-| `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved, rule-of-three 대기 |
+| `zkpor/core/solvency/{spot_simple,merkle_classic,over_collateral_simple,tier_1bucket}/` | ⏸ doc.go only — 카탈로그 reserved. **`spot_simple` 은 R4 model-first 우선순위 (SEA GTM driver, `docs/01-project-context.md` SEA zoom-in 참조)**. 나머지는 rule-of-three 대기. |
 | `zkpor/profile/binance/*` | ✅ snapshot ETL 흡수 완료 — `CexAssets()` + `AccountStream()` happy + invalid 분류 + full-coverage 테스트 (multi-shard / ctx cancel / numeric overflow / collateral sum overflow / fatal column count) + AccountID 정규화. **`parseAccountRow` 에서 bn254 `fr.Element` SetBytes→Marshal round-trip 적용 (R3 step 2, G13 impl)** — legacy `src/utils/utils.go:553` 와 동일 layer. **R3 step 3 sample-corpus parity 통과** — legacy `ReadUserDataFromCsvFile` 과 zkpor `csvSnapshot.AccountStream` 이 sample_users0.csv (100 rows) 에서 90 valid AccountID byte-equal + 10 invalid 분류 parity. 17개 테스트 통과 (binance). multi-shard *concurrency* 는 여전히 R3 step 4 (현재는 sequential). 나머지 7개 어댑터는 constructor 형태 |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
 | docs (`zkpor/AGENTS.md`, `zkpor/CLAUDE.md`, `zkpor/PRODUCTION_ROADMAP.md`, `zkpor/docs/01-project-context.md`, `zkpor/docs/02-module-architecture.md`) | ✅ complete |
@@ -305,9 +305,9 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | service rewiring — witness / prover / userproof | pending — agent 가 service 별 commit 으로 분해 | R3 step 4 |
 | ValueScale assert (G6) + Scheme freeze (G2) | pending — witness/userproof 슬라이스 동반 (verifier 는 call site 없음) | R3 step 4 / G2 + G6 |
 | AccountIDProvider derivation 정식화 | deferred | R3 / G2 |
-| 두 번째 customer profile | awaits signal | R4 / G12 |
-| 두 번째 model 회로 구현 | awaits signal | R5 |
-| core/circuit/ 추가 헬퍼 승격 | awaits signal | R6 / G11 |
+| Second model 회로 구현 — `spot_simple` (SEA GTM driver, model-first) | pending | **R4 (model-first swap)** |
+| Second customer profile — SEA reference (Indonesia/Thailand 우선) | pending | **R5 (was R4)** / G12 |
+| Third model + core/circuit/ 추가 헬퍼 승격 | awaits signal | R6 / G11 |
 | 카탈로그 v1 freeze | awaits R7 | R7 / G4 |
 | 사용자-facing verification 분배 책임 (UI / 페이지) | deferred | post-V1 / customer SLA / G14 |
 | Prove-path GPU 가속 (ICICLE) 채택 여부 (G15) | deferred | post-R3 step 4 / first production prove SLA |
@@ -315,7 +315,7 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 | `core/constraint_modules/noop/` promotion (universal noop 분리) | pending | R3 step 4 직후 또는 R4 진입 시 |
 | Composite 패턴 (`ComposeModules` 헬퍼) 도입 | pending | R5 candidate / 첫 N≥2 module deployment |
 | Param-as-public-input 규칙 closure | pending | R5 candidate / 첫 parameterized module |
-| Declarative `profile.toml` 첫 추출 | pending | R4 / 두 번째 customer 도입 |
+| Declarative `profile.toml` 첫 추출 | pending | R5 / 두 번째 customer (SEA reference) 도입 |
 | profile descriptor schema v1 freeze | pending | R7 / G4 |
 | module 카탈로그 v1 list freeze | pending | R7 / G4 |
 
@@ -387,12 +387,18 @@ verifier proof-table end-to-end 검증은 witness+prover 착지 후
 에 여러 서비스를 묶지 않는다.
 ```
 
-그 다음 진입:
+그 다음 진입 (R4/R5 model-first swap 반영):
 
 ```text
 R3 step 4 closure 이후 — R3 본체 종료.
-R4    — second customer profile (G12 closing).
-R5    — second model 회로 구현 (rule-of-three first event).
+R4    — second model 회로 구현: spot_simple (SEA GTM driver, model-first).
+        customer signal 기다리지 않음 — SEA 시장 조사로 spot_simple 이
+        80%+ fit 임이 이미 확정 (docs/01-project-context.md SEA zoom-in).
+R5    — second customer profile: SEA reference (Indonesia/Thailand 우선).
+        spot_simple 위에 어댑터 8개 + declarative profile.toml 첫 추출
+        (G12 closing).
+R6    — third model + core/circuit promotion (rule-of-three trigger).
+R7    — v1 catalog freeze.
 ```
 
 목표 / 범위 제외:

@@ -302,16 +302,62 @@ Exit criteria:
 
 Blocking gates: G1 (step 3), G2 (step 4), G6 (step 4), G13 (step 1).
 
-### Stage R4 — Second customer profile (deferred, awaits signal)
+### Stage R4 — Second model implementation: `spot_simple` (SEA GTM driver)
 
-목표: 첫 비-Binance 고객사 프로파일 도입. `zkpor/profile/<customer>/` 추가.
+목표: SEA 시장의 80~100% 가 spot-dominant 라는 조사 결과
+(`docs/01-project-context.md` 의 "SEA 시장 zoom-in") 에 따라, **GTM 우선
+모델인 `spot_simple` 회로를 customer signal 없이 model-first 로 구현**한다.
+
+이전 stage 정의 (R4 = customer-first) 와 swap 한 이유: customer 가 선택할
+model 이 사실상 정해져 있는 시장 (SEA spot) 에서 "customer signal 기다리기"
+가 dead time 이 된다. R3 까지 검증된 universal substrate (`core/spec/` +
+`core/circuit/`) 가 두 번째 model 을 빠르게 받을 수 있는지를 검증하는
+첫 event 이기도 함 (rule-of-three first event).
 
 산출물:
 
-- 새 고객사 어댑터 8개 (catalog, pricing, identity, insolvent, batch_shape,
-  risk, snapshot, constraint_noop or custom).
-- 해당 고객사가 채택할 model 결정 (Q3 답).
-- 두 고객사가 같은 model을 쓸 때 `.vk` 공유 정책 (G12 closed, Q7 답).
+- `zkpor/core/solvency/spot_simple/spec/*` — types, RiskPolicy,
+  SnapshotSource, ConstraintModule, witness. tier_3bucket 의 spec 패턴
+  재사용, tier/bucket 개념 제거.
+- `zkpor/core/solvency/spot_simple/circuit/*` — BatchCreateUserCircuit
+  (spot 버전). math 가 가장 단순: sum equality + Merkle account tree
+  + (debt = 0 강제 또는 자동 만족). tier haircut / multi-bucket 없음.
+- spot_simple model 의 trusted setup ceremony 절차 정의 (R3 step 3 의
+  G1 byte-equivalence 절차를 재사용 — legacy reference 가 없으니 G1
+  본체는 N/A, 대신 R1CS hash freeze 만).
+- `core/circuit/` substrate 가 두 model 모두 지원하는지 확인 — 만약
+  spot_simple 이 새 universal helper 를 필요로 하면 그건 R6 (G11 rule-of-
+  three) 의 첫 candidate.
+
+부수 작업:
+
+- 만약 `core/constraint_modules/noop/` promotion 이 R3 step 4 의 부수
+  작업으로 처리되지 않았으면, R4 안에서 처리 (spot_simple 도 같은 noop
+  module 을 쓰므로 promotion 의 가치가 R4 에서 명확해짐).
+
+Exit criteria:
+
+- spot_simple 회로 audit 완료 (또는 첫 audit-ready 상태).
+- spot_simple Setup smoke (Compile + Setup) 통과 + R1CS hash 기록.
+- substrate (`core/circuit/`) 가 tier_3bucket 과 spot_simple 두 model 모두
+  지원함 확인. 차이가 있는 부분은 R6 promotion 후보로 기록.
+
+### Stage R5 — Second customer profile (SEA reference)
+
+목표: spot_simple model 위에 첫 SEA customer profile 을 구현해서 model →
+customer flow 를 end-to-end 로 검증한다. 후보: Indonesia (Indodax /
+Tokocrypto / Pintu 류) 또는 Thailand (Bitkub 류) — 둘 다 채택 incentive
+"상" 으로 평가됨.
+
+산출물:
+
+- 새 고객사 어댑터 8개 (catalog, pricing, identity, insolvent,
+  batch_shape, risk, snapshot, constraint_noop or custom). spot_simple
+  의 spec 인터페이스를 구현.
+- 해당 고객사가 채택할 model 결정 — SEA 의 경우 거의 자동으로 spot_simple
+  (Q3 답).
+- 두 고객사 (Binance R3 + SEA R5) 가 다른 model 을 쓰는 경우의 `.vk`
+  공유/분리 정책 (G12 closed, Q7 답).
 - **Declarative profile.toml 첫 추출** — 두 customer 가 등장하면 자연스
   러운 refactor trigger. asset list / batch shape / multipliers /
   identity scheme ID / insolvent policy / source-type ID 를 toml 로
@@ -319,59 +365,44 @@ Blocking gates: G1 (step 3), G2 (step 4), G6 (step 4), G13 (step 1).
   registry pattern 도입 — 형태만 잡힌다. `docs/02-module-architecture.md`
   §6 참조.
 
+부수 작업 (이 stage 의 트리거에 따라):
+
+- **Composite 패턴 첫 도입** — SEA customer 가 N module 을 요구하면
+  `core/constraint_modules/composite/` 신설 + `ComposeModules([m1, ...])`
+  헬퍼. `docs/02-module-architecture.md` §2 의 spec 그대로 impl. SEA 의
+  첫 customer 가 noop 만 쓰면 R6 으로 carry.
+- **Param-as-public-input 규칙 closure** — 첫 parameterized module
+  등장 시점에 `docs/02-module-architecture.md` §4 의 규칙을 spec/witness
+  builder 에 박는다. G3 의 ConstraintContext API freeze 와 동반.
+
 Exit criteria:
 
-- 새 고객사 sample data로 end-to-end PoR 통과.
+- SEA 고객사 sample data 로 end-to-end PoR 통과 (witness → proof →
+  verifier, spot_simple model 위에서).
 - multi-customer 운영 시 `.vk` 공유/분리 정책 문서화.
 - 두 customer 의 declarative 데이터가 동일 toml 스키마 위에서 표현됨
   (스키마 freeze 는 R7).
 
 Blocking gates: G12.
 
-### Stage R5 — Second model implementation (rule-of-three first event)
-
-목표: 카탈로그 두 번째 model 회로 구현. 후보: `spot_simple` (한국 spot
-거래소) 또는 `merkle_classic` (Bybit-class). R4 의 customer 선택과 연결.
-
-산출물:
-
-- 새 model 의 `zkpor/core/solvency/<id>/spec/` + `circuit/` + 도구.
-- 새 trusted setup ceremony 완료, `.pk`/`.vk` publish.
-- 두 model이 같은 `zkpor/core/circuit/` substrate를 공유 — 추상화 검증.
-
-부수 작업 (이 stage 의 트리거에 따라):
-
-- **Composite 패턴 첫 도입** — 두 model 중 한 customer 가 N module 을
-  요구하면 `core/constraint_modules/composite/` 신설 +
-  `ComposeModules([m1, m2, ...])` 헬퍼. `docs/02-module-architecture.md`
-  §2 의 spec 그대로 impl. 안 그러면 R6 으로 carry.
-- **Param-as-public-input 규칙 closure** — 첫 parameterized module 등장
-  시점에 `docs/02-module-architecture.md` §4 의 규칙을 spec/witness
-  builder 에 박는다. G3 의 ConstraintContext API freeze 와 동반.
-
-Exit criteria:
-
-- 새 model 회로 audit 완료.
-- substrate 가 두 model 모두 지원하는지 확인 (rule-of-three 두 번째 event).
-- 첫 substrate refactor 후보 식별 → R6 로 carry.
-
 ### Stage R6 — Third model + core/circuit 보강 (rule-of-three trigger)
 
-목표: 세 번째 model 구현 시점. 이때 처음으로 `zkpor/core/circuit/` 에 추가 헬퍼
-승격 검토 (G11). 후보: RLC-based sum equality helper, account leaf
-composition helper.
+목표: 세 번째 model 구현 시점 (tier_3bucket + spot_simple + 새 model).
+이때 처음으로 `zkpor/core/circuit/` 에 추가 헬퍼 승격 검토 (G11). 후보:
+`merkle_classic` (mid-tier 마진 거래소), `over_collateral_simple` (단순
+마진), 또는 시장 신호 기반의 다른 entry. 후보 헬퍼: RLC-based sum
+equality helper, account leaf composition helper.
 
 산출물:
 
 - 세 번째 model 의 회로 구현.
 - 세 model 모두에 공통으로 적용 가능한 패턴이 `zkpor/core/circuit/` 으로 승격됨.
 - substrate API v1 잠정 정착.
-- **`core/constraint_modules/` 의 첫 본격 entry 들 promotion** — R4/R5
-  를 거치며 두 customer 이상에서 같은 module 패턴이 사용된 것이 있으
-  면, G11 의 자연 확장으로 module 도 core 라이브러리로 옮긴다. 후보
-  prefix: `regulator.<jurisdiction>.<rule>_v<v>`,
-  `business.<pattern>_v<v>`. `docs/02-module-architecture.md` §5
-  참조.
+- **`core/constraint_modules/` 의 첫 본격 entry 들 promotion** — R5 까지
+  거치며 두 customer 이상에서 같은 module 패턴이 사용된 것이 있으면, G11
+  의 자연 확장으로 module 도 core 라이브러리로 옮긴다. 후보 prefix:
+  `regulator.<jurisdiction>.<rule>_v<v>`, `business.<pattern>_v<v>`.
+  `docs/02-module-architecture.md` §5 참조.
 
 Exit criteria:
 
@@ -421,7 +452,7 @@ Blocking gates: G4, G10.
 | Gate | Status | Blocker stage | 결정 / 현재 marker | Next action |
 |---|---|---|---|---|
 | **G1** trusted-setup byte-equivalence 검증 방법 + 실행 | closed | R3 step 3 | **(a) R1CS L·R==O matrix SHA256 채택** (commit 1398e04). `bn254.R1CS.GetR1Cs()` 로 L/R/O 추출 후 직렬화 SHA256. Tiny shape (5, 50, 2) 에서 legacy + zkpor 모두 `678eb23f62a9932bb93a8f0811db3b64a4bfd8eadb5e743791d93b27c0b95b32`. (b) `.pk` SHA256 은 `groth16.Setup` 의 toxic-waste randomness 로 deterministic 하지 않음 — production ceremony 의 waste 가 파기되어 재사용 불가, 기각. Hint identifier divergence (legacy `circuit.IntegerDivision` vs zkpor `corecircuit.IntegerDivision` 의 reflect-derived ID) 는 solver-side metadata 라 .pk/.vk 에 무관 — 각 service 가 R3 step 4 에서 zkpor 의 IntegerDivision 을 `solver.RegisterHint` 로 등록. Sample-corpus AccountID byte-equivalence 도 동시 검증 (90 valid + 10 invalid 분류 까지 parity). | 후속 production-shape 검증은 ROADMAP R3 step 3 산출물 박스의 절차 참조 (optional). |
-| **G2** AccountIDProvider scheme v1 freeze | deferred | R3 | `passthrough_hex.v0` 임시. customer-side derivation 가정. | R3 전 HMAC/salt 정식 derivation 채택 여부 결정. |
+| **G2** AccountIDProvider scheme v1 freeze | closed | R3 step 4 | **`passthrough_hex_bn254_reduced.v0`** 채택. binance/identity.go 의 `DeriveAccountID` 가 hex-decode 후 BN254 fr.Element SetBytes→Marshal 적용 — snapshot 의 G13 정규화와 동일한 출력. 정직한 freeze 위해 함수 동작도 이름과 일치시킴 (과거 placeholder 는 hex passthrough 였고 절반의 입력에서 leaf hash 와 어긋났다). Customer-side derivation 가정 유지 — HMAC/salt 정식화는 V2 이후 별도 결정. | — |
 | **G3** ConstraintModule 공개 API freeze | deferred | R3 후 | 현재 `ConstraintContext` 가 minimal surface. 두 번째 module 등장 시 확정. | 첫 비-noop module 등장 시 API surface 검토. |
 | **G4** catalog stability 선언 | deferred | R7 | 5-tier 잠정 확정. 회로 구현은 1/5. | 모든 model 구현 후 freeze. |
 | **G5** RiskPolicy 데이터 schema | deferred | R2 | 현재 `cex_assets_info.csv` 형식 (legacy). | CSV 유지 vs JSON/YAML schema 도입 결정. |
@@ -431,9 +462,9 @@ Blocking gates: G4, G10.
 | **G9** module ID 명명 규약 | closed | R0 | `<exchange>.<rule>_v<version>` 형식. filename-safe (lowercase, digits, dots, underscores). | — |
 | **G10** LegacyKeyName 폐기 일정 | deferred | R7 | 현재 호환 유지 (`BatchShape.LegacyKeyName()`). | catalog freeze 후 한 release에서 deprecate. |
 | **G11** core/circuit 추가 헬퍼 승격 규약 | deferred | R6 | rule-of-three — 3번째 model 등장 시 검토. | 세 번째 model 구현 시점. |
-| **G12** multi-customer profile 충돌 정책 | deferred | R4 | profile/<customer>/ 단일 패키지 가정. shape/.vk 공유 정책 미정. | 두 번째 customer 등장 시. |
+| **G12** multi-customer profile 충돌 정책 | deferred | R5 | profile/<customer>/ 단일 패키지 가정. shape/.vk 공유 정책 미정. R4 model-first swap 이후 customer 는 R5 에 등장. | 두 번째 customer (SEA reference) 등장 시. |
 | **G13** AccountID fr.Element 정규화 위치 | closed | R3 step 1 | **(a) snapshot 어댑터** 채택. legacy `src/utils/utils.go:553` 와 동일 layer 에서 `new(fr.Element).SetBytes(id).Marshal()` round-trip. 근거: G1 byte-equivalence 비용 최저 (snapshot 출력 hex 직접 비교 가능), `AccountInfo.AccountID == userproof.AccountID == field input` 단일 형태 유지, R3 step 4 service rewire 시 호출 누락 위험 없음. 트레이드오프: `profile/binance/snapshot.go` 가 bn254 에 직접 결합 — 현재 카탈로그 5 model 전부 bn254 라 실질 충돌 없음, 두 번째 customer profile (R4) 등장 시 R6 helper 승격 후보로 carry. (b)/(c) 는 layering 더 깔끔하나 user-facing inconsistency / interface 확장 / 회귀 위험으로 기각. | impl: R3 step 2 (alpha wiring 과 동반). `AccountIDProvider.Scheme()` 명칭 갱신은 R3 step 4 (G2 closure) 동반. |
-| **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R4 진입) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
+| **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R5 진입, model-first swap 이후) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
 | **G15** Prove-path GPU 가속 backend 채택 여부 | deferred | post-R3 step 4 / first production prove SLA | gnark README 가 ICICLE backend (Ingonyama) 통한 GPU 가속을 **공식 지원** — BN254 + Groth16 호환, 라벨 "Experimental". `.pk`/`.vk` byte-equivalence (G1) 와는 **직교** (accelerator 가 같은 ceremony 출력 사용 — R1CS/`.pk`/`.vk` 모두 그대로). 채택 시 audit 추가 surface = ICICLE backend 자체 (수학적 동치이지만 trust boundary 증가). 결정은 첫 production deployment 의 CPU prove 시간 측정 → 24h snapshot SLA 와 비교 후. pre-결정 작업: ICICLE 공식 docs 에서 (a) PoR-scale R1CS 의 speedup 벤치마크, (b) build/CUDA toolkit 요건, (c) GPU 없는 환경에서의 fallback 동작 확인. | 첫 production prove SLA 측정 시점에 surface. binding 하면 채택 검토 → closed, 그렇지 않으면 CPU 만 사용. |
 | **G16** Module composition compatibility 검토 프로세스 | deferred | first multi-module composition (R5 candidate) | `docs/02-module-architecture.md` §1 의 add-only 원칙으로 composition 자체는 수학적으로 안전. 그러나 module 간 hidden assumption 충돌 (한 module 이 system 의 변수 의미를 전제, 다른 module 이 그걸 깸 → unsat) 가능. 방향 lock: (a) 각 module 의 doc/audit note 에 assumed invariants 명시 의무, (b) composition 등록 (= 새 `.vk` ceremony 시작) 전에 reviewer 가 invariant 호환성 검토, (c) 자동화는 future work. process detail (reviewer who, document where, fail-mode) 는 첫 multi-module 등장 시 채움. | 첫 multi-module composition customer 등장 시 process detail 확정 + 이 row 의 status `deferred → closed`. |
 
@@ -450,7 +481,7 @@ G5  --> R2 (RiskPolicy schema)
 G6  --> R3 step 4 (ValueScale assert)
 G10 --> R7 (LegacyKeyName deprecate)
 G11 --> R6 (core/circuit promotion)
-G12 --> R4 (multi-customer .vk policy)
+G12 --> R5 (multi-customer .vk policy — moved from R4 by model-first swap)
 G13 --> R3 step 1 (AccountID fr.Element normalization)
 G14 --> post-V1 / customer SLA (user-facing verification distribution)
 G15 --> post-R3 step 4 / first production prove SLA (GPU acceleration backend)
@@ -464,22 +495,24 @@ G16 --> R5 candidate (module composition compatibility process)
 병렬 진행 가능한 작업 줄기와 의존.
 
 ```text
-Foundation                      Customer Path                  Catalog Maturity
-───────────                     ─────────────                  ─────────────────
+Foundation                      Catalog Path                 Customer Maturity
+───────────                     ─────────────                ─────────────────
 R1 (circuit port)
   │
   v
 R2 (CSV absorb)
   │
   v
-R3 (service rewire)  ─────────> R4 (second customer)
+R3 (service rewire) ──> R4 (spot_simple model) ──> R5 (SEA customer profile)
+                                  │                          │
+                                  v                          v
+                                R6 (third model + promotion, rule-of-three)
                                   │
                                   v
-                                R5 (second model)  ──────────> R6 (third + promotion)
-                                                                  │
-                                                                  v
-                                                                R7 (catalog freeze)
+                                R7 (catalog freeze)
 ```
 
-Foundation (R1+R2+R3) 은 직렬. R4 는 R3 완료 후 진입. R5 는 R4 의 model
-선택에 의존. R6·R7 은 시장 신호 따라.
+Foundation (R1+R2+R3) 은 직렬. **R4 = spot_simple 회로 (SEA GTM driver,
+model-first), R5 = 첫 SEA customer profile (spot_simple 위)** — R4/R5
+swap 은 SEA 시장 조사 결과 (`docs/01-project-context.md` SEA zoom-in)
+근거. R6 은 세 번째 model 도달 시점 (rule-of-three), R7 = freeze.

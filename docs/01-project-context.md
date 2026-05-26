@@ -189,6 +189,58 @@ implementation이며 시장 진입의 시작점이 아니다.
 잘못된 우선순위가 자연스럽게 잡힌다. 회로는 Binance에서 출발하지만 GTM은
 거기서 출발하지 않는다.
 
+### SEA 시장 zoom-in (2026 조사 결과)
+
+위 GTM 정렬을 실제 우선 타겟 지역인 동남아 (SEA) 기준으로 구체화하면 한
+가지 강한 패턴이 드러난다 — **모든 주요 SEA 라이센스 거래소가 spot-dominant**.
+margin/derivatives 는 거의 부재이거나 신규 framework 진행 중.
+
+| 국가 | 규제기관 | 라이센스 거래소 수 | 마진 사업 | 주 catalog 매핑 |
+|---|---|---:|---|---|
+| 🇮🇩 Indonesia | OJK (Bappebti 이관) | 29 (Indodax, Tokocrypto, Pintu 등) | spot 중심, derivatives 신규 framework | `spot_simple` |
+| 🇹🇭 Thailand | SEC | ~6 (Bitkub 등) | leverage 0 (1:1 강제), 2026/27 H2 derivatives 도입 예정 | `spot_simple` |
+| 🇵🇭 Philippines | BSP (VASP) + SEC (CASP) | 9 (PDAX, Coins.ph 등) | spot only, payments 통합 | `spot_simple` |
+| 🇲🇾 Malaysia | SC (RMO-DAX) | 6 (Luno, KDX 등) | spot only | `spot_simple` |
+| 🇸🇬 Singapore | MAS (DPT/MPI) | 38 | spot 중심 (리테일 lending/staking 금지), institutional 마진 일부 | `spot_simple` 대부분 / `merkle_classic` 일부 |
+| 🇻🇳 Vietnam | MoF (2026-01-) | 0 (라이센싱 시작 단계) | TBD ($400M charter capital 요건) | `spot_simple` (예상) |
+
+→ **합산 가시 거래소 ~88사, 거의 전부 spot-dominant**. tier-haircut multi-bucket
+사용 거래소는 SEA 에 사실상 0개.
+
+#### 채택 incentive 의 비대칭
+
+같은 spot 거래소라도 zk PoR 의 marketing/regulatory 가치가 다르다:
+
+| 국가 | zk PoR 채택 incentive | 우선순위 |
+|---|---|---|
+| **Indonesia** | OJK customer protection 강조, 29사 경쟁 활발 → 차별화 의미 큼 | **상** |
+| **Thailand** | SEC 라이센스 + 5년 세금 면제로 거래 활성화 중 → leader (Bitkub) 의지 가능 | **상** |
+| Philippines | BSP 라이센스 + fintech 통합 (GCash 등) brand 차별화 | 중 |
+| Malaysia | 6사 시장, SC framework 강함, 시장 작음 | 중 |
+| **Singapore** | **MAS statutory trust 가 이미 "regulator 보증" 제공** → PoR 의 marketing 가치 ↓ (역설) | **낮음** |
+| Vietnam | 라이센스 자체가 신규, 첫 deployment 가 2027+ | watch |
+
+**즉시 GTM 우선 시장 = Indonesia + Thailand** (이미 라이센스 거래소가 있고
+경쟁이 활발해 zk PoR 의 차별화 가치가 가장 큼).
+
+#### Implementation 진척 vs 시장 수요의 inversion
+
+기존 implementation 순서 (R1-R3 = `tier_3bucket` 우선) 는 **Binance OSS
+audit reuse** 라는 engineering 이점에서 출발. 그러나 SEA GTM 기준으로 보면:
+
+| zkpor catalog 모델 | 회로 상태 (2026-05) | SEA 시장 수요 |
+|---|---|---|
+| `tier_3bucket` | ✅ 완전 구현 (R3 까지) | ❌ SEA 에 거의 0 |
+| `spot_simple` | ⏸ doc.go 만 | ✅ **SEA 의 80~100%** |
+| `merkle_classic` | ⏸ doc.go 만 | ⚠ 일부 (Singapore institutional) |
+| `over_collateral_simple` | ⏸ doc.go 만 | ⚠ 매우 rare |
+| `tier_1bucket` | ⏸ doc.go 만 | ❌ SEA 무관 |
+
+→ **현 진척과 시장 수요가 inverted**. R3 step 4 이후의 우선 작업은 SEA GTM
+관점에서 **`spot_simple` 회로 구현 (`PRODUCTION_ROADMAP.md` R4 로 재정의)**.
+`tier_3bucket` 의 R3 완성도는 architecture 검증 / audit 신뢰성 / Binance 향
+reserve option 으로 가치 유지, 그러나 "주력 제품" 은 spot_simple.
+
 ## Product / Protocol Decisions To Preserve
 
 처음 내린, 이후 흔들면 안 되는 결정.
