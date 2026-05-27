@@ -264,7 +264,7 @@ R8 에서 profile descriptor wiring 이 활성화되면서 네 가지 adapter
 안에 link 되어 있어야 함).
 
 **ID format**: `<id>.v<version>` (e.g. `passthrough_hex_bn254_reduced.v0`,
-`drop_and_log.v0`, `binance_csv.v1`, `sea_csv.v1`). version suffix 가
+`drop_and_log.v0`, `t4_standard_csv.v1`). version suffix 가
 identifier 안에 박혀 있어서 derivation 의미를 바꾸는 변경은 새
 registry key 가 됨 — 기존 published artifact 와 silently 충돌하지
 않는다.
@@ -275,7 +275,7 @@ registry key 가 됨 — 기존 published artifact 와 silently 충돌하지
 |---|---|---|---|
 | Identity scheme | `core/host` | no — universal contract | `passthrough_hex_bn254_reduced.v0` |
 | InvalidAccountPolicy | `core/host` | no — universal contract | `drop_and_log.v0` |
-| Snapshot connector | `core/solvency/<model>/host` | yes — `SnapshotSource` per model | profile raw adapters: `binance_csv.v1` (T4), `sea_csv.v1` (T1); model standard adapters: `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1` |
+| Snapshot connector | `core/solvency/<model>/host` | yes — `SnapshotSource` per model | `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1` |
 | ConstraintModule | `core/solvency/<model>/host` | yes — `ConstraintContext` per model | (none) — empty ID returns engine-default noop without lookup |
 
 **Factory signatures**:
@@ -294,10 +294,9 @@ registry key 가 됨 — 기존 published artifact 와 silently 충돌하지
 
 **Registration site**: `init()` in the package that owns the
 implementation. For universal entries that's `core/host/<entry>.go`;
-for customer-specific snapshot connectors it's
-`profile/<customer>/snapshot.go`. cmd binaries blank-import every
-profile they want to support (or that their toml may reference) so
-each profile's `init()` runs at process start.
+for standard snapshot connectors that's `core/snapshot/<model>/parser.go`.
+Service binaries blank-import only the standard connector package for
+the model they actually read.
 
 **Failure modes**:
 
@@ -330,18 +329,18 @@ are intentionally absent (service main code dispatches on
 `profile.Model` and calls the right model-host directly).
 
 **v1 catalog**: the entries above. Further additions follow
-G11 rule-of-three governance — a derivation / policy / connector
-that appears in three independent customer integrations is promoted
-to the engine; one-off customer-local entries stay under the
-customer's profile package and are documented in their `<customer>.toml`.
+G11 rule-of-three governance. Customer raw export support is outside
+the engine boundary; a customer-local preprocessor may produce the
+standard CSV files, but it does not register a zkpor snapshot connector.
 
 ## 6.3 Raw data layer v1 (G18 closure, R9)
 
 R9 adds a file/data-format layer below the Go `SnapshotSource`
-interface. The standard is **not** a customer's original export. The
-standard is the canonical row set after mapping or thin profile code:
-scaled integers, normalized identifiers, deterministic asset indexes,
-and model-specific collateral fields.
+interface. Post-R10, this layer is the engine input boundary. The
+standard is **not** a customer's original export; customer raw export
+normalization happens outside the engine before services start. zkpor
+consumes canonical rows only: scaled integers, normalized identifiers,
+deterministic asset indexes, and model-specific collateral fields.
 
 Source-of-truth:
 
@@ -349,9 +348,8 @@ Source-of-truth:
 |---|---|---|
 | Schema metadata | `core/snapshot/schema` | Field types, required flags, primary keys, sort keys, invariant text. |
 | CSV primitives | `core/snapshot/csv` | Header validation, typed scalar parsing, duplicate primary-key detection, context-aware row streaming, `ErrInvalidRow` classification. |
-| Mapping DSL | `core/snapshot/mapping` | CSV dialect, direct/wide-assets file rules, source/constant/source-prefix column rules, decimal-scale validation. |
+| Mapping DSL | `core/snapshot/mapping` | Reusable preprocessor helper for CSV dialect, direct/wide-assets file rules, source/constant/source-prefix column rules, decimal-scale validation. Not a service runtime raw-adapter contract. |
 | Model standard parsers | `core/snapshot/<model>/parser.go` | Convert canonical files into model-typed `SnapshotSource`; registered as `t*_standard_csv.v1`. |
-| Profile adapters | `profile/<customer>/snapshot.go` | Preserve customer-specific raw export semantics, then materialize canonical files or delegate directly when mapping is sufficient. |
 
 Model standard files are intentionally model-specific:
 
@@ -365,7 +363,7 @@ Model standard files are intentionally model-specific:
 Frozen v1 invariants:
 
 1. Amount fields in standard files are already scaled non-negative
-   integers. Raw decimal parsing belongs to mapping/profile code.
+   integers. Raw decimal parsing belongs to external preprocessing.
 2. `account_id` is 64-hex input; parsers reduce it through BN254
    `fr.Element.SetBytes(...).Marshal()` before leaf hashing.
 3. `account_index` is optional. If omitted, parsers derive dense order
@@ -379,13 +377,10 @@ Frozen v1 invariants:
 
 Current profile status:
 
-- `profile/binance` keeps Binance raw wide CSV semantics and materializes
-  T4 standard files before delegating to `core/snapshot/t4...`.
-- `profile/sea_reference` keeps SEA spot CSV semantics and materializes
-  T1 standard files before delegating to `core/snapshot/t1...`.
-- A future customer whose export fits `core/snapshot/mapping` can avoid
-  custom Go and point profile.toml at a `t*_standard_csv.v1` connector
-  after the mapped canonical files are produced.
+- `profile/binance/binance.toml` selects `t4_standard_csv.v1`.
+- `profile/sea_reference/sea_reference.toml` selects `t1_standard_csv.v1`.
+- `profile/<customer>` contains descriptors only. No customer raw CSV
+  parser is linked into service binaries.
 
 ## 6.1 Multi-customer `.vk` 공유 정책 (G12 closure)
 

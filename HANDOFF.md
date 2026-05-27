@@ -88,9 +88,8 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 | `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit/*` | ✅ complete — BatchCreateUserCircuit + helpers ported. `SetBatchCreateUserCircuitWitness` 는 `assetCountTiers` 를 인자로 받음. **Alpha wiring (R3 step 2)** + **R1CS byte-equivalence vs legacy (R3 step 3 / G1)**. **A5 fix d7c23f3** — `SetBatchCreateUserCircuitWitness` 의 padding UserAssetInfo entries 가 legacy 처럼 6개 collateral 필드를 명시적 0 으로 초기화 (이전엔 nil 이라 gnark `can't set fr.Element with <nil>` 실패). |
 | `zkpor/core/solvency/t1_simple_margin/{spec,circuit,host}/*` | ✅ **R4 + R5-0 done** — spec/circuit (R4) + host helpers (R5-0): `ComputeUserAssetsCommitment` (2-field per asset) + `ComputeCexAssetsCommitment(slice, capacity)` (TotalEquity×2^64+BasePrice 1-field per asset) + `AccountLeafHash` (5-input zero-padded) + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` (capacity self-describing) + `UserConfig` (no debt/collateral fields). NbConstraints=33,306 at tiny shape. RiskPolicy 부재. |
 | `zkpor/core/solvency/{t1_simple_margin,t2_static_haircut_margin,t3_tiered_haircut_margin_1pool}/` | ⏸ doc.go only — 카탈로그 reserved. R6 (3rd model) rule-of-three 대기. |
-| `zkpor/profile/sea_reference/*` | ✅ **R9-F done** — profile connector `sea_csv.v1` 는 SEA reference raw spot CSV (`rn,id,<asset>...,sum`) 를 canonical T1 standard CSV temp dir (`accounts.csv`, `cex_assets.csv`) 로 materialize 한 뒤 `core/snapshot/t1_simple_margin` standard parser 에 위임. 기존 legacy parsing helpers 는 raw→canonical 변환에서 재사용. 기존 `snapshot_test.go` + connector test 통과. SnapshotConfig 에 `Pricing` 필드 — nil 거부. |
-| `zkpor/profile/declarative/*` | ✅ **R5-3 + R7-B + R8-B/1 (d9d7135)** — `profile.toml` schema (v1 FROZEN) + builders.go: `BuildIdentity` / `BuildInsolvent` (host registry lookup) + `BuildBatchShape` + `BuildBatchShapeProvider(model, shapes)` (model-typed wrapper, R8-C/2 추가) + `BuildPricing` (G6 invariant assert) + `BuildCatalog`. Validate 가 빈 identity.scheme / insolvent.action / snapshot.source_type 거부. 20+ tests. |
-| `zkpor/profile/binance/*` | ✅ **R9-E done** — profile connector `binance_csv.v1` 는 Binance raw wide CSV 를 canonical standard CSV temp dir (`accounts.csv`, `cex_assets.csv`, `tier_ratios.csv`) 로 materialize 한 뒤 `core/snapshot/t4_tiered_haircut_margin_3pool` standard parser 에 위임. 기존 legacy parsing helpers 는 raw→canonical 변환에서 재사용해 byte-equivalence 위험 최소화. 기존 `snapshot_test.go` + `legacy_compare_test.go` 통과. SnapshotConfig 에 `Pricing` 필드 — nil 거부. |
+| `zkpor/profile/declarative/*` | ✅ **R5-3 + R7-B + R8-B/1 + R10** — `profile.toml` schema (v1 FROZEN) + builders.go: `BuildIdentity` / `BuildInsolvent` (host registry lookup) + `BuildBatchShape` + `BuildBatchShapeProvider(model, shapes)` (model-typed wrapper, R8-C/2 추가) + `BuildPricing` (G6 invariant assert) + `BuildCatalog`. Validate 가 빈 identity.scheme / insolvent.action / snapshot.source_type 거부. |
+| `zkpor/profile/binance/*`, `zkpor/profile/sea_reference/*` | ✅ **R10 standard-only descriptors** — customer profile 하위 Go raw adapter 제거. 남은 파일은 `binance.toml`, `sea_reference.toml` 뿐이며 각각 `t4_standard_csv.v1`, `t1_standard_csv.v1` 를 선택한다. 고객 raw export 변환은 engine 밖 preprocessor 책임. |
 | `zkpor/deploy/` | ✅ **smoke MySQL fixture (A2, 1d5b2e9)** — `docker-compose.yml` 단일 컨테이너 (mysql:8.0, healthcheck, 영속 볼륨). Memory tree 라 Redis 컨테이너 불필요. 사용: `docker compose -f deploy/docker-compose.yml up -d` |
 | `zkpor/scripts/` | ✅ **end-to-end smoke 하네스 (A5, d7c23f3)** — `smoke.sh` 가 docker compose → keygen (캐시) → witness → prover → verifier(batch) → userproof → verifier(-user) 순으로 전체 파이프라인 실행. R3 step 4 exit criteria 검증 완료. |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
@@ -101,17 +100,21 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 최근 작업 흐름:
 
 ```text
+<R10/B>   refactor(zkpor): R10-B — remove raw profile adapters
+        (`profile/binance` + `profile/sea_reference`: raw CSV snapshot.go,
+         raw fixtures, raw compatibility tests 삭제. profile 하위는
+         descriptor-only. host snapshot registry comments updated to
+         standard connector ownership.)
+<R10/A>   feat(zkpor): R10-A — profiles select standard snapshots
+        (binance.toml → t4_standard_csv.v1, sea_reference.toml →
+         t1_standard_csv.v1. cmd blank imports no longer link
+         profile packages; witness/userproof register T4 standard
+         snapshot connector directly.)
 <R9/close> docs(zkpor): R9-close — raw data layer v1 + G18 closure
         (`docs/02-module-architecture.md §6.3`: raw data layer v1
          ownership, model-specific canonical files, frozen invariants,
          profile adapter status. PRODUCTION_ROADMAP G18 moved
          deferred → closed. R9-A~F complete.)
-<R9/F>   feat(zkpor): R9-F — sea_reference raw CSV adapter delegates to standard parser
-        (`profile/sea_reference/snapshot.go`: materialize raw spot
-         cex_assets_info.csv + user shards into canonical T1 standard
-         accounts/cex_assets CSV, then delegate
-         CexAssets/AccountStream/InvalidCount to T1 standard parser.
-         Existing SEA profile tests pass.)
 <R9/D1>  feat(zkpor): R9-D/1 — T1/T4 standard CSV snapshot connectors
         (`core/snapshot/t1_simple_margin` + `.../t4...` parser.go:
          canonical accounts.csv/cex_assets.csv[/tier_ratios.csv] →
@@ -125,12 +128,6 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
          T2 static haircut computes TotalCollateral via
          collateral×base_price×haircut_bp/10000. T3 single-pool tier
          parser mirrors T4 tier padding with one collateral curve.)
-<R9/E>   feat(zkpor): R9-E — binance raw CSV adapter delegates to standard parser
-        (`profile/binance/snapshot.go`: materialize raw wide
-         cex_assets_info.csv + user shards into canonical standard
-         accounts/cex_assets/tier_ratios CSV, then delegate
-         CexAssets/AccountStream/InvalidCount to T4 standard parser.
-         Existing Binance profile tests and legacy AccountID compare pass.)
 <R9/C>   feat(zkpor): R9-C — snapshot mapping DSL + profile schema bump
         (`core/snapshot/mapping`: Format + File + Column DSL,
          direct/wide_assets modes, source/constant/source_prefix rules,
@@ -807,8 +804,8 @@ R8 산출물 (commit chain 78710d5 → 83cbfbe, 11 slices):
   declarative 에 inline.
 - **R8-B/2** (4369a91) — `core/solvency/<model>/host` 안 snapshot connector
   registry (T1 + T4 각각). factory signature `(dir, id, capacity)` —
-  R8-E 에서 `PriceScaleProvider` tail 추가. binance_csv.v1 + sea_csv.v1
-  self-register.
+  R8-E 에서 `PriceScaleProvider` tail 추가. R10 이후 product connector 는
+  `t*_standard_csv.v1` 만 사용.
 - **R8-B/3** (fc8325d) — constraint module registry per model. 빈 ID 는
   universal noop fast-path. v1 catalog 에 non-noop entry 0개 (R7-C 정합).
 - **R8-C/1..3** (f427b21 → 469c019 → ad73d80) — keygen + witness + prover
@@ -915,8 +912,8 @@ R6 후 carry (3rd model 또는 후속 promote):
 - ~~`parseShapeOverride` (양 profile `batch_shape.go`)~~ — **R8-B/1 에서
   `profile/declarative/builders.go` 로 promote 완료**.
 - `convertFloatStrToUint64` + `errInvalidRow`/`invalidf` 패턴 (양
-  profile `snapshot.go`) — 여전히 profile-local. snapshot 자체가
-  customer-specific 이라 큰 부담 아님.
+- ~~snapshot CSV helper promotion~~ — R10 에서 profile raw snapshot
+  adapter 자체를 제거. engine boundary 는 standard CSV only.
 - ~~Identity DeriveAccountID 64-hex → fr.Element body~~ — **R8-A 에서
   `core/host/identity_passthrough.go` 로 promote 완료**.
 
@@ -930,20 +927,17 @@ R6 후 surface 된 환경 이슈 (별 슬라이스 후보):
   backend/groth16/bn254 명시 import, 또는 module cache 의 bw6 패키지
   복원. 별 슬라이스 (R6.5 env fix) 로 처리.
 
-다음 슬라이스 갈래 (post-R9) — agent 가 선택 (또는 user 와 합의):
+다음 슬라이스 갈래 (post-R10) — agent 가 선택 (또는 user 와 합의):
 
 **갈래 R9 — Customer raw data standardization (closed)**:
 
 ```text
-R8 종결 시점의 customer-specific 코드 = profile/<customer>/
-snapshot.go (binance / sea_reference raw adapters). 거래소마다
-raw data (CSV/DB/JSONL) 포맷이 달라 어쩔 수 없는 형태였음.
+R9 는 model 별 standard raw schema + parser 를 core/snapshot 에 추가했다.
+R10 에서 profile raw adapter escape hatch 는 제품 계약에서 제거했고,
+engine input 은 canonical standard CSV only 로 고정했다.
 
-R9 의 목표는 그 customer-specific 부분도 *모델별 표준 raw schema +
-mapping config* 로 축소. snapshot.go 가 thin (~10-30 LoC) 으로 수렴.
-Mapping 으로 표현 불가능한 transform 은 thin adapter 코드 (escape
-hatch) 로 흡수. R9 종료 시점의 binance / sea_reference 는 raw
-export semantics 를 유지하면서 standard parser 로 위임한다.
+고객 raw data (CSV/DB/JSONL) → standard CSV 변환은 engine 밖
+preprocessor 책임. `profile/<customer>` 는 descriptor-only.
 
 자세한 내용 PRODUCTION_ROADMAP §R9. 작업 분해 ~6-8 슬라이스:
   R9-A   ✅ 모델별 표준 schema 정의 (4 model) + docs/04 §12
@@ -953,17 +947,19 @@ export semantics 를 유지하면서 standard parser 로 위임한다.
   R9-E   ✅ profile/binance snapshot.go thin rewrite + standard parser delegation
   R9-F   ✅ profile/sea_reference snapshot.go thin rewrite + standard parser delegation
   R9-close ✅ G18 closure + handoff/roadmap
+  R10-A  ✅ profile source_type → standard connector
+  R10-B  ✅ raw profile adapters / fixtures / tests 삭제
+  R10-C  ✅ docs: standard-only product contract
 
 R9 종료 후 customer onboarding 비용:
-  toml (mapping 포함) + (필요 시) thin adapter ~10-30 LoC
+  toml + canonical standard CSV preprocessor (engine 밖)
 ```
 
 **갈래 V1-PROD — Production deployment (R9 후 진짜 최적)**:
 
 ```text
-R8 종결 시점에도 V1-PROD 진행 가능 — customer adapter 가 thick 인 상태
-(현재 binance / sea_reference snapshot.go 패턴). 그러나 R9 종료 후가
-*진짜 최적* — raw data adapter 비용 최소화.
+R10 이후 V1-PROD input contract 는 standard CSV only.
+엔진은 raw exchange export 를 직접 파싱하지 않는다.
 
 V1-PROD 의 핵심 작업:
   - 첫 real customer 통합 (SEA reference 또는 다른)

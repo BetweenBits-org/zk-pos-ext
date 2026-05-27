@@ -578,14 +578,15 @@ R7 close 후 다음 갈래 (post-R7):
 - **R8** (closed) — Profile descriptor wiring + adapter cleanup.
   declarative 가능한 어댑터 (catalog, batch_shape, identity, insolvent,
   pricing, risk, constraint_noop) 를 profile.toml + registry 패턴으로
-  대체. profile/<customer>/ 에 procedural-only (snapshot 등) + tests 만
-  남도록 정리. 자세한 내용 §R8 아래.
-- **R9** (closed) — Customer raw data standardization. 모델별 표준
-  raw schema (core 측 정의) + profile 측 mapping config 로 어댑팅.
-  snapshot.go 가 thin (~10-30 LoC) 으로 수렴. 자세한 내용 §R9 아래.
-- **V1-PROD** (R8 후 가능, R9 후 진짜 최적) — 첫 customer 통합 +
+  대체. R10 이후 profile/<customer>/ 에는 descriptor 만 남는다.
+  자세한 내용 §R8, §R9/R10 아래.
+- **R9/R10** (closed) — Customer raw data standardization + standard-only
+  engine input. 모델별 표준 raw schema (core 측 정의) + 4 standard
+  snapshot connector 로 고정. profile 하위 raw Go adapter 는 제거됐고,
+  customer raw export 변환은 engine 밖 preprocessor 책임.
+- **V1-PROD** (R10 후) — 첫 customer 통합 +
   production .pk 마이그레이션 (legacy stem → StandardKeyName, byte 불변
-  단순 rename). R9 종료 후 raw data adapter 비용 최소.
+  단순 rename). 입력 계약은 canonical standard CSV only.
 - **R5-FU** — sea_reference end-to-end smoke (T1 path). R8 / R9 와 독립
   가능 (어느 시점에서든 실행 가능).
 - **G15** — first production prove SLA 측정 후 GPU 가속 (ICICLE) 결정.
@@ -613,9 +614,10 @@ registry 패턴 + toml 값 주입 으로 대체. 핵심 동기: 새 customer 통
 G17 closure: `core/host` (identity, insolvent) + `core/solvency/<model>/
 host` (snapshot connector, constraint module) own the four registry
 surfaces. ID format `<id>.v<version>`; missing or duplicate
-registrations panic at process start. Five v1 entries shipped:
-`passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`, `binance_csv.v1`,
-`sea_csv.v1`, plus the empty-ID noop fast path on both T1 and T4
+registrations panic at process start. V1 entries shipped:
+`passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`,
+`t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`,
+`t4_standard_csv.v1`, plus the empty-ID noop fast path on supported
 constraint registries.
 
 Service wiring: every cmd loads `profile.toml` via
@@ -657,10 +659,9 @@ manual; the harness is wired end-to-end through profile.toml.
   - smoke.sh 의 service config 도 profile.toml path 단일 인자로 단순화.
 
 - **profile/<customer>/ cleanup**:
-  - `profile/binance/`: batch_shape.go, catalog.go, constraint_noop.go,
-    identity.go, insolvent.go, pricing.go, risk.go 제거. doc.go +
-    snapshot.go + test files + binance.toml 만 남음.
-  - `profile/sea_reference/`: 동일 패턴 (이미 minimal 이라 더 적은 제거).
+  - R8 에서 declarative-only Go adapter 제거.
+  - R10 에서 raw snapshot adapter 까지 제거.
+  - 현재 `profile/binance`, `profile/sea_reference` 는 toml descriptor 만 남음.
 
 - **Documentation**:
   - `docs/02-module-architecture.md` §6 의 wiring 단계 업데이트 — R7
@@ -671,11 +672,10 @@ manual; the harness is wired end-to-end through profile.toml.
 Exit criteria:
 
 - 각 service 가 `LoadProfile(path) → adapter 조립` 흐름.
-- `profile/<customer>/` 에 procedural-only (snapshot.go) + tests + doc.go
-  + customer.toml 만.
+- R10 이후 `profile/<customer>/` 에 customer.toml 만.
 - 기존 `scripts/smoke.sh` 풀 파이프라인 통과 (functional 동등 — proof
   byte-equivalent 까지는 아니어도 verifier OK).
-- 신규 customer 추가 비용 = toml 작성 + (필요 시) custom snapshot 코드만.
+- 신규 customer 추가 비용 = toml 작성 + standard CSV preprocessor 준비.
 
 Blocking gates: G17 (registry pattern v1 freeze).
 
@@ -691,17 +691,16 @@ R8-F  profile/sea_reference cleanup + sea_reference smoke 동등성 검증
 R8-close  G17 closure + handoff/roadmap + docs/02 §6 갱신
 ```
 
-### Stage R9 — Customer raw data standardization (model 별 표준 schema + mapping config)
+### Stage R9/R10 — Customer raw data standardization → standard-only engine input
 
 R8 종결 시점에 `profile/<customer>/snapshot.go` 는 *유일하게 customer-
-specific* 인 코드 — 각 거래소의 raw data (CSV/DB/JSONL) 포맷이 다르기
-때문. R9 의 목표는 **그 customer-specific 부분도 가능한 한 축소**:
-core 에 model 별 *표준 raw schema* 를 정의하고, customer 는 자기 데이터를
-mapping config 로 어댑팅 (필요 시 thin adapter 코드 추가).
+specific* 인 코드였다. R9 는 이 코드를 standard parser delegation 으로
+축소했고, R10 에서 제품 계약을 더 급진적으로 정리해 profile raw adapter
+escape hatch 를 제거했다.
 
-목표: customer onboarding 시 *raw data adapter* 작성 비용 감소. snapshot.go
-가 ~10-30 LoC 로 수렴 (mapping 으로 표현 가능 시) 또는 thin adapter
-(escape hatch — mapping 으로 표현 불가능한 transform).
+목표: engine 이 customer raw export 를 직접 이해하지 않는다. 고객/운영
+preprocessor 가 model 별 canonical standard CSV 를 만들고, zkpor 서비스는
+`t*_standard_csv.v1` connector 만 사용한다.
 
 설계 방향 lock:
 
@@ -709,11 +708,11 @@ mapping config 로 어댑팅 (필요 시 thin adapter 코드 추가).
   level 표준 (`SnapshotSource`) 위에 추가 layer.
 - **표준 단위**: **model 별** (T1/T2/T3/T4 각각). 각 model 의 자연 raw
   schema (field set) 가 다름 — universal single schema 는 bloat.
-- **Customer 변환 부담**: 최소화. customer 가 *자기 CSV/JSONL 그대로
-  publish 가능*. mapping config 로 column / field rename + type cast.
-- **Escape hatch**: mapping 으로 표현 불가능한 transform (complex hex,
-  multi-column merge, customer-specific invariant) 은 thin adapter 코드
-  로 — `core/snapshot/<model>/` 의 primitive helpers 호출하는 minimal Go.
+- **Customer 변환 부담**: engine 밖 preprocessor 에서 흡수. zkpor runtime
+  boundary 에는 scaled integer canonical CSV 만 진입.
+- **No raw adapter in engine**: mapping 으로 표현 불가능한 transform 도
+  profile Go 코드로 넣지 않는다. customer-specific raw normalization 은
+  별도 preprocessor / integration layer 책임.
 
 산출물:
 
@@ -741,14 +740,11 @@ mapping config 로 어댑팅 (필요 시 thin adapter 코드 추가).
   - R8 의 snapshot connector registry 와 정합 — connector ID
     예: `t1_standard_csv.v1`, `t4_standard_csv.v1` (model-blind 명명).
 
-- **기존 customer adapter rewrite**:
-  - `profile/binance/snapshot.go`: thick 30k LoC → thin (~30 LoC, init
-    등록 + 필요 시 customer-specific transform — `cex_assets_info.csv`
-    별도 file handling 등).
-  - `profile/sea_reference/snapshot.go`: thick 15k LoC → thin / 또는
-    완전 declarative (mapping config 만).
-  - 기존 snapshot_test 가 새 path 로도 통과 — byte-equivalence 검증
-    (raw_data → SnapshotSource 변환 결과 동일).
+- **기존 customer adapter 제거**:
+  - R9-E/F 에서 raw adapter 를 standard parser delegation 으로 축소.
+  - R10-A/B 에서 profile raw connector entries, raw fixtures,
+    raw compatibility tests 삭제.
+  - `profile/binance`, `profile/sea_reference` 는 descriptor-only.
 
 - **Documentation**:
   - `docs/02-module-architecture.md`: raw data layer 섹션 신설.
@@ -780,6 +776,9 @@ R9-D   ✅ Model parser combiner (4 model standard CSV connectors) +
 R9-E   ✅ profile/binance snapshot.go thin rewrite + byte-equivalence 검증
 R9-F   ✅ profile/sea_reference snapshot.go thin rewrite + standard parser delegation
 R9-close ✅ G18 closure + handoff/roadmap + docs/02 raw data layer 섹션
+R10-A  ✅ profile source_type → t*_standard_csv.v1 + cmd imports 정리
+R10-B  ✅ profile raw adapters / raw fixtures / raw tests 삭제
+R10-C  ✅ docs/roadmap/handoff standard-only contract 정리
 ```
 
 Stage 분리 근거 (R8 와 분리):
@@ -788,8 +787,7 @@ Stage 분리 근거 (R8 와 분리):
   가 깨끗 유지 — wiring layer 만.
 - R9 는 *raw data layer* 의 별 작업 — R8 종료 후 진입.
 - R8 + R9 둘 다 통합 시 총 ~14 슬라이스 한 stage = scope creep.
-- V1-PROD 진입 가능 시점: R8 종료 후 (raw data adapter 가 thick 인
-  상태로도). R9 종료 후 *진짜 최적 customer onboarding cost*.
+- V1-PROD 진입 가능 시점: R10 종료 후. 엔진 입력 계약은 standard CSV only.
 
 ## Decision Gate Register
 
@@ -808,19 +806,19 @@ Stage 분리 근거 (R8 와 분리):
 | **G3** ConstraintModule 공개 API freeze | deferred | R3 후 | 현재 `ConstraintContext` 가 minimal surface. 두 번째 module 등장 시 확정. | 첫 비-noop module 등장 시 API surface 검토. |
 | **G4** catalog stability 선언 | closed | R7 | **4-tier v1 FROZEN** (T1~T4, commit chain 9388694 → 17429e4 → 08cce42). 회로 구현 4/4, setup smoke baseline 4/4 (T1=38,149 / T2=48,886 / T3=274,650 / T4=723,790 at tiny shape). Profile descriptor schema v1 frozen. Module 카탈로그 v1 frozen at zero entries (governance only). v2 catalog 신규 추가 시 별도 정의서. | — |
 | **G5** RiskPolicy 데이터 schema | deferred | R2 | 현재 `cex_assets_info.csv` 형식 (legacy). | CSV 유지 vs JSON/YAML schema 도입 결정. |
-| **G6** ValueScale invariant assert 위치 | closed | R3 step 4 | **witness service startup assert** 채택 (commit 5332f40). `binance.NewPricing()` 의 default-symbol 경로에서 `PriceMultiplier × BalanceMultiplier == ValueScale` 위반 시 panic. witness 가 첫 PriceScaleProvider 소비자라 자연 call site. 두-자리-자산 경로 등 per-symbol split 은 `profile/binance` 자체 테스트 책임 (services 가 enumerate 하지 않음). | — |
+| **G6** ValueScale invariant assert 위치 | closed | R3 step 4 | **service startup assert** 채택. `declarative.BuildPricing()` 이 `PriceMultiplier × BalanceMultiplier == ValueScale` 위반 시 error. Standard CSV amounts are already scaled; pricing remains profile metadata for reporting / legacy service surfaces. | — |
 | **G7** InvalidAccountPolicy 운영 정책 | closed | R0 | drop + log (legacy 동등). | customer 요구 시 별도 정책. 변경 시 customer review. |
 | **G8** BatchShape v1 정착 (binance) | closed | R0 | `{50,700}` + `{500,92}` (Binance reference). | 다른 customer 시 별도 shape 정의. |
 | **G9** module ID 명명 규약 | closed | R0 | `<exchange>.<rule>_v<version>` 형식. filename-safe (lowercase, digits, dots, underscores). | — |
 | **G10** LegacyKeyName 폐기 일정 | closed | R7 | **즉시 제거** (R7-A 9388694). `BatchShape.LegacyKeyName()` 함수 제거, cmd/keygen 의 `-legacy-names` 플래그 제거. R3 의 production .pk 는 1회 마이그레이션 (단순 파일 rename, byte 불변): `zkpor50_700.pk` → `zkpor.t4_tiered_haircut_margin_3pool.50_700.pk`. | — |
 | **G11** core/circuit 추가 헬퍼 승격 규약 | closed | R6 | **rule-of-three 의 *두 model 일치* 시점에 universal signature 만 promote** 정착 (R6/FU). 첫 entry: `core/host.AccountLeafHash` — 4 model 통일 5-input Poseidon leaf signature 의 universal off-circuit emitter. 5 carry candidates (PowersOfSixteenBits / R1CS hash helpers / parseShapeOverride / snapshot CSV helpers / identity DeriveAccountID body) 는 3rd model 등장 또는 R7 freeze 직전 promote. | — |
 | **G12** multi-customer profile 충돌 정책 | closed | R5 step 4 | **`.vk` 공유는 `(model, asset_capacity, batch_shape, constraint_module)` tuple 단위**. customer profile 은 회로에 흐르지 않으므로 두 customer 가 동일 tuple 이면 같은 ceremony 의 .vk 가 byte-equivalent. `StandardKeyName` 은 이미 customer-blind (`zkpor.<model>.<tier>_<users>[.<module>]`). `asset_capacity` 는 stem 에 인코드되지 않아 operator 가 capacity 별 디렉터리 컨벤션 (예: `.artifacts/cap-<N>/`) 으로 일관성 보장 책임. 자세한 내용 `docs/02-module-architecture.md §6.1` 참조. R7 freeze 직전 capacity 를 stem 에 추가 인코드 여부 재검토 후보. | — |
-| **G13** AccountID fr.Element 정규화 위치 | closed | R3 step 1 | **(a) snapshot 어댑터** 채택. legacy `src/utils/utils.go:553` 와 동일 layer 에서 `new(fr.Element).SetBytes(id).Marshal()` round-trip. 근거: G1 byte-equivalence 비용 최저 (snapshot 출력 hex 직접 비교 가능), `AccountInfo.AccountID == userproof.AccountID == field input` 단일 형태 유지, R3 step 4 service rewire 시 호출 누락 위험 없음. 트레이드오프: `profile/binance/snapshot.go` 가 bn254 에 직접 결합 — 현재 카탈로그 5 model 전부 bn254 라 실질 충돌 없음, 두 번째 customer profile (R4) 등장 시 R6 helper 승격 후보로 carry. (b)/(c) 는 layering 더 깔끔하나 user-facing inconsistency / interface 확장 / 회귀 위험으로 기각. | impl: R3 step 2 (alpha wiring 과 동반). `AccountIDProvider.Scheme()` 명칭 갱신은 R3 step 4 (G2 closure) 동반. |
+| **G13** AccountID fr.Element 정규화 위치 | closed | R10 | **standard snapshot parser** 채택. `core/snapshot/<model>/parser.go` 가 standard `account_id` 64-hex 를 BN254 `fr.Element.SetBytes(...).Marshal()` 로 canonicalize 한다. Profile raw adapters were removed in R10, so the canonicalization point is no longer customer-local. | — |
 | **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R5 진입, model-first swap 이후) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
 | **G15** Prove-path GPU 가속 backend 채택 여부 | deferred | post-R3 step 4 / first production prove SLA | gnark README 가 ICICLE backend (Ingonyama) 통한 GPU 가속을 **공식 지원** — BN254 + Groth16 호환, 라벨 "Experimental". `.pk`/`.vk` byte-equivalence (G1) 와는 **직교** (accelerator 가 같은 ceremony 출력 사용 — R1CS/`.pk`/`.vk` 모두 그대로). 채택 시 audit 추가 surface = ICICLE backend 자체 (수학적 동치이지만 trust boundary 증가). 결정은 첫 production deployment 의 CPU prove 시간 측정 → 24h snapshot SLA 와 비교 후. pre-결정 작업: ICICLE 공식 docs 에서 (a) PoR-scale R1CS 의 speedup 벤치마크, (b) build/CUDA toolkit 요건, (c) GPU 없는 환경에서의 fallback 동작 확인. | 첫 production prove SLA 측정 시점에 surface. binding 하면 채택 검토 → closed, 그렇지 않으면 CPU 만 사용. |
 | **G16** Module composition compatibility 검토 프로세스 | deferred | first multi-module composition (R5 candidate) | `docs/02-module-architecture.md` §1 의 add-only 원칙으로 composition 자체는 수학적으로 안전. 그러나 module 간 hidden assumption 충돌 (한 module 이 system 의 변수 의미를 전제, 다른 module 이 그걸 깸 → unsat) 가능. 방향 lock: (a) 각 module 의 doc/audit note 에 assumed invariants 명시 의무, (b) composition 등록 (= 새 `.vk` ceremony 시작) 전에 reviewer 가 invariant 호환성 검토, (c) 자동화는 future work. process detail (reviewer who, document where, fail-mode) 는 첫 multi-module 등장 시 채움. | 첫 multi-module composition customer 등장 시 process detail 확정 + 이 row 의 status `deferred → closed`. |
-| **G17** Registry pattern v1 freeze (identity / insolvent / snapshot-connector / constraint-module) | closed | R8 | **In-process build-time registries, ID format `<id>.v<version>`, missing/dup → panic** — locked in R8-A/B (commit chain 78710d5 → fc8325d). Four registry surfaces shipped: `core/host` owns identity + insolvent (model-blind universal contracts); `core/solvency/<model>/host` owns snapshot connector + constraint module (model-typed). Snapshot factory carries `(dir, snapshotID, capacity, PriceScaleProvider)` (R8-E surfaced the pricing tail). Builders in `profile/declarative/builders.go` map profile.toml fields → registry lookups; service startup panics on unknown / unregistered IDs. v1 entries: `passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`, `binance_csv.v1`, `sea_csv.v1`, `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1`, plus model-typed noops (empty-string fast path). Further additions follow the same G11 rule-of-three governance. Detailed shape doc: `docs/02-module-architecture.md §6.2`. | — |
-| **G18** Customer raw data schema v1 freeze (모델별 standard schema) | closed | R9 | 4 model 각각의 *file/data format level* raw schema (CSV first, JSONL/Parquet 후순위) 의 v1 freeze. 방향 lock: (a) **모델별 schema** (single universal schema 비채택 — field bloat). T1=(account_id, asset_idx, equity, debt), T4=T1+collateral × 3 bucket. (b) Customer 측 변환 부담 최소화 — mapping config (`profile.toml` `[snapshot.format]` + `[[snapshot.files]]`) 로 column rename + type cast + 단순 transform 흡수. (c) Escape hatch — mapping 표현력 부족 시 customer 의 thin adapter 코드 (~10-30 LoC). (d) Schema 변경 governance = R7 catalog freeze 와 동일 (additive = minor, removal/rename = disallowed). Implemented by `core/snapshot/schema`, `core/snapshot/csv`, `core/snapshot/mapping`, and 4 model standard parsers. Detailed shape doc: `docs/02-module-architecture.md §6.3`, `docs/04-solvency-models.md §12`. | — |
+| **G17** Registry pattern v1 freeze (identity / insolvent / snapshot-connector / constraint-module) | closed | R10 | **In-process build-time registries, ID format `<id>.v<version>`, missing/dup → panic**. Four registry surfaces shipped: `core/host` owns identity + insolvent (model-blind universal contracts); `core/solvency/<model>/host` owns snapshot connector + constraint module (model-typed). Snapshot factory carries `(dir, snapshotID, capacity, PriceScaleProvider)` for uniform factory shape; standard connectors ignore pricing because input values are already scaled. v1 product entries: `passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`, `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1`, plus model-typed noops (empty-string fast path). Profile raw connectors were removed in R10. Detailed shape doc: `docs/02-module-architecture.md §6.2`. | — |
+| **G18** Customer raw data schema v1 freeze (모델별 standard schema) | closed | R10 | 4 model 각각의 *file/data format level* standard CSV schema 의 v1 freeze. 방향 lock: (a) **모델별 schema** (single universal schema 비채택 — field bloat). T1=(account_id, asset_idx, equity, debt), T4=T1+collateral × 3 bucket. (b) Engine runtime consumes canonical standard CSV only; customer raw export normalization is outside the engine. (c) No profile raw adapter escape hatch in zkpor service binaries. (d) Schema 변경 governance = R7 catalog freeze 와 동일 (additive = minor, removal/rename = disallowed). Implemented by `core/snapshot/schema`, `core/snapshot/csv`, `core/snapshot/mapping`, and 4 model standard parsers. Detailed shape doc: `docs/02-module-architecture.md §6.3`, `docs/04-solvency-models.md §12`. | — |
 
 ## Gate → Stage Dependency
 
