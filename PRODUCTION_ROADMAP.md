@@ -775,8 +775,9 @@ R9-A   ✅ 모델별 표준 schema 정의 — 4 model 각각 (core/snapshot/<mod
 R9-B   ✅ Core CSV parser primitives (core/snapshot/csv/)
 R9-C   ✅ Mapping config DSL (core/snapshot/mapping/ + profile.toml
        schema additive minor bump in profile/declarative/profile.go)
-R9-D   Model parser combiner (core/snapshot/<model>/parser.go) +
+R9-D/1 ✅ Model parser combiner (T1/T4 standard CSV connectors) +
        snapshot connector registry 적응
+R9-D/2 T2/T3 standard parser/registry parity
 R9-E   profile/binance snapshot.go thin rewrite + byte-equivalence 검증
 R9-F   profile/sea_reference snapshot.go thin rewrite + smoke 동등성
 R9-close  G18 closure + handoff/roadmap + docs/02 raw data layer 섹션
