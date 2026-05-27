@@ -770,8 +770,8 @@ Blocking gates: G18 (Customer raw data schema v1 freeze).
 작업 분해 예 (~6-8 슬라이스):
 
 ```
-R9-A   모델별 표준 schema 정의 — 4 model 각각 (core/snapshot/<model>/
-       standard_schema.go) + docs/04 별첨 spec page
+R9-A   ✅ 모델별 표준 schema 정의 — 4 model 각각 (core/snapshot/<model>/
+       standard_schema.go) + docs/04 §12 별첨 spec page
 R9-B   Core CSV parser primitives (core/snapshot/csv/)
 R9-C   Mapping config DSL (core/snapshot/mapping/ + profile.toml
        schema additive minor bump in profile/declarative/profile.go)

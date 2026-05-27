@@ -317,3 +317,132 @@ T2 / T3 의 spec 결정 트레일:
 - **R7 freeze 직전** — Tn naming 의 `_1pool` / `_3pool` 약자 vs full (`single_pool` / `triple_pool`) 재검토 가능.
 - **R6 promotion candidates carry** — `PowersOfSixteenBits` (4 model 모두 동일 정의), R1CS hash test helpers, identity DeriveAccountID body 등 — 3-model evidence 확보된 항목은 G11 second batch promotion 가능 (R7 freeze 직전 또는 별 슬라이스).
 - **T2/T3/T4 setup_test 에 R1CS sha256 baseline 기록 추가** — T1 의 패턴 (R1CS + coefficients sha256 hashR1Cs 헬퍼 호출) 을 다른 model 도 동등 적용. 현재 T2/T3/T4 setup_test 는 NbConstraints 만 log. T1 패턴 promote 시 4 model 모두 audit-lockable.
+
+# 12. R9 standard raw snapshot schema v1
+
+R9 의 raw data layer 는 customer 원본 CSV 를 직접 표준화하지 않는다.
+표준은 **mapping 이후 canonical row** 다. 즉 customer 는 자기 컬럼명,
+decimal 문자열, wide-format CSV 를 유지할 수 있고, R9-C mapping layer 가
+이를 아래 schema 로 변환한다. 그 다음 model parser 가 `SnapshotSource`
+값을 만든다.
+
+Code source-of-truth:
+
+- shared metadata: `core/snapshot/schema`
+- model schema: `core/snapshot/<model>/standard_schema.go`
+
+공통 규칙:
+
+1. 금액은 모두 scaling 완료된 non-negative integer (`uint64` 또는
+   `bigint`) 다. 원본 decimal scaling 은 mapping layer 책임.
+2. `account_id` 는 64-hex 문자열이며 parser 가 BN254 fr.Element
+   SetBytes→Marshal 로 canonical bytes 를 만든다.
+3. `account_index` 는 optional 이지만 있으면 dense Merkle leaf order 로
+   검증한다. 없으면 deterministic file order 에서 first-seen valid
+   account 순서로 dense index 를 파생한다.
+4. `(account_id, asset_index)` 는 account file 안에서 unique 해야 한다.
+   누락된 account-asset pair 는 zero balance 로 해석한다.
+5. `cex_assets.csv` 는 real asset row 만 포함할 수 있고, parser 가
+   `AssetCatalog.Capacity()` 까지 `reserved` zero slot 으로 pad 한다.
+
+## §12.1 T1 `t1_simple_margin`
+
+`accounts.csv`
+
+| field | type | required | 의미 |
+|---|---|:---:|---|
+| `account_index` | `uint32` | no | Merkle leaf order. 없으면 파생. |
+| `account_id` | `account_id_hex_bn254` | yes | user/account canonical identifier |
+| `asset_index` | `uint16` | yes | catalog slot |
+| `equity` | `uint64` | yes | user claim |
+| `debt` | `uint64` | yes | user debt. spot 은 0 |
+
+`cex_assets.csv`
+
+| field | type | required | 의미 |
+|---|---|:---:|---|
+| `asset_index` | `uint16` | yes | catalog slot |
+| `symbol` | `string` | yes | lower-case symbol |
+| `total_equity` | `uint64` | yes | published total equity |
+| `total_debt` | `uint64` | yes | published total debt |
+| `base_price` | `uint64` | yes | price-scaled reporting value |
+
+Derived invariant: parser 는 account rows 로 `TotalEquity`,
+`TotalDebt` 를 계산하고, 회로가 `TotalEquity >= TotalDebt` 를 검증한다.
+
+## §12.2 T2 `t2_static_haircut_margin`
+
+T2 는 T1 account row 에 single-pool `collateral` 을 추가한다.
+`cex_assets.csv` 는 `collateral`, `haircut_bp` 를 추가로 가진다.
+
+`accounts.csv`: `account_index`, `account_id`, `asset_index`, `equity`,
+`debt`, `collateral`
+
+`cex_assets.csv`: `asset_index`, `symbol`, `total_equity`, `total_debt`,
+`base_price`, `collateral`, `haircut_bp`
+
+Invariants:
+
+- `haircut_bp ∈ [0, 10000]`.
+- `collateral <= equity` 는 invalid-account policy 이전의 row-level
+  check 다.
+- parser 는 `Σ(collateral × haircut_bp / 10000)` 로
+  `TotalCollateral` 을 계산한다.
+
+## §12.3 T3 `t3_tiered_haircut_margin_1pool`
+
+T3 account / cex asset shape 는 T2 와 같지만 static `haircut_bp` 대신
+별도 tier curve file 을 사용한다.
+
+`accounts.csv`: `account_index`, `account_id`, `asset_index`, `equity`,
+`debt`, `collateral`
+
+`cex_assets.csv`: `asset_index`, `symbol`, `total_equity`, `total_debt`,
+`base_price`, `collateral`
+
+`tier_ratios.csv`
+
+| field | type | required | 의미 |
+|---|---|:---:|---|
+| `asset_index` | `uint16` | yes | catalog slot |
+| `tier_index` | `uint16` | yes | asset 별 dense tier order |
+| `boundary_value` | `bigint` | yes | tier upper boundary |
+| `ratio` | `uint8` | yes | audited circuit 의 tier ratio |
+| `precomputed_value` | `bigint` | yes | boundary 누적값 |
+
+Invariants:
+
+- `tier_index` 는 asset 별 dense sequence.
+- `boundary_value` 는 asset 별 strictly increasing.
+- `precomputed_value` 는 회로의 tier cumulative function 과 일치해야 한다.
+
+## §12.4 T4 `t4_tiered_haircut_margin_3pool`
+
+T4 는 Binance-class 3-pool account shape 를 사용한다.
+
+`accounts.csv`: `account_index`, `account_id`, `asset_index`, `equity`,
+`debt`, `loan_collateral`, `margin_collateral`,
+`portfolio_margin_collateral`
+
+`cex_assets.csv`: `asset_index`, `symbol`, `total_equity`, `total_debt`,
+`base_price`, `loan_collateral`, `margin_collateral`,
+`portfolio_margin_collateral`
+
+`tier_ratios.csv`
+
+| field | type | required | 의미 |
+|---|---|:---:|---|
+| `asset_index` | `uint16` | yes | catalog slot |
+| `collateral_pool` | `enum` | yes | `loan`, `margin`, `portfolio_margin` |
+| `tier_index` | `uint16` | yes | asset+pool 별 dense tier order |
+| `boundary_value` | `bigint` | yes | tier upper boundary |
+| `ratio` | `uint8` | yes | audited circuit 의 tier ratio |
+| `precomputed_value` | `bigint` | yes | boundary 누적값 |
+
+Invariants:
+
+- `collateral_pool` 은 closed enum 이며 pool 별 tier curve 는 독립이다.
+- `loan_collateral + margin_collateral + portfolio_margin_collateral <= equity`
+  는 invalid-account policy 이전의 row-level check 다.
+- parser 는 pool 별 tier curve 를 적용한 뒤 합산해 `TotalCollateral` 을
+  계산한다.
