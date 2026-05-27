@@ -10,10 +10,14 @@ export 를 model-standard CSV 로 정규화해야 한다.
 ```text
 profile/
 ├── README.md
-├── binance/
-│   └── binance.toml
-├── sea_reference/
-│   └── sea_reference.toml
+├── t1_reference/
+│   └── t1_reference.toml
+├── t2_reference/
+│   └── t2_reference.toml
+├── t3_reference/
+│   └── t3_reference.toml
+├── t4_reference/
+│   └── t4_reference.toml
 └── declarative/
     ├── profile.go      # TOML schema + Load/Validate
     └── builders.go     # profile values -> engine helpers

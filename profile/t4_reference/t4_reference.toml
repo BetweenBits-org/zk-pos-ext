@@ -1,12 +1,22 @@
-# Binance profile descriptor.
+# t4_reference profile descriptor.
+#
+# Reference profile for the t4_tiered_haircut_margin_3pool model — three
+# collateral pools (loan / margin / portfolio-margin), each with its own
+# tiered (piecewise-linear) haircut curve per asset. Mirrors the
+# Binance-style cross-margin formulation.
+#
+# Status: synthetic reference, NOT a real customer integration. Drives
+# the T4 path of the multi-model smoke harness. When a real T4 customer
+# is confirmed (e.g. Binance or another exchange using the same three-
+# pool model), copy + amend catalog + asset_capacity + batch_shapes.
 #
 # Post-R10 input contract: zkpor consumes model-standard canonical CSV
-# files, not Binance raw exports. The operator/preprocessor is
+# files, not raw exchange exports. The operator/preprocessor is
 # responsible for producing T4 standard accounts.csv, cex_assets.csv,
 # and tier_ratios.csv before services start.
 
 [profile]
-name = "binance"
+name = "t4_reference"
 model = "t4_tiered_haircut_margin_3pool"
 asset_capacity = 500
 

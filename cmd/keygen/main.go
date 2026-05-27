@@ -6,26 +6,26 @@
 //
 // File stems use BatchShape.StandardKeyName, with the SolvencyModelID
 // drawn from the profile — e.g. "zkpor.t4_tiered_haircut_margin_3pool.5_10"
-// for the binance reference profile, "zkpor.t1_simple_margin.50_1000"
-// for sea_reference. Asset capacity is NOT encoded in the stem;
-// downstream services MUST configure the same AssetCapacity to land
-// on a compatible witness shape.
+// for the t4_reference profile, "zkpor.t1_simple_margin.50_1000" for
+// t1_reference. Asset capacity is NOT encoded in the stem; downstream
+// services MUST configure the same AssetCapacity to land on a
+// compatible witness shape.
 //
 // This is the engine-side trusted setup; in production each shape's
 // triplet is the output of a real multi-party ceremony, not a
 // single-process Setup call. For sample-data end-to-end smoke a
 // single-process Setup is sufficient.
 //
-// Run for the binance reference profile + production shapes:
+// Run for the t4_reference profile + production shapes:
 //
-//	go run ./cmd/keygen -profile ./profile/binance/binance.toml \
-//	    -out .artifacts/binance
+//	go run ./cmd/keygen -profile ./profile/t4_reference/t4_reference.toml \
+//	    -out .artifacts/t4_reference
 //
 // Run for the smoke harness (override capacity + shapes):
 //
 //	ZKPOR_BATCH_SHAPE_OVERRIDE=5_10 \
 //	  go run ./cmd/keygen \
-//	      -profile ./profile/binance/binance.toml \
+//	      -profile ./profile/t4_reference/t4_reference.toml \
 //	      -asset-capacity 5 \
 //	      -out .artifacts/smoke
 //
@@ -33,11 +33,10 @@
 // keeps the smoke harness running on tiny shapes without committing
 // a separate smoke-specific profile.toml.
 //
-// R8-C/1 swap: previously the profile was hard-coded to
-// profile/binance via direct constructor calls. Now profile.toml is
-// the source-of-truth. Keygen does not consume snapshot connectors;
-// those are registered only by services that read canonical snapshot
-// data.
+// R8-C/1 swap: previously the profile was hard-coded to profile/binance
+// via direct constructor calls. Now profile.toml is the source-of-truth.
+// Keygen does not consume snapshot connectors; those are registered
+// only by services that read canonical snapshot data.
 package main
 
 import (

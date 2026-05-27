@@ -13,12 +13,12 @@ import (
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
-// TestTiersFromShapes_BinanceToml locks the binance tier view via the
-// declarative profile (same source-of-truth as the witness; a drift
+// TestTiersFromShapes_T4Reference locks the T4 reference tier view via
+// the declarative profile (same source-of-truth as the witness; a drift
 // breaks the tree-root parity that ties the two services together).
-func TestTiersFromShapes_BinanceToml(t *testing.T) {
+func TestTiersFromShapes_T4Reference(t *testing.T) {
 	os.Unsetenv("ZKPOR_BATCH_SHAPE_OVERRIDE")
-	prof, err := declarative.Load("../../profile/binance/binance.toml")
+	prof, err := declarative.Load("../../profile/t4_reference/t4_reference.toml")
 	if err != nil {
 		t.Fatalf("load profile: %v", err)
 	}

@@ -13,10 +13,12 @@
 //   - renamed field: disallowed in v1 (breaks every existing file).
 //   - new TOML table: same rules as new field.
 //
-// Two reference instantiations:
+// Reference instantiations (one per v1 catalog model):
 //
-//   - profile/binance/binance.toml              — T4 standard CSV deployment descriptor
-//   - profile/sea_reference/sea_reference.toml  — T1 standard CSV reference descriptor
+//   - profile/t1_reference/t1_reference.toml — T1 standard CSV reference
+//   - profile/t2_reference/t2_reference.toml — T2 standard CSV reference
+//   - profile/t3_reference/t3_reference.toml — T3 standard CSV reference
+//   - profile/t4_reference/t4_reference.toml — T4 standard CSV reference
 //
 // Post-R10, these files are the customer-facing engine descriptors
 // consumed by service startup. Customer raw export adapters are not
@@ -60,7 +62,7 @@ type Profile struct {
 
 // ProfileMeta carries the profile-identifying fields.
 type ProfileMeta struct {
-	Name          string `toml:"name"`           // human-readable profile id, e.g. "binance"
+	Name          string `toml:"name"`           // human-readable profile id, e.g. "t4_reference"
 	Model         string `toml:"model"`          // SolvencyModelID, e.g. "t4_tiered_haircut_margin_3pool"
 	AssetCapacity int    `toml:"asset_capacity"` // trusted-setup asset slot count
 }

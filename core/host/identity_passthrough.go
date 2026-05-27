@@ -22,7 +22,9 @@ import (
 // The scheme is engine-universal: every customer profile that hashes
 // internal user IDs to a 32-byte digest before submission can reuse
 // this. R8-A promoted the implementation from profile/binance and
-// profile/sea_reference (which both held byte-identical copies).
+// profile/sea_reference (renamed to profile/t4_reference and
+// profile/t1_reference in Phase 3d+), which both held byte-identical
+// copies.
 const IdentitySchemePassthroughHexBN254ReducedV0 = "passthrough_hex_bn254_reduced.v0"
 
 func init() {

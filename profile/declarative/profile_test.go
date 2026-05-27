@@ -8,18 +8,18 @@ import (
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
-// TestLoadBinance verifies the published binance.toml parses with the
-// expected key fields. Asserts shape and a few canonical values
-// rather than locking in the entire two_digit_assets list (which is
-// allowed to evolve under operator control without forcing a schema
-// version bump).
-func TestLoadBinance(t *testing.T) {
-	p, err := declarative.Load("../binance/binance.toml")
+// TestLoadT4Reference verifies the published t4_reference.toml parses
+// with the expected key fields. Asserts shape and a few canonical
+// values rather than locking in the entire two_digit_assets list
+// (which is allowed to evolve under operator control without forcing
+// a schema version bump).
+func TestLoadT4Reference(t *testing.T) {
+	p, err := declarative.Load("../t4_reference/t4_reference.toml")
 	if err != nil {
-		t.Fatalf("Load binance.toml: %v", err)
+		t.Fatalf("Load t4_reference.toml: %v", err)
 	}
-	if p.Profile.Name != "binance" {
-		t.Errorf("Name = %q, want binance", p.Profile.Name)
+	if p.Profile.Name != "t4_reference" {
+		t.Errorf("Name = %q, want t4_reference", p.Profile.Name)
 	}
 	if p.Profile.Model != "t4_tiered_haircut_margin_3pool" {
 		t.Errorf("Model = %q, want t4_tiered_haircut_margin_3pool", p.Profile.Model)
@@ -53,14 +53,14 @@ func TestLoadBinance(t *testing.T) {
 	}
 }
 
-// TestLoadSeaReference verifies the published sea_reference.toml
-// parses + represents the t1_simple_margin model correctly.
-func TestLoadSeaReference(t *testing.T) {
-	p, err := declarative.Load("../sea_reference/sea_reference.toml")
+// TestLoadT1Reference verifies the published t1_reference.toml parses +
+// represents the t1_simple_margin model correctly.
+func TestLoadT1Reference(t *testing.T) {
+	p, err := declarative.Load("../t1_reference/t1_reference.toml")
 	if err != nil {
-		t.Fatalf("Load sea_reference.toml: %v", err)
+		t.Fatalf("Load t1_reference.toml: %v", err)
 	}
-	if p.Profile.Name != "sea_reference" {
+	if p.Profile.Name != "t1_reference" {
 		t.Errorf("Name = %q", p.Profile.Name)
 	}
 	if p.Profile.Model != "t1_simple_margin" {
@@ -76,7 +76,7 @@ func TestLoadSeaReference(t *testing.T) {
 		t.Errorf("BatchShapes length = %d, want 1 (spot has a single-tier default)", len(p.BatchShapes))
 	}
 	if len(p.Pricing.TwoDigitAssets) != 0 {
-		t.Errorf("TwoDigitAssets non-empty = %v (sea_reference is uniform-scale)", p.Pricing.TwoDigitAssets)
+		t.Errorf("TwoDigitAssets non-empty = %v (t1_reference is uniform-scale)", p.Pricing.TwoDigitAssets)
 	}
 	if got := p.Snapshot.Format.NullValues; len(got) != 3 || got[0] != "" {
 		t.Errorf("Snapshot.Format.NullValues = %#v", got)

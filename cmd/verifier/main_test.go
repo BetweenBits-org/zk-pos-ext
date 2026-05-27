@@ -9,14 +9,14 @@ import (
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 )
 
-// TestResolveFromProfile_Binance locks the verifier's derivation of
-// asset capacity / tiers / .vk stems from the binance reference
-// profile. -user mode uses plan.AssetCountTiers to pad a user's asset
-// list; batch mode uses plan.ZkKeyStems + plan.AssetCapacity. Phase 3d
-// adds the model selector — binance.toml resolves to T4.
-func TestResolveFromProfile_Binance(t *testing.T) {
+// TestResolveFromProfile_T4Reference locks the verifier's derivation of
+// asset capacity / tiers / .vk stems from the T4 reference profile.
+// -user mode uses plan.AssetCountTiers to pad a user's asset list;
+// batch mode uses plan.ZkKeyStems + plan.AssetCapacity. Phase 3d adds
+// the model selector — t4_reference.toml resolves to T4.
+func TestResolveFromProfile_T4Reference(t *testing.T) {
 	r, err := resolveFromProfile(&pflags{
-		profilePath: "../../profile/binance/binance.toml",
+		profilePath: "../../profile/t4_reference/t4_reference.toml",
 		keysDir:     "/keys",
 	})
 	if err != nil {
@@ -49,7 +49,7 @@ func TestResolveFromProfile_Binance(t *testing.T) {
 // supersedes profile.asset_capacity (smoke harness behaviour).
 func TestResolveFromProfile_CapacityOverride(t *testing.T) {
 	r, err := resolveFromProfile(&pflags{
-		profilePath: "../../profile/binance/binance.toml",
+		profilePath: "../../profile/t4_reference/t4_reference.toml",
 		keysDir:     "/keys",
 		capacity:    5,
 	})
@@ -61,11 +61,11 @@ func TestResolveFromProfile_CapacityOverride(t *testing.T) {
 	}
 }
 
-// TestResolveFromProfile_SeaReference locks T1 dispatch via the
-// sea_reference profile. Confirms Phase 3d removed the T4-only guard.
-func TestResolveFromProfile_SeaReference(t *testing.T) {
+// TestResolveFromProfile_T1Reference locks T1 dispatch via the T1
+// reference profile. Confirms Phase 3d removed the T4-only guard.
+func TestResolveFromProfile_T1Reference(t *testing.T) {
 	r, err := resolveFromProfile(&pflags{
-		profilePath: "../../profile/sea_reference/sea_reference.toml",
+		profilePath: "../../profile/t1_reference/t1_reference.toml",
 		keysDir:     "/keys",
 	})
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 // t4_tiered_haircut_margin_3pool solvency logic. Key files generated with this
 // module use the un-suffixed naming (see corespec.NoExtensionID).
 //
-// Promoted from profile/binance/constraint_noop.go in R8-B/3 so
+// Promoted from profile/t4_reference/constraint_noop.go in R8-B/3 so
 // service startup can resolve "no extension" without depending on a
 // customer profile package.
 type noopConstraintModule struct{}

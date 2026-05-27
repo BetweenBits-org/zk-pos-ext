@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
-# zkpor end-to-end smoke — R3 step 4 exit-criteria gate.
-#
-# Runs the full pipeline against the legacy sample data:
+# zkpor end-to-end smoke — runs the full pipeline against the
+# selected profile's testdata/happy/ canonical CSV:
 #   keygen → witness → prover → verifier(batch) → userproof → verifier(-user)
 # at AssetCapacity=5, BatchShape=5_10. ~21 seconds keygen (one-time, cached
 # in .artifacts/), then the prove/verify chain is <1 min on a laptop.
+#
+# Phase 4 (R10+1): the script is profile-driven. The first positional
+# argument selects the profile.toml; the model is derived from the
+# toml's [profile].model field. Each profile's own testdata/happy/
+# supplies the canonical accounts.csv / cex_assets.csv / tier_ratios.csv
+# the standard CSV connector consumes.
+#
+# Usage:
+#   scripts/smoke.sh                              # defaults to t4_reference
+#   scripts/smoke.sh profile/t1_reference/t1_reference.toml   # T1
+#   scripts/smoke.sh profile/t2_reference/t2_reference.toml   # T2
+#   scripts/smoke.sh profile/t3_reference/t3_reference.toml   # T3
+#   scripts/smoke.sh profile/t4_reference/t4_reference.toml   # T4
+#
+# Env overrides (defaults are tiny smoke):
+#   ZKPOR_BATCH_SHAPE_OVERRIDE   default 5_10
+#   ZKPOR_SMOKE_ASSET_CAPACITY   default 5
 #
 # Prerequisites:
 #   - Docker (for the MySQL fixture)
@@ -18,22 +34,36 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+PROFILE_PATH="${1:-profile/t4_reference/t4_reference.toml}"
+if [ ! -f "$PROFILE_PATH" ]; then
+  echo "profile not found: $PROFILE_PATH" >&2
+  exit 1
+fi
+
+# Derive the testdata dir + model from the profile.
+PROFILE_DIR="$(cd "$(dirname "$PROFILE_PATH")" && pwd)"
+USER_DATA_DIR="$PROFILE_DIR/testdata/happy"
+if [ ! -d "$USER_DATA_DIR" ]; then
+  echo "user-data-dir not found: $USER_DATA_DIR" >&2
+  exit 1
+fi
+
+# Extract the solvency model from [profile].model. The toml schema
+# guarantees a single quoted string on that line.
+MODEL="$(awk -F'"' '/^[[:space:]]*model[[:space:]]*=/{print $2; exit}' "$PROFILE_PATH")"
+if [ -z "$MODEL" ]; then
+  echo "could not parse [profile].model from $PROFILE_PATH" >&2
+  exit 1
+fi
+
 ARTIFACTS=".artifacts"
-# Defaults are tiny (R3 step 4 exit-criteria smoke). For production
-# capacity smoke (e.g. on an m6i.4xlarge), export:
-#   ZKPOR_BATCH_SHAPE_OVERRIDE='50_700,500_92'  (must be explicit)
-#   ZKPOR_SMOKE_ASSET_CAPACITY=500
 SHAPE_OVERRIDE="${ZKPOR_BATCH_SHAPE_OVERRIDE:-5_10}"
 ASSET_CAPACITY="${ZKPOR_SMOKE_ASSET_CAPACITY:-5}"
-SAMPLE_DATA="$(pwd)/../src/sampledata"
 
-# Post-R8 services derive tiers + .vk stems from profile.toml + the
-# -keys-dir flag, so the smoke harness no longer needs to project the
-# SHAPE_OVERRIDE into JSON fragments for the service configs. The
-# stem list is still useful to decide whether keygen artifacts are
-# already on disk.
+# Compose the artifact stems from MODEL + SHAPE_OVERRIDE. The keygen
+# CLI writes one .pk/.vk/.r1cs triplet per shape under .artifacts/.
 shape_stems() {
-  echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ '{print "zkpor.t4_tiered_haircut_margin_3pool." $1 "_" $2}'
+  echo "$SHAPE_OVERRIDE" | tr ',' '\n' | awk -F_ -v model="$MODEL" '{print "zkpor." model "." $1 "_" $2}'
 }
 
 DSN="zkpor:zkpor@123@tcp(127.0.0.1:3306)/zkpor?parseTime=true"
@@ -46,6 +76,8 @@ require_cmd() {
 }
 require_cmd docker
 require_cmd go
+
+log "profile=$PROFILE_PATH model=$MODEL data=$USER_DATA_DIR shape=$SHAPE_OVERRIDE cap=$ASSET_CAPACITY"
 
 # 1. MySQL fixture — start if not already up, wait for healthcheck.
 ensure_mysql() {
@@ -84,10 +116,10 @@ ensure_keys() {
     log "keygen artifacts already present for shape(s): $SHAPE_OVERRIDE"
     return 0
   fi
-  log "running keygen (profile=binance, asset-capacity=$ASSET_CAPACITY, shape=$SHAPE_OVERRIDE)"
+  log "running keygen (model=$MODEL, asset-capacity=$ASSET_CAPACITY, shape=$SHAPE_OVERRIDE)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
     go run ./cmd/keygen \
-      -profile profile/binance/binance.toml \
+      -profile "$PROFILE_PATH" \
       -asset-capacity "$ASSET_CAPACITY" \
       -out "$ARTIFACTS/"
 }
@@ -97,9 +129,6 @@ ensure_keys() {
 # config.json fresh at the start of the smoke; if you want to inspect
 # the configs after a run, look at cmd/<svc>/config/config.json.
 write_service_configs() {
-  # witness now sources AssetCapacity / UserDataFile from
-  # profile.toml (override via -asset-capacity / -user-data-dir
-  # flags below); config.json keeps only DB + TreeDB.
   cat > cmd/witness/config/config.json <<EOF
 {
   "MysqlDataSource": "$DSN",
@@ -108,8 +137,6 @@ write_service_configs() {
 }
 EOF
 
-  # prover derives AssetsCountTiers + ZkKeyName from profile.toml +
-  # -keys-dir flag (R8-C/3); config.json is DB-only.
   cat > cmd/prover/config/config.json <<EOF
 {
   "MysqlDataSource": "$DSN",
@@ -117,8 +144,6 @@ EOF
 }
 EOF
 
-  # userproof also derives capacity / user data dir from profile.toml
-  # + flags (R8-D); config.json is DB+TreeDB only.
   cat > cmd/userproof/config/config.json <<EOF
 {
   "MysqlDataSource": "$DSN",
@@ -128,15 +153,20 @@ EOF
 EOF
 }
 
+# Each service runs from its own directory; -profile is passed as an
+# absolute path so the relative cwd of the service does not matter.
+PROFILE_ABS="$(cd "$(dirname "$PROFILE_PATH")" && pwd)/$(basename "$PROFILE_PATH")"
+
 run_witness() {
   log "running witness (snapshot → BatchWitness rows)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
-  ZKPOR_SMOKE_SAMPLE_DATA="$SAMPLE_DATA" \
+  ZKPOR_SMOKE_USER_DATA="$USER_DATA_DIR" \
   ZKPOR_SMOKE_ASSET_CAPACITY="$ASSET_CAPACITY" \
+  ZKPOR_SMOKE_PROFILE="$PROFILE_ABS" \
     bash -c '
       cd cmd/witness && go run . \
-        -profile ../../profile/binance/binance.toml \
-        -user-data-dir "$ZKPOR_SMOKE_SAMPLE_DATA" \
+        -profile "$ZKPOR_SMOKE_PROFILE" \
+        -user-data-dir "$ZKPOR_SMOKE_USER_DATA" \
         -asset-capacity "$ZKPOR_SMOKE_ASSET_CAPACITY" \
         -dump-final-cex ../../.artifacts/final_cex_assets.json
     '
@@ -148,16 +178,18 @@ run_prover() {
   artifacts_abs="$(cd "$ARTIFACTS" && pwd)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
   ZKPOR_SMOKE_KEYS_DIR="$artifacts_abs" \
+  ZKPOR_SMOKE_PROFILE="$PROFILE_ABS" \
     bash -c '
       cd cmd/prover && go run . \
-        -profile ../../profile/binance/binance.toml \
+        -profile "$ZKPOR_SMOKE_PROFILE" \
         -keys-dir "$ZKPOR_SMOKE_KEYS_DIR"
     '
 }
 
 write_verifier_config() {
   # verifier derives tiers + .vk stems + capacity from profile.toml +
-  # -keys-dir (R8-D). config.json keeps DB + per-snapshot CexAssetsInfo.
+  # -keys-dir. config.json keeps DB + per-snapshot CexAssetsInfo (raw
+  # JSON the model's runner decodes).
   local cex_json
   cex_json="$(cat "$ARTIFACTS/final_cex_assets.json")"
   cat > cmd/verifier/config/config.json <<EOF
@@ -176,9 +208,10 @@ run_verifier_batch() {
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
   ZKPOR_SMOKE_KEYS_DIR="$artifacts_abs" \
   ZKPOR_SMOKE_ASSET_CAPACITY="$ASSET_CAPACITY" \
+  ZKPOR_SMOKE_PROFILE="$PROFILE_ABS" \
     bash -c '
       cd cmd/verifier && go run . \
-        -profile ../../profile/binance/binance.toml \
+        -profile "$ZKPOR_SMOKE_PROFILE" \
         -keys-dir "$ZKPOR_SMOKE_KEYS_DIR" \
         -asset-capacity "$ZKPOR_SMOKE_ASSET_CAPACITY"
     '
@@ -187,12 +220,13 @@ run_verifier_batch() {
 run_userproof() {
   log "running userproof (per-account Merkle proofs → UserProof rows + dump user_config[0])"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
-  ZKPOR_SMOKE_SAMPLE_DATA="$SAMPLE_DATA" \
+  ZKPOR_SMOKE_USER_DATA="$USER_DATA_DIR" \
   ZKPOR_SMOKE_ASSET_CAPACITY="$ASSET_CAPACITY" \
+  ZKPOR_SMOKE_PROFILE="$PROFILE_ABS" \
     bash -c '
       cd cmd/userproof && go run . \
-        -profile ../../profile/binance/binance.toml \
-        -user-data-dir "$ZKPOR_SMOKE_SAMPLE_DATA" \
+        -profile "$ZKPOR_SMOKE_PROFILE" \
+        -user-data-dir "$ZKPOR_SMOKE_USER_DATA" \
         -asset-capacity "$ZKPOR_SMOKE_ASSET_CAPACITY" \
         -dump-user-index 0 \
         -dump-user-path ../verifier/config/user_config.json
@@ -203,16 +237,30 @@ run_verifier_user() {
   log "running verifier -user (single account inclusion)"
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE_OVERRIDE" \
   ZKPOR_SMOKE_ASSET_CAPACITY="$ASSET_CAPACITY" \
+  ZKPOR_SMOKE_PROFILE="$PROFILE_ABS" \
     bash -c '
       cd cmd/verifier && go run . \
-        -profile ../../profile/binance/binance.toml \
+        -profile "$ZKPOR_SMOKE_PROFILE" \
         -asset-capacity "$ZKPOR_SMOKE_ASSET_CAPACITY" \
         -user
     '
 }
 
+# Clear DB rows between smoke runs against different profiles so the
+# verifier doesn't see leftover proofs from a previous model. Idempotent:
+# tables may not exist on a fresh run.
+clear_db_state() {
+  log "clearing prior smoke DB state (idempotent)"
+  docker exec zkpor-smoke-mysql mysql -uzkpor -pzkpor@123 -e "
+    DROP TABLE IF EXISTS zkpor.proof;
+    DROP TABLE IF EXISTS zkpor.batch_witness;
+    DROP TABLE IF EXISTS zkpor.user_proof;
+  " >/dev/null 2>&1 || true
+}
+
 main() {
   ensure_mysql
+  clear_db_state
   ensure_keys
   write_service_configs
   run_witness
@@ -221,7 +269,7 @@ main() {
   run_verifier_batch
   run_userproof
   run_verifier_user
-  log "smoke passed"
+  log "smoke passed for $MODEL"
 }
 
 main "$@"

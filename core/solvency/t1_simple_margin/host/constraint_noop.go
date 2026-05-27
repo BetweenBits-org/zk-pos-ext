@@ -10,7 +10,7 @@ import (
 // T1 model. Same shape as the T4 default — only the ConstraintContext
 // type differs (no collateral / tier ratios on T1).
 //
-// Promoted from profile/sea_reference/constraint_noop.go in R8-B/3.
+// Promoted from profile/t1_reference/constraint_noop.go in R8-B/3.
 type noopConstraintModule struct{}
 
 // NewNoopConstraint returns the engine-default no-op ConstraintModule

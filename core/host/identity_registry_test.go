@@ -23,7 +23,8 @@ func TestPassthroughHexBN254ReducedV0_AutoRegistered(t *testing.T) {
 }
 
 // TestPassthroughHexBN254ReducedV0_AboveModulusReduces locks the
-// reducing branch — promoted from profile/binance/identity_test.go.
+// reducing branch — promoted from profile/t4_reference/identity_test.go
+// (originally profile/binance/identity_test.go).
 // All-FF input MUST come out reduced (= (2^256-1) mod fr.Modulus),
 // matching what the snapshot adapter writes into the leaf hash.
 func TestPassthroughHexBN254ReducedV0_AboveModulusReduces(t *testing.T) {

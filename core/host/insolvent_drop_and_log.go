@@ -15,11 +15,10 @@ import (
 // internal user ID and the validator's reason string. The action
 // returned is spec.InvalidActionDrop.
 //
-// This is the default disposition for both profile/binance
-// (t4_tiered_haircut_margin_3pool, where it mostly fires on totalCollateral <
-// totalDebt) and profile/sea_reference (t1_simple_margin, where it
-// mostly fires on data-quality failures like hex-decode and uint64
-// overflow). Promoted from per-profile copies in R8-A.
+// This is the default disposition for every v1 catalog model — fires
+// on totalCollateral < totalDebt for the margin variants
+// (T2/T3/T4) and on data-quality failures (hex-decode, uint64 overflow)
+// for T1. Promoted from per-profile copies in R8-A.
 //
 // Customers needing abort-on-invalid or quarantine semantics MUST
 // register a separate action ID under this registry rather than
