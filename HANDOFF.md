@@ -90,7 +90,7 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 | `zkpor/core/solvency/{t1_simple_margin,t2_static_haircut_margin,t3_tiered_haircut_margin_1pool}/` | ⏸ doc.go only — 카탈로그 reserved. R6 (3rd model) rule-of-three 대기. |
 | `zkpor/profile/sea_reference/*` | ✅ **R8-E/F (83cbfbe)**: dead-code adapters 6개 + profile_test.go 제거. 남은 파일: `snapshot.go` (T1 spot ETL, `sea_csv.v1` 등록), `snapshot_test.go`, `snapshot_connector_test.go`, `helpers_test.go`, `sea_reference.toml`, `doc.go`, `testdata/happy`. SnapshotConfig 에 `Pricing` 필드 추가. |
 | `zkpor/profile/declarative/*` | ✅ **R5-3 + R7-B + R8-B/1 (d9d7135)** — `profile.toml` schema (v1 FROZEN) + builders.go: `BuildIdentity` / `BuildInsolvent` (host registry lookup) + `BuildBatchShape` + `BuildBatchShapeProvider(model, shapes)` (model-typed wrapper, R8-C/2 추가) + `BuildPricing` (G6 invariant assert) + `BuildCatalog`. Validate 가 빈 identity.scheme / insolvent.action / snapshot.source_type 거부. 20+ tests. |
-| `zkpor/profile/binance/*` | ✅ **R8-E (83cbfbe)**: dead-code adapters 7개 + identity_test/batch_shape_test 제거. 남은 파일: `snapshot.go` (T4 ETL, `binance_csv.v1` 등록), `snapshot_test.go`, `snapshot_connector_test.go`, `legacy_compare_test.go` (G1), `helpers_test.go`, `binance.toml`, `doc.go`, `testdata/`. SnapshotConfig 에 `Pricing` 필드 — nil 거부. `streamAccounts` / `readCexAssetsCSV` 가 외부에서 받은 PriceScaleProvider 사용. |
+| `zkpor/profile/binance/*` | ✅ **R9-E done** — profile connector `binance_csv.v1` 는 Binance raw wide CSV 를 canonical standard CSV temp dir (`accounts.csv`, `cex_assets.csv`, `tier_ratios.csv`) 로 materialize 한 뒤 `core/snapshot/t4_tiered_haircut_margin_3pool` standard parser 에 위임. 기존 legacy parsing helpers 는 raw→canonical 변환에서 재사용해 byte-equivalence 위험 최소화. 기존 `snapshot_test.go` + `legacy_compare_test.go` 통과. SnapshotConfig 에 `Pricing` 필드 — nil 거부. |
 | `zkpor/deploy/` | ✅ **smoke MySQL fixture (A2, 1d5b2e9)** — `docker-compose.yml` 단일 컨테이너 (mysql:8.0, healthcheck, 영속 볼륨). Memory tree 라 Redis 컨테이너 불필요. 사용: `docker compose -f deploy/docker-compose.yml up -d` |
 | `zkpor/scripts/` | ✅ **end-to-end smoke 하네스 (A5, d7c23f3)** — `smoke.sh` 가 docker compose → keygen (캐시) → witness → prover → verifier(batch) → userproof → verifier(-user) 순으로 전체 파이프라인 실행. R3 step 4 exit criteria 검증 완료. |
 | `circuit/`, `src/` (legacy) | ✅ untouched, fully functional. trusted setup 그대로 유효 |
@@ -114,6 +114,12 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
          T2 static haircut computes TotalCollateral via
          collateral×base_price×haircut_bp/10000. T3 single-pool tier
          parser mirrors T4 tier padding with one collateral curve.)
+<R9/E>   feat(zkpor): R9-E — binance raw CSV adapter delegates to standard parser
+        (`profile/binance/snapshot.go`: materialize raw wide
+         cex_assets_info.csv + user shards into canonical standard
+         accounts/cex_assets/tier_ratios CSV, then delegate
+         CexAssets/AccountStream/InvalidCount to T4 standard parser.
+         Existing Binance profile tests and legacy AccountID compare pass.)
 <R9/C>   feat(zkpor): R9-C — snapshot mapping DSL + profile schema bump
         (`core/snapshot/mapping`: Format + File + Column DSL,
          direct/wide_assets modes, source/constant/source_prefix rules,
@@ -932,7 +938,7 @@ hatch) 로 흡수.
   R9-B   ✅ Core CSV parser primitives
   R9-C   ✅ Mapping config DSL (toml [snapshot.format] + [[snapshot.files]])
   R9-D   ✅ 4 model standard CSV connector + registry 적응
-  R9-E   profile/binance snapshot.go thin rewrite
+  R9-E   ✅ profile/binance snapshot.go thin rewrite + standard parser delegation
   R9-F   profile/sea_reference snapshot.go thin rewrite
   R9-close  G18 closure + handoff/roadmap
 

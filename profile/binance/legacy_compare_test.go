@@ -9,8 +9,8 @@ import (
 	"sort"
 	"testing"
 
-	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	legacy "github.com/binance/zkmerkle-proof-of-solvency/src/utils"
+	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 )
 
 // legacySamplePath is the path from this test file (inside
@@ -26,7 +26,7 @@ const legacySamplePath = "../../../src/sampledata"
 // pipelines:
 //
 //   - legacy: utils.ParseAssetIndexFromUserFile + ParseCexAssetInfoFromFile
-//     + ReadUserDataFromCsvFile, with the resulting tier-bucketed
+//   - ReadUserDataFromCsvFile, with the resulting tier-bucketed
 //     map flattened back into source row order via AccountIndex.
 //   - zkpor: profile/binance.csvSnapshot.AccountStream, draining the
 //     yielded channel in order.
@@ -122,6 +122,7 @@ func readZkporAccounts(t *testing.T, dir string) []modelspec.AccountInfo {
 		UserDataDir:   dir,
 		SnapshotID:    "test",
 		AssetCapacity: testAssetCapacity,
+		Pricing:       testPricing(t),
 	})
 	ch, err := src.AccountStream(context.Background())
 	if err != nil {

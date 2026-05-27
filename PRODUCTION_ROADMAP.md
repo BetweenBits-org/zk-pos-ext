@@ -777,7 +777,7 @@ R9-C   ✅ Mapping config DSL (core/snapshot/mapping/ + profile.toml
        schema additive minor bump in profile/declarative/profile.go)
 R9-D   ✅ Model parser combiner (4 model standard CSV connectors) +
        snapshot connector registry 적응
-R9-E   profile/binance snapshot.go thin rewrite + byte-equivalence 검증
+R9-E   ✅ profile/binance snapshot.go thin rewrite + byte-equivalence 검증
 R9-F   profile/sea_reference snapshot.go thin rewrite + smoke 동등성
 R9-close  G18 closure + handoff/roadmap + docs/02 raw data layer 섹션
 ```

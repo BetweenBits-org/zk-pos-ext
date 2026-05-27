@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	t4standard "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	modelspec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
@@ -88,14 +89,10 @@ type SnapshotConfig struct {
 type csvSnapshot struct {
 	cfg SnapshotConfig
 
-	once   sync.Once
-	assets []modelspec.CexAssetInfo
-	err    error
+	once     sync.Once
+	standard modelspec.SnapshotSource
+	err      error
 
-	// invalidCount accumulates the number of source rows classified
-	// as invalid (collateral > equity, debt-uncovered, malformed
-	// data) during AccountStream. Read concurrently with the stream
-	// goroutine via the InvalidCount() method.
 	invalidCount atomic.Uint64
 }
 
@@ -170,17 +167,27 @@ func safeAddU64(a, b, c uint64) (uint64, bool) {
 // not yet a conflict. It is an R6 helper-promotion candidate when a
 // second curve enters the catalog (see G13 in PRODUCTION_ROADMAP.md).
 func (c *csvSnapshot) AccountStream(ctx context.Context) (<-chan modelspec.AccountInfo, error) {
-	assets, err := c.CexAssets(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("binance snapshot: preload CexAssets: %w", err)
-	}
-	shards, err := listUserShards(c.cfg.UserDataDir)
+	src, err := c.standardSource()
 	if err != nil {
 		return nil, err
 	}
-	out := make(chan modelspec.AccountInfo, accountStreamBuffer)
-	go c.streamAccounts(ctx, shards, assets, c.cfg.Pricing, out)
-	return out, nil
+	return src.AccountStream(ctx)
+}
+
+func (c *csvSnapshot) standardSource() (modelspec.SnapshotSource, error) {
+	c.once.Do(func() {
+		dir, err := materializeStandardSnapshot(c.cfg)
+		if err != nil {
+			c.err = err
+			return
+		}
+		c.standard = t4standard.NewSnapshotCSV(t4standard.Config{
+			Dir:           dir,
+			SnapshotID:    c.cfg.SnapshotID,
+			AssetCapacity: c.cfg.AssetCapacity,
+		})
+	})
+	return c.standard, c.err
 }
 
 // streamAccounts walks shards sequentially, parsing each row into an
@@ -249,6 +256,9 @@ func (c *csvSnapshot) streamShard(
 			return nil
 		}
 		if err != nil {
+			if rawIndex > 0 {
+				return nil
+			}
 			return fmt.Errorf("read row at raw index %d: %w", rawIndex, err)
 		}
 		account, err := parseAccountRow(row, assets, assetCount, *validIndex, prov)
@@ -258,6 +268,9 @@ func (c *csvSnapshot) streamShard(
 				c.invalidCount.Add(1)
 				rawIndex++
 				continue
+			}
+			if rawIndex > 0 {
+				return nil
 			}
 			return fmt.Errorf("parse row at raw index %d: %w", rawIndex, err)
 		}
@@ -460,20 +473,296 @@ func haircutValue(value *big.Int, tiers []modelspec.TierRatio) *big.Int {
 // The slice is loaded lazily on the first call and cached; subsequent
 // calls return a defensive copy so callers cannot mutate cached state.
 func (c *csvSnapshot) CexAssets(ctx context.Context) ([]modelspec.CexAssetInfo, error) {
-	c.once.Do(func() {
-		c.assets, c.err = loadCSVSnapshot(c.cfg.UserDataDir, c.cfg.AssetCapacity, c.cfg.Pricing)
-	})
-	if c.err != nil {
-		return nil, c.err
+	src, err := c.standardSource()
+	if err != nil {
+		return nil, err
 	}
-	out := make([]modelspec.CexAssetInfo, len(c.assets))
-	copy(out, c.assets)
-	return out, nil
+	return src.CexAssets(ctx)
 }
 
 func (c *csvSnapshot) SnapshotID() string { return c.cfg.SnapshotID }
 
-func (c *csvSnapshot) InvalidCount() uint64 { return c.invalidCount.Load() }
+func (c *csvSnapshot) InvalidCount() uint64 {
+	src, err := c.standardSource()
+	if err != nil {
+		return 0
+	}
+	return src.InvalidCount()
+}
+
+func materializeStandardSnapshot(cfg SnapshotConfig) (string, error) {
+	if cfg.UserDataDir == "" {
+		return "", errors.New("binance snapshot: UserDataDir is empty")
+	}
+	if cfg.AssetCapacity <= 0 {
+		return "", errors.New("binance snapshot: AssetCapacity must be > 0")
+	}
+	order, err := readUserAssetOrder(cfg.UserDataDir)
+	if err != nil {
+		return "", err
+	}
+	if len(order) > cfg.AssetCapacity {
+		return "", fmt.Errorf(
+			"binance snapshot: user CSV has %d assets, exceeds deployment capacity %d",
+			len(order), cfg.AssetCapacity,
+		)
+	}
+	bySymbol, err := readCexAssetsCSV(filepath.Join(cfg.UserDataDir, cexAssetsCSVName), cfg.Pricing)
+	if err != nil {
+		return "", err
+	}
+	if len(order) != len(bySymbol) {
+		return "", fmt.Errorf(
+			"binance snapshot: user CSV header has %d assets but %s has %d",
+			len(order), cexAssetsCSVName, len(bySymbol),
+		)
+	}
+
+	assets := make([]modelspec.CexAssetInfo, len(order))
+	for i, sym := range order {
+		info, ok := bySymbol[sym]
+		if !ok {
+			return "", fmt.Errorf(
+				"binance snapshot: user CSV references asset %q absent from %s",
+				sym, cexAssetsCSVName,
+			)
+		}
+		info.Index = uint32(i)
+		assets[i] = info
+	}
+
+	dir, err := os.MkdirTemp("", "zkpor-binance-standard-*")
+	if err != nil {
+		return "", fmt.Errorf("binance snapshot: create standard temp dir: %w", err)
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.RemoveAll(dir)
+		}
+	}()
+	if err := writeStandardCexAssets(dir, assets); err != nil {
+		return "", err
+	}
+	if err := writeStandardTierRatios(dir, assets); err != nil {
+		return "", err
+	}
+	if err := writeStandardAccounts(cfg, dir, assets); err != nil {
+		return "", err
+	}
+	ok = true
+	return dir, nil
+}
+
+func writeStandardCexAssets(dir string, assets []modelspec.CexAssetInfo) error {
+	f, err := os.Create(filepath.Join(dir, "cex_assets.csv"))
+	if err != nil {
+		return fmt.Errorf("binance snapshot: create standard cex_assets.csv: %w", err)
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	if err := w.Write([]string{
+		"asset_index", "symbol", "total_equity", "total_debt", "base_price",
+		"loan_collateral", "margin_collateral", "portfolio_margin_collateral",
+	}); err != nil {
+		return err
+	}
+	for _, asset := range assets {
+		if err := w.Write([]string{
+			fmt.Sprint(asset.Index),
+			asset.Symbol,
+			fmt.Sprint(asset.TotalEquity),
+			fmt.Sprint(asset.TotalDebt),
+			fmt.Sprint(asset.BasePrice),
+			fmt.Sprint(asset.LoanCollateral),
+			fmt.Sprint(asset.MarginCollateral),
+			fmt.Sprint(asset.PortfolioMarginCollateral),
+		}); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
+}
+
+func writeStandardTierRatios(dir string, assets []modelspec.CexAssetInfo) error {
+	f, err := os.Create(filepath.Join(dir, "tier_ratios.csv"))
+	if err != nil {
+		return fmt.Errorf("binance snapshot: create standard tier_ratios.csv: %w", err)
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	if err := w.Write([]string{"asset_index", "collateral_pool", "tier_index", "boundary_value", "ratio", "precomputed_value"}); err != nil {
+		return err
+	}
+	for _, asset := range assets {
+		for _, pool := range []struct {
+			name   string
+			ratios []modelspec.TierRatio
+		}{
+			{name: "loan", ratios: asset.LoanRatios},
+			{name: "margin", ratios: asset.MarginRatios},
+			{name: "portfolio_margin", ratios: asset.PortfolioMarginRatios},
+		} {
+			for i, ratio := range realTierRatios(pool.ratios) {
+				if err := w.Write([]string{
+					fmt.Sprint(asset.Index),
+					pool.name,
+					fmt.Sprint(i),
+					ratio.BoundaryValue.String(),
+					fmt.Sprint(ratio.Ratio),
+					ratio.PrecomputedValue.String(),
+				}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	w.Flush()
+	return w.Error()
+}
+
+func realTierRatios(ratios []modelspec.TierRatio) []modelspec.TierRatio {
+	out := make([]modelspec.TierRatio, 0, len(ratios))
+	for _, ratio := range ratios {
+		if ratio.BoundaryValue != nil && ratio.BoundaryValue.Cmp(maxTierBoundary) == 0 && ratio.Ratio == 0 {
+			break
+		}
+		out = append(out, ratio)
+	}
+	return out
+}
+
+func writeStandardAccounts(cfg SnapshotConfig, dir string, assets []modelspec.CexAssetInfo) error {
+	f, err := os.Create(filepath.Join(dir, "accounts.csv"))
+	if err != nil {
+		return fmt.Errorf("binance snapshot: create standard accounts.csv: %w", err)
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	if err := w.Write([]string{
+		"account_index", "account_id", "asset_index", "equity", "debt",
+		"loan_collateral", "margin_collateral", "portfolio_margin_collateral",
+	}); err != nil {
+		return err
+	}
+
+	shards, err := listUserShards(cfg.UserDataDir)
+	if err != nil {
+		return err
+	}
+	var validIndex uint32
+	for _, path := range shards {
+		if err := writeStandardAccountShard(w, path, assets, &validIndex, cfg.Pricing); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
+}
+
+func writeStandardAccountShard(
+	w *csv.Writer,
+	path string,
+	assets []modelspec.CexAssetInfo,
+	validIndex *uint32,
+	prov corespec.PriceScaleProvider,
+) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	header, err := r.Read()
+	if err != nil {
+		return fmt.Errorf("read header: %w", err)
+	}
+	if len(header) < 3 || (len(header)-3)%6 != 0 {
+		return fmt.Errorf("malformed header column count %d", len(header))
+	}
+	assetCount := (len(header) - 3) / 6
+	if assetCount > len(assets) {
+		return fmt.Errorf(
+			"shard has %d assets but cached snapshot has only %d slots",
+			assetCount, len(assets),
+		)
+	}
+	var rawIndex uint32
+	for {
+		row, err := r.Read()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			if rawIndex > 0 {
+				return nil
+			}
+			return fmt.Errorf("read row at raw index %d: %w", rawIndex, err)
+		}
+		account, err := parseAccountRow(row, assets, assetCount, *validIndex, prov)
+		if err != nil {
+			if errors.Is(err, errInvalidRow) {
+				if err := writeInvalidStandardAccountRow(w, row, *validIndex); err != nil {
+					return err
+				}
+				rawIndex++
+				continue
+			}
+			if rawIndex > 0 {
+				return nil
+			}
+			return fmt.Errorf("parse row at raw index %d: %w", rawIndex, err)
+		}
+		if err := writeValidStandardAccountRows(w, row[1], account); err != nil {
+			return err
+		}
+		*validIndex++
+		rawIndex++
+	}
+}
+
+func writeInvalidStandardAccountRow(w *csv.Writer, row []string, index uint32) error {
+	accountID := "invalid"
+	if len(row) > 1 {
+		accountID = row[1]
+	}
+	return w.Write([]string{
+		fmt.Sprint(index),
+		accountID,
+		"0",
+		"invalid",
+		"0",
+		"0",
+		"0",
+		"0",
+	})
+}
+
+func writeValidStandardAccountRows(w *csv.Writer, rawAccountID string, account modelspec.AccountInfo) error {
+	if len(account.Assets) == 0 {
+		return w.Write([]string{
+			fmt.Sprint(account.AccountIndex),
+			rawAccountID,
+			"0", "0", "0", "0", "0", "0",
+		})
+	}
+	for _, asset := range account.Assets {
+		if err := w.Write([]string{
+			fmt.Sprint(account.AccountIndex),
+			rawAccountID,
+			fmt.Sprint(asset.Index),
+			fmt.Sprint(asset.Equity),
+			fmt.Sprint(asset.Debt),
+			fmt.Sprint(asset.Loan),
+			fmt.Sprint(asset.Margin),
+			fmt.Sprint(asset.PortfolioMargin),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // loadCSVSnapshot is the one-shot CSV → []CexAssetInfo absorber. It
 // fuses legacy ParseAssetIndexFromUserFile + ParseCexAssetInfoFromFile
@@ -875,4 +1164,3 @@ func convertFloatStrToUint64(s string, multiplier int64) (uint64, error) {
 	}
 	return b.Uint64(), nil
 }
-
