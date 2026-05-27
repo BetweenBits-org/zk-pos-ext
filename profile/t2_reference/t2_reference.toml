@@ -1,0 +1,55 @@
+# t2_reference profile descriptor.
+#
+# Hypothetical reference profile for the t2_static_haircut_margin model
+# — a deployment with single-pool collateral + static (per-asset)
+# haircut basis points (vs T1's spot-only, T3's tiered curve, T4's
+# three-pool tiered curve).
+#
+# Status: synthetic reference, NOT a real customer integration. Drives
+# the T2 path of the multi-model smoke harness. When a concrete margin
+# customer adopting T2 is confirmed, copy this file under that
+# customer's name and amend catalog + asset_capacity + batch_shapes.
+#
+# Post-R10 input contract: zkpor consumes T2 standard canonical CSV
+# (accounts.csv + cex_assets.csv with haircut_bp column).
+
+[profile]
+name = "t2_reference"
+model = "t2_static_haircut_margin"
+# Tiny capacity for smoke runs — keygen + Setup completes in seconds
+# on m-family laptop. Production T2 deployment would set this to the
+# real catalog size (~100s of assets) and run keygen on a larger host.
+asset_capacity = 10
+
+[identity]
+scheme = "passthrough_hex_bn254_reduced.v0"
+
+[insolvent]
+action = "drop_and_log.v0"
+
+[constraint]
+module = ""  # NoExtensionID — noop
+
+[snapshot]
+# G18 registry key for canonical T2 standard CSV
+# (core/snapshot/t2_static_haircut_margin/parser.go).
+source_type = "t2_standard_csv.v1"
+user_data_dir = "testdata/happy"
+snapshot_id = "t2-reference-smoke"
+
+[snapshot.format]
+null_values = ["", "NA", "null"]
+
+[[batch_shapes]]
+asset_count_tier = 5
+users_per_batch = 10
+
+[pricing]
+default_price_scale = 100000000        # 1e8
+default_balance_scale = 100000000      # 1e8
+# No two_digit_assets — t2_reference uses uniform scaling.
+
+[catalog]
+# Indicative reference symbol list; committed asset order comes from
+# canonical cex_assets.csv at snapshot time.
+symbols = ["btc", "eth", "usdt"]

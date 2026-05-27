@@ -1,0 +1,49 @@
+# t3_reference profile descriptor.
+#
+# Hypothetical reference profile for the t3_tiered_haircut_margin_1pool
+# model — single-pool collateral with a tiered (piecewise-linear)
+# haircut curve per asset (vs T2's static haircut, T4's three-pool
+# tiered curve).
+#
+# Status: synthetic reference, NOT a real customer integration. Drives
+# the T3 path of the multi-model smoke harness. When a real margin
+# customer adopts T3 (e.g. a regulator-friendly variant of Binance-
+# style cross-margin), copy + amend.
+#
+# Post-R10 input contract: zkpor consumes T3 standard canonical CSV
+# (accounts.csv + cex_assets.csv + tier_ratios.csv).
+
+[profile]
+name = "t3_reference"
+model = "t3_tiered_haircut_margin_1pool"
+asset_capacity = 10
+
+[identity]
+scheme = "passthrough_hex_bn254_reduced.v0"
+
+[insolvent]
+action = "drop_and_log.v0"
+
+[constraint]
+module = ""
+
+[snapshot]
+# G18 registry key for canonical T3 standard CSV
+# (core/snapshot/t3_tiered_haircut_margin_1pool/parser.go).
+source_type = "t3_standard_csv.v1"
+user_data_dir = "testdata/happy"
+snapshot_id = "t3-reference-smoke"
+
+[snapshot.format]
+null_values = ["", "NA", "null"]
+
+[[batch_shapes]]
+asset_count_tier = 5
+users_per_batch = 10
+
+[pricing]
+default_price_scale = 100000000
+default_balance_scale = 100000000
+
+[catalog]
+symbols = ["btc", "eth", "usdt"]
