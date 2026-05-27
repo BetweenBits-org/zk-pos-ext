@@ -275,7 +275,7 @@ registry key 가 됨 — 기존 published artifact 와 silently 충돌하지
 |---|---|---|---|
 | Identity scheme | `core/host` | no — universal contract | `passthrough_hex_bn254_reduced.v0` |
 | InvalidAccountPolicy | `core/host` | no — universal contract | `drop_and_log.v0` |
-| Snapshot connector | `core/solvency/<model>/host` | yes — `SnapshotSource` per model | `binance_csv.v1` (T4), `sea_csv.v1` (T1) |
+| Snapshot connector | `core/solvency/<model>/host` | yes — `SnapshotSource` per model | profile raw adapters: `binance_csv.v1` (T4), `sea_csv.v1` (T1); model standard adapters: `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1` |
 | ConstraintModule | `core/solvency/<model>/host` | yes — `ConstraintContext` per model | (none) — empty ID returns engine-default noop without lookup |
 
 **Factory signatures**:
@@ -329,11 +329,63 @@ boundary by name lookup, while `BuildSnapshot` / `BuildConstraintModule`
 are intentionally absent (service main code dispatches on
 `profile.Model` and calls the right model-host directly).
 
-**v1 catalog**: the four entries above. Further additions follow
+**v1 catalog**: the entries above. Further additions follow
 G11 rule-of-three governance — a derivation / policy / connector
 that appears in three independent customer integrations is promoted
 to the engine; one-off customer-local entries stay under the
 customer's profile package and are documented in their `<customer>.toml`.
+
+## 6.3 Raw data layer v1 (G18 closure, R9)
+
+R9 adds a file/data-format layer below the Go `SnapshotSource`
+interface. The standard is **not** a customer's original export. The
+standard is the canonical row set after mapping or thin profile code:
+scaled integers, normalized identifiers, deterministic asset indexes,
+and model-specific collateral fields.
+
+Source-of-truth:
+
+| Layer | Package | Responsibility |
+|---|---|---|
+| Schema metadata | `core/snapshot/schema` | Field types, required flags, primary keys, sort keys, invariant text. |
+| CSV primitives | `core/snapshot/csv` | Header validation, typed scalar parsing, duplicate primary-key detection, context-aware row streaming, `ErrInvalidRow` classification. |
+| Mapping DSL | `core/snapshot/mapping` | CSV dialect, direct/wide-assets file rules, source/constant/source-prefix column rules, decimal-scale validation. |
+| Model standard parsers | `core/snapshot/<model>/parser.go` | Convert canonical files into model-typed `SnapshotSource`; registered as `t*_standard_csv.v1`. |
+| Profile adapters | `profile/<customer>/snapshot.go` | Preserve customer-specific raw export semantics, then materialize canonical files or delegate directly when mapping is sufficient. |
+
+Model standard files are intentionally model-specific:
+
+| Model | Canonical files | Account row shape |
+|---|---|---|
+| T1 `t1_simple_margin` | `accounts.csv`, `cex_assets.csv` | `account_id`, `asset_index`, `equity`, `debt` |
+| T2 `t2_static_haircut_margin` | `accounts.csv`, `cex_assets.csv` | T1 + `collateral` |
+| T3 `t3_tiered_haircut_margin_1pool` | `accounts.csv`, `cex_assets.csv`, `tier_ratios.csv` | T1 + `collateral`, one tier curve per asset |
+| T4 `t4_tiered_haircut_margin_3pool` | `accounts.csv`, `cex_assets.csv`, `tier_ratios.csv` | T1 + `loan_collateral`, `margin_collateral`, `portfolio_margin_collateral` |
+
+Frozen v1 invariants:
+
+1. Amount fields in standard files are already scaled non-negative
+   integers. Raw decimal parsing belongs to mapping/profile code.
+2. `account_id` is 64-hex input; parsers reduce it through BN254
+   `fr.Element.SetBytes(...).Marshal()` before leaf hashing.
+3. `account_index` is optional. If omitted, parsers derive dense order
+   from deterministic file order and first-seen valid account order.
+4. `(account_id, asset_index)` is unique within `accounts.csv`; omitted
+   account-asset pairs mean zero balance.
+5. `cex_assets.csv` contains real asset rows. Parsers pad to deployment
+   `AssetCapacity` with `reserved` zero slots.
+6. Schema changes follow R7 catalog governance: additive fields are a
+   minor compatible bump; removal or rename is disallowed in v1.
+
+Current profile status:
+
+- `profile/binance` keeps Binance raw wide CSV semantics and materializes
+  T4 standard files before delegating to `core/snapshot/t4...`.
+- `profile/sea_reference` keeps SEA spot CSV semantics and materializes
+  T1 standard files before delegating to `core/snapshot/t1...`.
+- A future customer whose export fits `core/snapshot/mapping` can avoid
+  custom Go and point profile.toml at a `t*_standard_csv.v1` connector
+  after the mapped canonical files are produced.
 
 ## 6.1 Multi-customer `.vk` 공유 정책 (G12 closure)
 

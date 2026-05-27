@@ -76,7 +76,7 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 | `zkpor/core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
 | `zkpor/core/host/*` | ✅ off-circuit (native) universal 헬퍼 — `VerifyMerkleProof` (Poseidon BN254 SMT, legacy parity). **R8-A: identity + insolvent registries** (78710d5) — `IdentitySchemePassthroughHexBN254ReducedV0` + `InsolventActionDropAndLogV0` self-register via init(). G17 closure. |
 | `zkpor/core/tree/*` | ✅ bsmt depth-28 SMT wrapper + `EmptyAccountLeafHash` (Poseidon(0,0,0,0,0)). memory/redis 백엔드. **default=memory, redis=opt-in** (A0 결정: snapshot-SoT 와 정합). witness + userproof 공유 (commit c96018d) |
-| `zkpor/core/snapshot/*` | ✅ **R9-A/B/C/D done** — standard raw snapshot schema metadata + CSV primitives + mapping DSL + 4 model standard canonical CSV connectors. `schema` 패키지 + 4 model schema (`t1_simple_margin`, `t2_static_haircut_margin`, `t3_tiered_haircut_margin_1pool`, `t4_tiered_haircut_margin_3pool`). `csv` 패키지는 canonical CSV header 검증, scalar type validation, primary-key duplicate detection, `ErrInvalidRow` 분류, context-aware streaming 제공. `mapping` 패키지는 raw CSV dialect, direct/wide_assets file mapping, source/constant/source_prefix column rules, type assertion, decimal_scale validation 제공. Standard connector IDs: `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1`. |
+| `zkpor/core/snapshot/*` | ✅ **R9 closed** — standard raw snapshot schema metadata + CSV primitives + mapping DSL + 4 model standard canonical CSV connectors. `schema` 패키지 + 4 model schema (`t1_simple_margin`, `t2_static_haircut_margin`, `t3_tiered_haircut_margin_1pool`, `t4_tiered_haircut_margin_3pool`). `csv` 패키지는 canonical CSV header 검증, scalar type validation, primary-key duplicate detection, `ErrInvalidRow` 분류, context-aware streaming 제공. `mapping` 패키지는 raw CSV dialect, direct/wide_assets file mapping, source/constant/source_prefix column rules, type assertion, decimal_scale validation 제공. Standard connector IDs: `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1`. G18 closed in `docs/02 §6.3` + `docs/04 §12`. |
 | `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host/*` | ✅ off-circuit model-specific 헬퍼 — `ComputeUserAssetsCommitment` + `ComputeCexAssetsCommitment(slice, capacity)` + `AccountLeafHash` + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` + 공유 `UserConfig` 타입. **R8-B/2: snapshot connector registry** (4369a91) — factory signature `(dir, id, capacity, PriceScaleProvider)` (pricing tail added R8-E). **R8-B/3: constraint module registry** (fc8325d) — empty ID returns universal noop. 모두 legacy byte-equivalence/round-trip 테스트 통과 |
 | `zkpor/store/*` | ✅ gorm 영속화 계층 — `Open` + `ConvertMySQLErr` + 3 모델 (`BatchWitness` 78acd39, `Proof` + witness 상태머신 메서드 16f36bd, `UserProof` b7e57e6) + **`ProofStore.ListAllInOrder()` (A4, f1ba54a)** for verifier DB 직접 읽기 경로. 단일 instance DB-poll (`ClaimOldestByStatus` 트랜잭션) 채택 — Redis BLPOP 큐는 multi-worker scaling 시 follow-up. PostgreSQL adapter 는 slice D (deferred) |
 | `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service (legacy `src/verifier` 의 zkpor-native 대체, 3-mode CLI: batch / -user / -hash). DB 직접 읽기 모드 (A4). per-asset equity<debt warning (A5). **R8-D (950c728)**: profile.toml-driven — `-profile <toml>` + `-keys-dir <path>` (batch) + `-asset-capacity` override. config.json 슬림 (DB + DbSuffix + ProofTable + CexAssetsInfo). tiers/stems/capacity 는 declarative builder + resolveFromProfile 로 derive. |
@@ -101,6 +101,17 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 최근 작업 흐름:
 
 ```text
+<R9/close> docs(zkpor): R9-close — raw data layer v1 + G18 closure
+        (`docs/02-module-architecture.md §6.3`: raw data layer v1
+         ownership, model-specific canonical files, frozen invariants,
+         profile adapter status. PRODUCTION_ROADMAP G18 moved
+         deferred → closed. R9-A~F complete.)
+<R9/F>   feat(zkpor): R9-F — sea_reference raw CSV adapter delegates to standard parser
+        (`profile/sea_reference/snapshot.go`: materialize raw spot
+         cex_assets_info.csv + user shards into canonical T1 standard
+         accounts/cex_assets CSV, then delegate
+         CexAssets/AccountStream/InvalidCount to T1 standard parser.
+         Existing SEA profile tests pass.)
 <R9/D1>  feat(zkpor): R9-D/1 — T1/T4 standard CSV snapshot connectors
         (`core/snapshot/t1_simple_margin` + `.../t4...` parser.go:
          canonical accounts.csv/cex_assets.csv[/tier_ratios.csv] →
@@ -919,19 +930,20 @@ R6 후 surface 된 환경 이슈 (별 슬라이스 후보):
   backend/groth16/bn254 명시 import, 또는 module cache 의 bw6 패키지
   복원. 별 슬라이스 (R6.5 env fix) 로 처리.
 
-다음 슬라이스 갈래 (post-R8) — agent 가 선택 (또는 user 와 합의):
+다음 슬라이스 갈래 (post-R9) — agent 가 선택 (또는 user 와 합의):
 
-**갈래 R9 — Customer raw data standardization (RECOMMENDED, V1-PROD 직전 자연 다음)**:
+**갈래 R9 — Customer raw data standardization (closed)**:
 
 ```text
-R8 종결 시점 (현재) 의 customer-specific 코드 = profile/<customer>/
-snapshot.go (binance ~31k LoC, sea_reference ~16k LoC). 거래소마다
+R8 종결 시점의 customer-specific 코드 = profile/<customer>/
+snapshot.go (binance / sea_reference raw adapters). 거래소마다
 raw data (CSV/DB/JSONL) 포맷이 달라 어쩔 수 없는 형태였음.
 
 R9 의 목표는 그 customer-specific 부분도 *모델별 표준 raw schema +
 mapping config* 로 축소. snapshot.go 가 thin (~10-30 LoC) 으로 수렴.
 Mapping 으로 표현 불가능한 transform 은 thin adapter 코드 (escape
-hatch) 로 흡수.
+hatch) 로 흡수. R9 종료 시점의 binance / sea_reference 는 raw
+export semantics 를 유지하면서 standard parser 로 위임한다.
 
 자세한 내용 PRODUCTION_ROADMAP §R9. 작업 분해 ~6-8 슬라이스:
   R9-A   ✅ 모델별 표준 schema 정의 (4 model) + docs/04 §12
@@ -940,7 +952,7 @@ hatch) 로 흡수.
   R9-D   ✅ 4 model standard CSV connector + registry 적응
   R9-E   ✅ profile/binance snapshot.go thin rewrite + standard parser delegation
   R9-F   ✅ profile/sea_reference snapshot.go thin rewrite + standard parser delegation
-  R9-close  G18 closure + handoff/roadmap
+  R9-close ✅ G18 closure + handoff/roadmap
 
 R9 종료 후 customer onboarding 비용:
   toml (mapping 포함) + (필요 시) thin adapter ~10-30 LoC
