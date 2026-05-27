@@ -18,14 +18,11 @@
 //   - profile/binance/binance.toml              — T4 standard CSV deployment descriptor
 //   - profile/sea_reference/sea_reference.toml  — T1 standard CSV reference descriptor
 //
-// At R7 these are *documentation-grade* artefacts (the loader and
-// schema are exercised by tests), not the actual service input. The
-// procedural Go adapters in profile/<customer>/ remain authoritative
-// for now. A future slice (R7+1 / V1 production deployment) will swap
-// service startup from "construct adapters in Go" to "Load(profile.toml)
-// → assemble adapters from values". That transition is intentionally
-// NOT part of R7 — flipping it requires every adapter constructor to
-// accept its values via arguments, a separate large refactor.
+// Post-R10, these files are the customer-facing engine descriptors
+// consumed by service startup. Customer raw export adapters are not
+// linked into the engine; [snapshot].source_type points at a model
+// standard CSV connector and [snapshot].user_data_dir points at
+// canonical standard CSV files produced before services start.
 //
 // The schema is intentionally over-permissive — fields only some
 // models need (e.g. pricing.two_digit_assets) are present at the top
@@ -91,12 +88,12 @@ type Snapshot struct {
 	SourceType  string `toml:"source_type"`   // e.g. "t4_standard_csv.v1"
 	UserDataDir string `toml:"user_data_dir"` // directory holding the CSV inputs
 	SnapshotID  string `toml:"snapshot_id"`   // human-readable timestamp / sequence
-	// Format is an additive R9-C table for raw CSV dialect options.
-	// Empty values preserve the R8 procedural adapter behavior.
+	// Format is an additive R9-C table for standard CSV dialect options.
+	// Empty values mean the canonical CSV defaults.
 	Format snapshotmapping.Format `toml:"format"`
-	// Files is an additive R9-C mapping list from customer raw files to
-	// standard schema files. Empty means the profile still uses its
-	// procedural snapshot connector.
+	// Files is an additive R9-C mapping list for preprocessor tooling.
+	// Service runtime consumes canonical standard files directly; empty
+	// is the normal V1 product configuration.
 	Files []snapshotmapping.File `toml:"files"`
 }
 
@@ -117,9 +114,8 @@ type Pricing struct {
 	TwoDigitBalanceScale int64    `toml:"two_digit_balance_scale"`
 }
 
-// CatalogConfig holds the catalog's static symbol list. In production
-// the order is derived from the user-CSV header at snapshot time; the
-// list here is a publishable reference for verifiers.
+// CatalogConfig holds a publishable reference symbol list for verifiers.
+// The committed per-snapshot order comes from canonical cex_assets.csv.
 type CatalogConfig struct {
 	Symbols []string `toml:"symbols"`
 }

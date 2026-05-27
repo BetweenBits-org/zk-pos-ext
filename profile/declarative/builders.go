@@ -51,10 +51,12 @@ func BuildInsolvent(cfg Insolvent) spec.InvalidAccountPolicy {
 	return host.NewInsolventPolicy(cfg.Action)
 }
 
-// BuildSnapshotMapping returns the additive R9-C raw-data mapping
+// BuildSnapshotMapping returns the additive R9-C snapshot mapping
 // config for a profile after validating it against the selected model's
-// standard snapshot schema. Empty Files is valid and means the profile
-// still uses a procedural snapshot adapter.
+// standard snapshot schema. Empty Files is valid and is the normal
+// R10+ service-runtime configuration: services consume canonical
+// standard CSV directly, while customer raw export normalization lives
+// outside the engine.
 func BuildSnapshotMapping(model spec.SolvencyModelID, cfg Snapshot) (snapshotmapping.Config, error) {
 	if model == "" {
 		return snapshotmapping.Config{}, fmt.Errorf("profile.model is empty")
