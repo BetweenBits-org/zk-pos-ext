@@ -249,13 +249,19 @@ run_verifier_user() {
 # Clear DB rows between smoke runs against different profiles so the
 # verifier doesn't see leftover proofs from a previous model. Idempotent:
 # tables may not exist on a fresh run.
+#
+# Table names come from store/*.go: witnessTablePrefix="witness",
+# proofTablePrefix="proof", userProofTablePrefix="userproof"
+# (no DbSuffix in the smoke config). Errors aren't masked so a wrong
+# password or table-name drift surfaces immediately rather than
+# silently leaving stale rows that panic the next witness run.
 clear_db_state() {
   log "clearing prior smoke DB state (idempotent)"
   docker exec zkpor-smoke-mysql mysql -uzkpor -pzkpor@123 -e "
     DROP TABLE IF EXISTS zkpor.proof;
-    DROP TABLE IF EXISTS zkpor.batch_witness;
-    DROP TABLE IF EXISTS zkpor.user_proof;
-  " >/dev/null 2>&1 || true
+    DROP TABLE IF EXISTS zkpor.witness;
+    DROP TABLE IF EXISTS zkpor.userproof;
+  " 2>&1 | grep -v "Using a password" || true
 }
 
 main() {
