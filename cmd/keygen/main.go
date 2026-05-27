@@ -141,10 +141,13 @@ func keygenShape(model corespec.SolvencyModelID, s corespec.BatchShape, assetCap
 	runtime.GC()
 	fmt.Printf("%s: groth16.Setup done in %s\n", stemPath, time.Since(setupStart))
 
-	// .pk uses WriteRawTo (uncompressed) so prover's UnsafeReadFrom can
-	// load it; .vk uses WriteTo (compressed) so prover/verifier ReadFrom
-	// can load it; .r1cs has only WriteTo / ReadFrom.
-	if err := writeTo(stemPath+".pk", func(f *os.File) (int64, error) { return pk.WriteRawTo(f) }); err != nil {
+	// .pk uses WriteTo (compressed G1/G2 points) — same encoding as the
+	// legacy Binance keygen, halves on-disk size vs WriteRawTo (24GB →
+	// 12GB for the t4_tiered_haircut_margin_3pool 50_700/500_92 shapes
+	// at capacity=500). gnark's pk.UnsafeReadFrom auto-detects the
+	// encoding, so prover read path is unchanged. .vk + .r1cs use
+	// WriteTo for the same reason.
+	if err := writeTo(stemPath+".pk", func(f *os.File) (int64, error) { return pk.WriteTo(f) }); err != nil {
 		return err
 	}
 	if err := writeTo(stemPath+".vk", func(f *os.File) (int64, error) { return vk.WriteTo(f) }); err != nil {
