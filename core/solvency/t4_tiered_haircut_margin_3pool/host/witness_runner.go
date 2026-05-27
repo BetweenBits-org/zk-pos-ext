@@ -51,6 +51,17 @@ func RunWitness(cfg WitnessRunnerConfig) error {
 		return fmt.Errorf("CexAssets: %w", err)
 	}
 
+	// Zero the published sum fields. Static fields (BasePrice,
+	// LoanRatios, MarginRatios, PortfolioMarginRatios) preserved.
+	// Same fix class as T1.
+	for i := range cexAssets {
+		cexAssets[i].TotalEquity = 0
+		cexAssets[i].TotalDebt = 0
+		cexAssets[i].LoanCollateral = 0
+		cexAssets[i].MarginCollateral = 0
+		cexAssets[i].PortfolioMarginCollateral = 0
+	}
+
 	accountsByTier, err := streamAndBucket(cfg.Ctx, cfg.Snapshot, cfg.AssetCountTiers)
 	if err != nil {
 		return err

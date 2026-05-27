@@ -36,6 +36,16 @@ func RunWitness(cfg WitnessRunnerConfig) error {
 		return fmt.Errorf("CexAssets: %w", err)
 	}
 
+	// cex_assets.csv carries the *published* per-asset totals (= Σ user.equity).
+	// The witness chain starts from the empty state and accumulates per-batch
+	// up to the published values, so the verifier's first-batch
+	// before-CEX commitment matches the published-zero commitment.
+	// Static fields (BasePrice, Symbol, Index) are preserved.
+	for i := range cexAssets {
+		cexAssets[i].TotalEquity = 0
+		cexAssets[i].TotalDebt = 0
+	}
+
 	accountsByTier, err := streamAndBucket(cfg.Ctx, cfg.Snapshot, cfg.AssetCountTiers)
 	if err != nil {
 		return err
