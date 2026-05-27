@@ -203,3 +203,7 @@ wall_clock_multi(users, N_workers) ≈ (single instance wall-clock) / N_workers 
 + padding 으로 prove time 의 fixed overhead 비중이 큼 → 1M real users 시
 sub-linearity 가 정확히 어떻게 나오는지 미검증. **R11 closure** 후 본
 문서 v2 발행 — real-scale base + GPU + multi-instance 추가.
+
+Benchmark 측정 방법론 (Setup vs Prove 분리, ablation 디자인, minimum
+viable plan) 은 별도 문서:
+**`docs/estimates/2026-05-28_benchmark_strategy.md`**.
