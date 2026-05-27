@@ -49,6 +49,8 @@ import (
 	"time"
 
 	t1circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/circuit"
+	t2circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/circuit"
+	t3circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/circuit"
 	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
@@ -158,14 +160,26 @@ func keygenShape(model corespec.SolvencyModelID, s corespec.BatchShape, assetCap
 // adding a new model means extending this switch.
 func newCircuit(model corespec.SolvencyModelID, s corespec.BatchShape, assetCapacity int) (frontend.Circuit, error) {
 	switch model {
-	case "t4_tiered_haircut_margin_3pool":
-		return t4circuit.NewBatchCreateUserCircuit(
+	case "t1_simple_margin":
+		return t1circuit.NewBatchCreateUserCircuit(
 			uint32(s.AssetCountTier),
 			uint32(assetCapacity),
 			uint32(s.UsersPerBatch),
 		), nil
-	case "t1_simple_margin":
-		return t1circuit.NewBatchCreateUserCircuit(
+	case "t2_static_haircut_margin":
+		return t2circuit.NewBatchCreateUserCircuit(
+			uint32(s.AssetCountTier),
+			uint32(assetCapacity),
+			uint32(s.UsersPerBatch),
+		), nil
+	case "t3_tiered_haircut_margin_1pool":
+		return t3circuit.NewBatchCreateUserCircuit(
+			uint32(s.AssetCountTier),
+			uint32(assetCapacity),
+			uint32(s.UsersPerBatch),
+		), nil
+	case "t4_tiered_haircut_margin_3pool":
+		return t4circuit.NewBatchCreateUserCircuit(
 			uint32(s.AssetCountTier),
 			uint32(assetCapacity),
 			uint32(s.UsersPerBatch),
