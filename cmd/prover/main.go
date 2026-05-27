@@ -43,13 +43,6 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
-
-	// Blank-imports auto-register snapshot/identity/insolvent entries
-	// (R8-A/B). Even though the prover doesn't itself read the
-	// snapshot, importing the profile packages keeps the binary's
-	// registries warm for cross-service identity-scheme assertions.
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
 )
 
 // expectedModel is the solvency model this prover binary supports.

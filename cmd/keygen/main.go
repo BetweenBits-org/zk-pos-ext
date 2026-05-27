@@ -35,9 +35,9 @@
 //
 // R8-C/1 swap: previously the profile was hard-coded to
 // profile/binance via direct constructor calls. Now profile.toml is
-// the source-of-truth; the binance package is still imported so its
-// init() registers the binance_csv snapshot connector (the t4 host's
-// registry would otherwise be missing the entry the toml references).
+// the source-of-truth. Keygen does not consume snapshot connectors;
+// those are registered only by services that read canonical snapshot
+// data.
 package main
 
 import (
@@ -52,12 +52,6 @@ import (
 	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
-
-	// _ imports register snapshot connectors + identity/insolvent in
-	// the engine registries (R8-A/B). When a new profile lands, add
-	// its blank import here.
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"

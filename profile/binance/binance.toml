@@ -1,10 +1,9 @@
-# Binance profile, declarative form (R5-3 draft).
+# Binance profile descriptor.
 #
-# At R5 this is a documentation artefact — the procedural adapters in
-# profile/binance/*.go remain the authoritative implementation; the
-# loader at profile/declarative/profile.go can parse this file and
-# Validate() will accept it, but no service startup currently consumes
-# it. The wiring swap is a post-R5 / pre-R7 slice.
+# Post-R10 input contract: zkpor consumes model-standard canonical CSV
+# files, not Binance raw exports. The operator/preprocessor is
+# responsible for producing T4 standard accounts.csv, cex_assets.csv,
+# and tier_ratios.csv before services start.
 
 [profile]
 name = "binance"
@@ -23,10 +22,9 @@ action = "drop_and_log.v0"
 module = ""  # NoExtensionID — noop
 
 [snapshot]
-# G17 registry key for the T4 snapshot connector. profile/binance
-# registers its CSV ETL under this exact id (R8-B/2).
-source_type = "binance_csv.v1"
-user_data_dir = "/server/data/<snapshot_id>"
+# G18 registry key for canonical T4 standard CSV.
+source_type = "t4_standard_csv.v1"
+user_data_dir = "/server/standard-data/<snapshot_id>"
 snapshot_id = "<set per snapshot>"
 
 [snapshot.format]
@@ -53,8 +51,7 @@ two_digit_price_scale = 100000000000000   # 1e14
 two_digit_balance_scale = 100             # 1e2
 
 [catalog]
-# In production the symbol order is derived from the user-CSV header at
-# snapshot time; this list is a publishable reference for auditors and
-# verifier-side users. Leave empty if the operator prefers
-# snapshot-header-only ordering.
+# In production the committed asset order is derived from cex_assets.csv.
+# This list is a publishable reference for auditors and verifier-side
+# users. Leave empty if the operator prefers snapshot-only ordering.
 symbols = []

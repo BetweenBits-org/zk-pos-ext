@@ -15,8 +15,8 @@
 //
 // Two reference instantiations:
 //
-//   - profile/binance/binance.toml          — t4_tiered_haircut_margin_3pool model
-//   - profile/sea_reference/sea_reference.toml — t1_simple_margin model
+//   - profile/binance/binance.toml              — T4 standard CSV deployment descriptor
+//   - profile/sea_reference/sea_reference.toml  — T1 standard CSV reference descriptor
 //
 // At R7 these are *documentation-grade* artefacts (the loader and
 // schema are exercised by tests), not the actual service input. The
@@ -88,7 +88,7 @@ type Constraint struct {
 
 // Snapshot describes the source-type and per-source parameters.
 type Snapshot struct {
-	SourceType  string `toml:"source_type"`   // e.g. "binance_csv", "sea_csv"
+	SourceType  string `toml:"source_type"`   // e.g. "t4_standard_csv.v1"
 	UserDataDir string `toml:"user_data_dir"` // directory holding the CSV inputs
 	SnapshotID  string `toml:"snapshot_id"`   // human-readable timestamp / sequence
 	// Format is an additive R9-C table for raw CSV dialect options.

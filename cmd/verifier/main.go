@@ -45,11 +45,6 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 	"github.com/gocarina/gocsv"
-
-	// Blank-imports for registry self-registration symmetry across
-	// services (R8-A/B).
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
 )
 
 // expectedModel — V1-PROD T4 only.

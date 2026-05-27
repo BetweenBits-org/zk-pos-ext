@@ -41,12 +41,10 @@ import (
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 
-	// _ imports register snapshot/identity/insolvent entries in the
-	// engine registries (R8-A/B). Every customer profile package that
-	// may be referenced from profile.toml MUST appear here so its
-	// init() runs.
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
+	// Register the canonical T4 standard CSV snapshot connector selected
+	// by V1-PROD profile.toml files. Customer raw exports are normalized
+	// before entering this binary.
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
 )
 
 // expectedModel is the solvency model this witness binary supports.

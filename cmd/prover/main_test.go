@@ -51,7 +51,7 @@ func TestBuildResolved_DerivesTiersAndStems(t *testing.T) {
 		},
 		Identity:  declarative.Identity{Scheme: "passthrough_hex_bn254_reduced.v0"},
 		Insolvent: declarative.Insolvent{Action: "drop_and_log.v0"},
-		Snapshot:  declarative.Snapshot{SourceType: "binance_csv.v1"},
+		Snapshot:  declarative.Snapshot{SourceType: "t4_standard_csv.v1"},
 		BatchShapes: []declarative.BatchShape{
 			{AssetCountTier: 500, UsersPerBatch: 92},
 			{AssetCountTier: 50, UsersPerBatch: 700},

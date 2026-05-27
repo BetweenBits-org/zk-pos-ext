@@ -37,9 +37,10 @@ import (
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 
-	// Blank-imports for registry self-registration.
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/binance"
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/sea_reference"
+	// Register the canonical T4 standard CSV snapshot connector selected
+	// by V1-PROD profile.toml files. Customer raw exports are normalized
+	// before entering this binary.
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
 )
 
 const expectedModel corespec.SolvencyModelID = "t4_tiered_haircut_margin_3pool"
@@ -333,4 +334,3 @@ func buildUserProofRow(
 		Config:          string(configJSON),
 	}, nil
 }
-
