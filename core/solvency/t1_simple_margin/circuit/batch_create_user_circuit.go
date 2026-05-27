@@ -110,6 +110,14 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 	cexAssets := make([]Variable, len(b.BeforeCexAssets)*countOfCexAsset)
 	afterCexAssets := make([]CexAssetInfo, len(b.BeforeCexAssets))
 
+	// Per-asset BasePrice lookup table. Mirrors the T4 pattern: the
+	// per-user TotalEquity / TotalDebt totals folded into the account
+	// leaf hash are *USD-scaled* (Σ equity × basePrice), not raw asset
+	// quantities. Raw cross-asset sums are unit-meaningless and would
+	// make AssertIsLessOrEqual(debt, equity) a contentless check.
+	// Identical to T4's assetPriceTable construction.
+	assetPriceTable := logderivlookup.New(api)
+
 	r := rangecheck.New(api)
 	for i := range b.BeforeCexAssets {
 		r.Check(b.BeforeCexAssets[i].TotalEquity, 64)
@@ -118,6 +126,7 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 
 		fillCexAssetCommitment(api, b.BeforeCexAssets[i], i, cexAssets)
 		afterCexAssets[i] = b.BeforeCexAssets[i]
+		assetPriceTable.Insert(b.BeforeCexAssets[i].BasePrice)
 	}
 	actualCexAssetsCommitment := poseidon.Poseidon(api, cexAssets...)
 	api.AssertIsEqual(b.BeforeCEXAssetsCommitment, actualCexAssetsCommitment)
@@ -183,6 +192,11 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 		userAssetsEquityResults[i] = userEquityLookup.Lookup(userAssetsQueries[i]...)
 		userAssetsDebtResults[i] = userDebtLookup.Lookup(userAssetsQueries[i]...)
 
+		// Per-user assetPriceResponses[j] = BasePrice[userAssets[j].Index].
+		// Used to compute USD-scaled totals (totalUserEquity /
+		// totalUserDebt) the account leaf hash binds. Same T4 pattern.
+		assetPriceResponses := assetPriceTable.Lookup(userAssetsQueries[i]...)
+
 		// Cross-check: each lookup result must equal the user's claimed
 		// Equity / Debt at the same asset index. This binds the user's
 		// Assets slice values to the AssetsForUpdateCex accumulation
@@ -192,15 +206,19 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 		for j := range userAssets {
 			api.AssertIsEqual(userAssetsEquityResults[i][j], userAssets[j].Equity)
 			api.AssertIsEqual(userAssetsDebtResults[i][j], userAssets[j].Debt)
-			totalUserEquity = api.Add(totalUserEquity, userAssets[j].Equity)
-			totalUserDebt = api.Add(totalUserDebt, userAssets[j].Debt)
+			// USD-scaled accumulation: equity × basePrice. Matches the
+			// host-side AccountLeafHash input (account.TotalEquity is
+			// the parser's Σ equity×basePrice).
+			totalUserEquity = api.Add(totalUserEquity, api.Mul(userAssets[j].Equity, assetPriceResponses[j]))
+			totalUserDebt = api.Add(totalUserDebt, api.Mul(userAssets[j].Debt, assetPriceResponses[j]))
 		}
 		r.Check(totalUserEquity, 128)
 		r.Check(totalUserDebt, 128)
 
-		// Account-level solvency: TotalEquity ≥ TotalDebt. Trivially
-		// satisfied for spot users (debt=0). The defining T1 constraint.
-		api.AssertIsLessOrEqual(totalUserDebt, totalUserEquity)
+		// Account-level solvency: TotalEquity ≥ TotalDebt in USD value.
+		// Trivially satisfied for spot users (debt=0). The defining T1
+		// constraint. NOp form (T4-style) for 128-bit scaled values.
+		api.AssertIsLessOrEqualNOp(totalUserDebt, totalUserEquity, 128, true)
 
 		// Accumulate per-slot equity AND debt into the running AfterCex view.
 		for j := range b.CreateUserOps[i].AssetsForUpdateCex {

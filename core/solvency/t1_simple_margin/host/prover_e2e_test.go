@@ -55,6 +55,16 @@ func TestT1ProverEndToEnd(t *testing.T) {
 	// 2. Build 10 accounts × 3 assets each, mirroring the testdata
 	//    pattern (account_id = 0x11..11 .. 0xaa..aa). AccountID is
 	//    fr.Modulus-reduced (same as canonicalAccountID in the parser).
+	//
+	// TotalEquity is the USD-scaled sum (Σ equity × basePrice) the
+	// account leaf hash binds — matches the parser's per-asset
+	// addScaled accumulator. Σ for (10·6.5e12 + 100·3.5e11 + 1e4·1e8)
+	// = 65e12 + 35e12 + 1e12 = 101e12.
+	scaledTotalEquity := new(big.Int)
+	scaledTotalEquity.Add(scaledTotalEquity, new(big.Int).Mul(big.NewInt(10), big.NewInt(6500000000000)))
+	scaledTotalEquity.Add(scaledTotalEquity, new(big.Int).Mul(big.NewInt(100), big.NewInt(350000000000)))
+	scaledTotalEquity.Add(scaledTotalEquity, new(big.Int).Mul(big.NewInt(10000), big.NewInt(100000000)))
+
 	accountIDPatterns := []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa}
 	accounts := make([]t1spec.AccountInfo, len(accountIDPatterns))
 	for i, p := range accountIDPatterns {
@@ -66,7 +76,7 @@ func TestT1ProverEndToEnd(t *testing.T) {
 		accounts[i] = t1spec.AccountInfo{
 			AccountIndex: uint32(i),
 			AccountID:    canonical,
-			TotalEquity:  big.NewInt(10 + 100 + 10000), // per-asset sum
+			TotalEquity:  new(big.Int).Set(scaledTotalEquity),
 			TotalDebt:    big.NewInt(0),
 			Assets: []t1spec.AccountAsset{
 				{Index: 0, Equity: 10, Debt: 0},
