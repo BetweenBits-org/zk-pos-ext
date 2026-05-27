@@ -69,10 +69,14 @@ ensure_mysql() {
 }
 
 # 2. Keygen — skip if every shape's artifact triplet is already present.
+# ARTIFACTS dir is created either way so downstream stages can write
+# their dumps (final_cex_assets.json, user_config.json) without
+# tripping over a missing parent dir.
 ensure_keys() {
+  mkdir -p "$ARTIFACTS"
   local missing=0
   while read -r stem; do
-    if ! [ -f "$ARTIFACTS/$stem.pk" ] && [ -f "$ARTIFACTS/$stem.vk" ] && [ -f "$ARTIFACTS/$stem.r1cs" ]; then
+    if [ ! -f "$ARTIFACTS/$stem.pk" ] || [ ! -f "$ARTIFACTS/$stem.vk" ] || [ ! -f "$ARTIFACTS/$stem.r1cs" ]; then
       missing=1
     fi
   done < <(shape_stems)
