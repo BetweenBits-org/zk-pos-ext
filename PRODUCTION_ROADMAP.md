@@ -789,6 +789,167 @@ Stage 분리 근거 (R8 와 분리):
 - R8 + R9 둘 다 통합 시 총 ~14 슬라이스 한 stage = scope creep.
 - V1-PROD 진입 가능 시점: R10 종료 후. 엔진 입력 계약은 standard CSV only.
 
+### Stage R11 — 1M-scale 측정 test bed 구축
+
+**목적**: V1 GTM 의 핵심 SLA 주장 ("중형 거래소 30분 이내",
+"1M 거래소 ~20분") 의 실측 base. 현재 측정값 (`docs/reports/`) 은
+testdata 10 real accounts → padding 으로 fixed overhead 비중이 크다.
+real-scale prove time + userproof time + DB throughput 을 검증.
+
+**Entry blocker**: 없음 (V1 product GTM positioning 의 기반 자료).
+
+**작업 분해**:
+
+- **R11-A** — Real-scale synthetic testdata generator
+  - `scripts/gen_testdata.sh` (또는 Go cmd 추가)
+  - 입력: model, capacity, target account count, asset distribution profile
+  - 출력: `profile/<name>/testdata/scale_<N>/{accounts,cex_assets[,tier_ratios]}.csv`
+  - per-asset sum equality 자동 만족
+  - account_id BN254 reduced 보장
+- **R11-B** — Smoke harness 의 sample-data 인자화
+  - `scripts/smoke.sh` 가 `-snapshot <path>` 또는 env 로 testdata 경로 받음
+  - 현재 `profile/<>/testdata/happy/` 하드코딩 제거
+- **R11-C** — Per-stage timing 표 자동 추출
+  - `scripts/extract_smoke_metrics.sh` 확장 — total prove time, per-batch
+    average, userproof per-account median 등 추가
+  - 보고서 template 의 timing 표 항목과 매칭
+- **R11-D** — CPU baseline 측정 (m8a.12xlarge or r7a.4xlarge)
+  - 100K / 500K / 1M user × T1 + T4 production
+  - 결과 → `docs/reports/2026-XX-XX_realscale_cpu.md`
+
+**Exit criteria**:
+- Real 1M user smoke 가 documented SLA 달성 (T1 spot CPU ~30-50min, T4
+  margin CPU ~수시간 — measured)
+- timing 표가 GPU/multi-instance 대비 baseline 으로 사용 가능
+- 견적 보고서 (`docs/estimates/2026-05-28_gpu_1m_prove_estimate.md`) 의
+  per-batch CPU prove time 추정값 정확도 검증 (현재 측정 m8a.12xl 단일
+  batch 기준)
+
+**관련 Gate**: 없음 (측정 작업이라 회로/계약 변경 없음).
+
+### Stage R12 — Prove-path GPU 가속 backend (코어 — engine 내부)
+
+**목적**: G15 (GPU backend deferred) closure. zkpor 의 prove path 에
+gnark 의 ICICLE backend 통합 → MSM/FFT GPU 가속. 견적 (`docs/estimates/
+2026-05-28_gpu_1m_prove_estimate.md`) 의 3-5× speedup 가설 실측.
+
+**범위 한계** (R12 가 *코어* 한정 — R13 이 외부):
+- 코어 (engine): `cmd/prover` 의 backend option, gnark API integration,
+  build/CI CUDA toolchain, AMI/bootstrap 수정
+- 외부 (operations): multi-instance scaling, queue, load-balancing →
+  **R13** 으로 분리
+
+**Entry blocker**:
+- R11-D CPU baseline 측정 (GPU speedup 가설 검증 대상)
+- `bnb-chain/gnark` v0.10.1 fork 의 ICICLE backend 호환성 PoC
+  (gnark fork 가 upstream ICICLE wiring 그대로 두는지 확인)
+
+**작업 분해**:
+
+- **R12-A** — ICICLE backend PoC
+  - `bnb-chain/gnark` fork 의 `backend.WithIcicleAcceleration()` 호출
+    가능성 확인. fork divergence 검토.
+  - 작은 회로 (T1 tiny smoke, 165k constraints) 에서 GPU prove 동작 확인.
+  - GPU 없는 환경에서 build fail / fallback 동작 확인.
+- **R12-B** — `cmd/prover` backend toggle
+  - `-gpu` flag 또는 env (`ZKPOR_PROVE_BACKEND=cpu|gpu`) 추가.
+  - service config 에 backend option (default CPU).
+  - GPU 미지원 환경에서 graceful fallback OR fail-fast (운영 정책 결정).
+- **R12-C** — Build / CI 변경
+  - CUDA toolkit 의존성 추가 (build tag 분리: `+gpu` 빌드시만).
+  - bootstrap.sh 에 NVIDIA driver + CUDA runtime install 옵션.
+  - AMI 옵션: Deep Learning Base AMI (CUDA preinstalled).
+- **R12-D** — GPU 측정 smoke
+  - g6.4xlarge (L4) on EC2.
+  - mid-tier (cap=200, shape=20_500) + production T4 두 시나리오.
+  - 결과 → `docs/reports/2026-XX-XX_gpu_l4_*.md`.
+  - 견적 (3-5× speedup) 의 실측 정확도.
+
+**Exit criteria**:
+- T4 production 1 batch prove 가 m8a.12xl 17.2s → L4 4-6s (≥3× speedup)
+- 회로/witness/proof byte-equivalence 보존 (GPU/CPU prove 가 같은
+  `.vk` 로 verify 통과)
+- CPU only fallback 가 R12 도입 후에도 작동 (production 운영 안정성)
+
+**관련 Gate**: G15 (`deferred → closed`).
+
+**비-목표** (R12 명시적 제외):
+- multi-GPU 활용 (single GPU per prover process — R13 에서 multi-instance)
+- GPU pool 공유 (multi-process GPU contention 처리)
+- production cluster 배포
+
+### Stage R13 — Multi-instance prover 아키텍처 (코어 외부 — deploy / operations)
+
+**목적**: production scale (≥1M user) 시 `batches × per-batch prove` 가
+single-instance 시간 SLA 깸. multi-worker prover 가 batches 를 병렬
+처리 → wall-clock = `(batches × per-batch) / workers`. 견적 (`docs/
+estimates/`) 의 multi-instance 시나리오 실측 + 운영 자동화.
+
+**범위 한계** (R13 가 *외부* 한정 — R12 가 코어):
+- 외부: Redis BLPOP 큐, multi-worker prover orchestration, queue
+  monitoring, autoscaling, dev/prod 운영 차이
+- 코어 (engine): `cmd/prover` 의 큐 polling 변경 (Redis BLPOP), 단일
+  큐에 multiple workers 등록 — 이건 cmd/prover 작은 patch (수십 lines).
+  나머지 큰 일은 deploy/operations.
+
+**Entry blocker**:
+- R12 closure (GPU backend) — multi-instance 가 가장 가치 클 때 GPU 도
+  병렬이라야 SLA 합리적.
+- R3 step 4 follow-up "prover Redis BLPOP 큐 + multi-worker scaling"
+  항목 (HANDOFF.md) — 기존 backlog 그대로 R13 로 elevate.
+
+**작업 분해**:
+
+- **R13-A** — Prover queue refactor (코어 patch)
+  - 현재: `store.ClaimOldestByStatus` 트랜잭션 polling (single worker).
+  - 후: Redis BLPOP `zkpor:prover:queue` (multi-worker safe).
+  - witness service 가 batch 생성 시 Redis push 추가.
+  - DB-only fallback 유지 (dev 환경 무-Redis 모드).
+- **R13-B** — `deploy/` 의 multi-instance compose
+  - Redis 컨테이너 추가 (mysql 같이).
+  - prover 가 N 개 instance (worker scaling).
+  - witness, verifier, userproof 도 multi-worker (per-stage 결정).
+- **R13-C** — Operations: queue monitoring + autoscaling
+  - Redis queue depth metric (Prometheus 또는 CloudWatch).
+  - 큐 depth 기반 worker autoscaling (e.g. ASG).
+  - dev/staging/prod 환경별 worker count default.
+- **R13-D** — Production multi-instance smoke
+  - 4× g6.4xlarge (L4 × 4) → 1M T4 production prove 측정.
+  - Multi-instance throughput vs single instance 비교.
+  - 견적 (`~18 min @ ~$3` for 1M T4) 실측.
+- **R13-E** — Userproof multi-worker
+  - 현재 userproof 도 single-instance sequential.
+  - 1M user 시 ~83min single → multi-worker 로 단축.
+  - HANDOFF 의 "userproof multi-worker + resume" 항목.
+
+**Exit criteria**:
+- 4-worker prove cluster 가 single instance 대비 ~3-4× throughput (Amdahl
+  허용 범위).
+- 1M T4 production smoke 가 documented SLA (~20분 GPU multi-instance)
+  실측 달성.
+- dev 환경에서 Redis-less 모드 여전히 동작 (single instance fallback).
+
+**관련 Gate**: 없음 (운영 아키텍처 stage, 계약 freeze 미해당).
+
+**비-목표** (R13 명시적 제외):
+- ICICLE backend 자체 (R12).
+- 회로 변경 (R12 이후 회로 안 건드림).
+- Customer-specific GTM 작업 (V1-PROD 또는 별도 customer stage).
+
+### Roadmap path (R10 이후 stages)
+
+```
+R10 closed → R11 (test bed) → R12 (GPU 코어, G15 closure) → R13 (multi-instance 외부)
+                                ↘
+                                  V1-PROD candidate
+                                   (first customer + production keygen + first smoke)
+```
+
+R11 은 V1-PROD 와 병렬 가능 (서로 의존성 약함). R12 + R13 는 GTM SLA
+주장의 실측 base — V1-PROD 출하 전 closure 권장이지만 strict blocker 는
+아님. CPU-only 단일 instance 로도 mid-tier 거래소 GTM 가능 (mid-tier
+3-way 보고서 참고).
+
 ## Decision Gate Register
 
 닫아야 할 설계 결정. 상태 의미:
@@ -815,7 +976,7 @@ Stage 분리 근거 (R8 와 분리):
 | **G12** multi-customer profile 충돌 정책 | closed | R5 step 4 | **`.vk` 공유는 `(model, asset_capacity, batch_shape, constraint_module)` tuple 단위**. customer profile 은 회로에 흐르지 않으므로 두 customer 가 동일 tuple 이면 같은 ceremony 의 .vk 가 byte-equivalent. `StandardKeyName` 은 이미 customer-blind (`zkpor.<model>.<tier>_<users>[.<module>]`). `asset_capacity` 는 stem 에 인코드되지 않아 operator 가 capacity 별 디렉터리 컨벤션 (예: `.artifacts/cap-<N>/`) 으로 일관성 보장 책임. 자세한 내용 `docs/02-module-architecture.md §6.1` 참조. R7 freeze 직전 capacity 를 stem 에 추가 인코드 여부 재검토 후보. | — |
 | **G13** AccountID fr.Element 정규화 위치 | closed | R10 | **standard snapshot parser** 채택. `core/snapshot/<model>/parser.go` 가 standard `account_id` 64-hex 를 BN254 `fr.Element.SetBytes(...).Marshal()` 로 canonicalize 한다. Profile raw adapters were removed in R10, so the canonicalization point is no longer customer-local. | — |
 | **G14** 사용자-facing verification 분배 책임 | deferred | post-V1 / customer SLA | V1 engine 은 CLI + file artifact + userproof DB 행만 출하. 사용자가 자기 inclusion 을 확인하는 UI / 페이지는 engine 밖 (`## Scope Boundary` 참조). 후보 owner: (a) customer 가 자체 UI 구축, (b) partner / SI 가 reference UI 제공, (c) zkpor 가 reference open-source CLI/static page 부속 제공. | 첫 customer 통합 (R5 진입, model-first swap 이후) 시 SLA 협상 항목으로 surface. V1 안에서는 결정 보류. |
-| **G15** Prove-path GPU 가속 backend 채택 여부 | deferred | post-R3 step 4 / first production prove SLA | gnark README 가 ICICLE backend (Ingonyama) 통한 GPU 가속을 **공식 지원** — BN254 + Groth16 호환, 라벨 "Experimental". `.pk`/`.vk` byte-equivalence (G1) 와는 **직교** (accelerator 가 같은 ceremony 출력 사용 — R1CS/`.pk`/`.vk` 모두 그대로). 채택 시 audit 추가 surface = ICICLE backend 자체 (수학적 동치이지만 trust boundary 증가). 결정은 첫 production deployment 의 CPU prove 시간 측정 → 24h snapshot SLA 와 비교 후. pre-결정 작업: ICICLE 공식 docs 에서 (a) PoR-scale R1CS 의 speedup 벤치마크, (b) build/CUDA toolkit 요건, (c) GPU 없는 환경에서의 fallback 동작 확인. | 첫 production prove SLA 측정 시점에 surface. binding 하면 채택 검토 → closed, 그렇지 않으면 CPU 만 사용. |
+| **G15** Prove-path GPU 가속 backend 채택 여부 | deferred | **R12** (post-R3 step 4 / first production prove SLA) | gnark README 가 ICICLE backend (Ingonyama) 통한 GPU 가속을 **공식 지원** — BN254 + Groth16 호환, 라벨 "Experimental". `.pk`/`.vk` byte-equivalence (G1) 와는 **직교** (accelerator 가 같은 ceremony 출력 사용 — R1CS/`.pk`/`.vk` 모두 그대로). 채택 시 audit 추가 surface = ICICLE backend 자체 (수학적 동치이지만 trust boundary 증가). 결정은 첫 production deployment 의 CPU prove 시간 측정 → 24h snapshot SLA 와 비교 후. pre-결정 작업: ICICLE 공식 docs 에서 (a) PoR-scale R1CS 의 speedup 벤치마크, (b) build/CUDA toolkit 요건, (c) GPU 없는 환경에서의 fallback 동작 확인. 견적 (3-5× speedup, ~$3-4 for 1M T4): `docs/estimates/2026-05-28_gpu_1m_prove_estimate.md`. | **R12 신설** (Stage R12 — Prove-path GPU 가속 backend, 코어 한정). R11 (1M test bed) closure 후 R12 entry. |
 | **G16** Module composition compatibility 검토 프로세스 | deferred | first multi-module composition (R5 candidate) | `docs/02-module-architecture.md` §1 의 add-only 원칙으로 composition 자체는 수학적으로 안전. 그러나 module 간 hidden assumption 충돌 (한 module 이 system 의 변수 의미를 전제, 다른 module 이 그걸 깸 → unsat) 가능. 방향 lock: (a) 각 module 의 doc/audit note 에 assumed invariants 명시 의무, (b) composition 등록 (= 새 `.vk` ceremony 시작) 전에 reviewer 가 invariant 호환성 검토, (c) 자동화는 future work. process detail (reviewer who, document where, fail-mode) 는 첫 multi-module 등장 시 채움. | 첫 multi-module composition customer 등장 시 process detail 확정 + 이 row 의 status `deferred → closed`. |
 | **G17** Registry pattern v1 freeze (identity / insolvent / snapshot-connector / constraint-module) | closed | R10 | **In-process build-time registries, ID format `<id>.v<version>`, missing/dup → panic**. Four registry surfaces shipped: `core/host` owns identity + insolvent (model-blind universal contracts); `core/solvency/<model>/host` owns snapshot connector + constraint module (model-typed). Snapshot factory carries `(dir, snapshotID, capacity, PriceScaleProvider)` for uniform factory shape; standard connectors ignore pricing because input values are already scaled. v1 product entries: `passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`, `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1`, plus model-typed noops (empty-string fast path). Profile raw connectors were removed in R10. Detailed shape doc: `docs/02-module-architecture.md §6.2`. | — |
 | **G18** Customer raw data schema v1 freeze (모델별 standard schema) | closed | R10 | 4 model 각각의 *file/data format level* standard CSV schema 의 v1 freeze. 방향 lock: (a) **모델별 schema** (single universal schema 비채택 — field bloat). T1=(account_id, asset_idx, equity, debt), T4=T1+collateral × 3 bucket. (b) Engine runtime consumes canonical standard CSV only; customer raw export normalization is outside the engine. (c) No profile raw adapter escape hatch in zkpor service binaries. (d) Schema 변경 governance = R7 catalog freeze 와 동일 (additive = minor, removal/rename = disallowed). Implemented by `core/snapshot/schema`, `core/snapshot/csv`, `core/snapshot/mapping`, and 4 model standard parsers. Detailed shape doc: `docs/02-module-architecture.md §6.3`, `docs/04-solvency-models.md §12`. | — |
@@ -836,7 +997,8 @@ G11 --> R6 (core/circuit promotion)
 G12 --> R5 (multi-customer .vk policy — moved from R4 by model-first swap)
 G13 --> R3 step 1 (AccountID fr.Element normalization)
 G14 --> post-V1 / customer SLA (user-facing verification distribution)
-G15 --> post-R3 step 4 / first production prove SLA (GPU acceleration backend)
+G15 --> R12 (Prove-path GPU 가속 backend, ICICLE). Entry: R11 closure (CPU baseline) + bnb-chain/gnark fork ICICLE 호환성 PoC.
+R3 step 4 follow-up (Redis BLPOP queue + multi-worker prover/userproof) --> R13 (Multi-instance prover, 코어 외부).
 G16 --> R5 candidate (module composition compatibility process)
 G17 --> R8 (registry pattern v1 freeze)
 G18 --> R9 (customer raw data schema v1 freeze)
