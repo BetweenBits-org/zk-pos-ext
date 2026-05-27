@@ -1,0 +1,4 @@
+asset_index,symbol,total_equity,total_debt,base_price,collateral
+0,btc,100,0,6500000000000,100
+1,eth,1000,0,350000000000,1000
+2,usdt,100000,0,100000000,100000
