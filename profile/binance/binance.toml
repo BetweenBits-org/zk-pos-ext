@@ -29,6 +29,9 @@ source_type = "binance_csv.v1"
 user_data_dir = "/server/data/<snapshot_id>"
 snapshot_id = "<set per snapshot>"
 
+[snapshot.format]
+null_values = ["", "NA", "null"]
+
 [[batch_shapes]]
 asset_count_tier = 50
 users_per_batch = 700

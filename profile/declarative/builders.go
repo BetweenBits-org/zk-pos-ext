@@ -32,6 +32,7 @@ import (
 	"strings"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
 
@@ -48,6 +49,28 @@ func BuildIdentity(cfg Identity) spec.AccountIDProvider {
 // non-empty; an unknown action panics inside host.NewInsolventPolicy.
 func BuildInsolvent(cfg Insolvent) spec.InvalidAccountPolicy {
 	return host.NewInsolventPolicy(cfg.Action)
+}
+
+// BuildSnapshotMapping returns the additive R9-C raw-data mapping
+// config for a profile after validating it against the selected model's
+// standard snapshot schema. Empty Files is valid and means the profile
+// still uses a procedural snapshot adapter.
+func BuildSnapshotMapping(model spec.SolvencyModelID, cfg Snapshot) (snapshotmapping.Config, error) {
+	if model == "" {
+		return snapshotmapping.Config{}, fmt.Errorf("profile.model is empty")
+	}
+	schema, err := standardSchemaForModel(string(model))
+	if err != nil {
+		return snapshotmapping.Config{}, err
+	}
+	out := snapshotmapping.Config{
+		Format: cfg.Format,
+		Files:  cfg.Files,
+	}
+	if err := snapshotmapping.Validate(schema, out); err != nil {
+		return snapshotmapping.Config{}, err
+	}
+	return out, nil
 }
 
 // shapeOverrideEnv preserves the smoke-harness override path that

@@ -37,6 +37,12 @@ import (
 	"fmt"
 	"os"
 
+	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
+	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
+	t1schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
+	t2schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t2_static_haircut_margin"
+	t3schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t3_tiered_haircut_margin_1pool"
+	t4schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -85,6 +91,13 @@ type Snapshot struct {
 	SourceType  string `toml:"source_type"`   // e.g. "binance_csv", "sea_csv"
 	UserDataDir string `toml:"user_data_dir"` // directory holding the CSV inputs
 	SnapshotID  string `toml:"snapshot_id"`   // human-readable timestamp / sequence
+	// Format is an additive R9-C table for raw CSV dialect options.
+	// Empty values preserve the R8 procedural adapter behavior.
+	Format snapshotmapping.Format `toml:"format"`
+	// Files is an additive R9-C mapping list from customer raw files to
+	// standard schema files. Empty means the profile still uses its
+	// procedural snapshot connector.
+	Files []snapshotmapping.File `toml:"files"`
 }
 
 // BatchShape mirrors core/spec.BatchShape.
@@ -165,6 +178,18 @@ func (p *Profile) Validate() error {
 	if p.Snapshot.SourceType == "" {
 		return fmt.Errorf("snapshot.source_type is empty")
 	}
+	if len(p.Snapshot.Files) > 0 {
+		schema, err := standardSchemaForModel(p.Profile.Model)
+		if err != nil {
+			return err
+		}
+		if err := snapshotmapping.Validate(schema, snapshotmapping.Config{
+			Format: p.Snapshot.Format,
+			Files:  p.Snapshot.Files,
+		}); err != nil {
+			return fmt.Errorf("snapshot mapping: %w", err)
+		}
+	}
 	if len(p.BatchShapes) == 0 {
 		return fmt.Errorf("batch_shapes is empty")
 	}
@@ -182,4 +207,19 @@ func (p *Profile) Validate() error {
 		}
 	}
 	return nil
+}
+
+func standardSchemaForModel(model string) (snapshotschema.Schema, error) {
+	switch model {
+	case "t1_simple_margin":
+		return t1schema.StandardSchema, nil
+	case "t2_static_haircut_margin":
+		return t2schema.StandardSchema, nil
+	case "t3_tiered_haircut_margin_1pool":
+		return t3schema.StandardSchema, nil
+	case "t4_tiered_haircut_margin_3pool":
+		return t4schema.StandardSchema, nil
+	default:
+		return snapshotschema.Schema{}, fmt.Errorf("profile.model %q has no standard snapshot schema", model)
+	}
 }

@@ -1,6 +1,8 @@
 package declarative_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
@@ -46,6 +48,9 @@ func TestLoadBinance(t *testing.T) {
 	if len(p.Pricing.TwoDigitAssets) < 5 {
 		t.Errorf("TwoDigitAssets length = %d, want >= 5", len(p.Pricing.TwoDigitAssets))
 	}
+	if got := p.Snapshot.Format.NullValues; len(got) != 3 || got[0] != "" {
+		t.Errorf("Snapshot.Format.NullValues = %#v", got)
+	}
 }
 
 // TestLoadSeaReference verifies the published sea_reference.toml
@@ -73,9 +78,90 @@ func TestLoadSeaReference(t *testing.T) {
 	if len(p.Pricing.TwoDigitAssets) != 0 {
 		t.Errorf("TwoDigitAssets non-empty = %v (sea_reference is uniform-scale)", p.Pricing.TwoDigitAssets)
 	}
+	if got := p.Snapshot.Format.NullValues; len(got) != 3 || got[0] != "" {
+		t.Errorf("Snapshot.Format.NullValues = %#v", got)
+	}
 	wantCatalog := []string{"btc", "eth", "usdt", "usdc", "bnb"}
 	if len(p.Catalog.Symbols) != len(wantCatalog) {
 		t.Errorf("Catalog.Symbols length = %d, want %d", len(p.Catalog.Symbols), len(wantCatalog))
+	}
+}
+
+// TestLoadWithSnapshotMapping verifies the additive R9-C
+// [snapshot.format] and [[snapshot.files]] schema can be parsed and
+// validated without changing existing profile files.
+func TestLoadWithSnapshotMapping(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mapped.toml")
+	raw := `
+[profile]
+name = "mapped"
+model = "t1_simple_margin"
+asset_capacity = 50
+
+[identity]
+scheme = "passthrough_hex_bn254_reduced.v0"
+
+[insolvent]
+action = "drop_and_log.v0"
+
+[constraint]
+module = ""
+
+[snapshot]
+source_type = "t1_standard_csv.v1"
+user_data_dir = "/data/<snapshot_id>"
+snapshot_id = "<set per snapshot>"
+
+[snapshot.format]
+delimiter = ","
+null_values = ["", "NA"]
+
+[[snapshot.files]]
+name = "accounts.csv"
+source = "user_balances.csv"
+mode = "direct"
+
+[snapshot.files.columns.account_id]
+source = "id"
+type = "account_id_hex_bn254"
+
+[snapshot.files.columns.asset_index]
+source = "asset_index"
+type = "uint16"
+
+[snapshot.files.columns.equity]
+source = "balance"
+type = "uint64"
+decimal_scale = 100000000
+
+[snapshot.files.columns.debt]
+constant = "0"
+type = "uint64"
+
+[[batch_shapes]]
+asset_count_tier = 50
+users_per_batch = 1000
+
+[pricing]
+default_price_scale = 100000000
+default_balance_scale = 100000000
+
+[catalog]
+symbols = ["btc"]
+`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	p, err := declarative.Load(path)
+	if err != nil {
+		t.Fatalf("Load mapped profile: %v", err)
+	}
+	if len(p.Snapshot.Files) != 1 {
+		t.Fatalf("Snapshot.Files length = %d, want 1", len(p.Snapshot.Files))
+	}
+	if p.Snapshot.Files[0].Columns["equity"].DecimalScale != 100_000_000 {
+		t.Fatalf("equity DecimalScale = %d", p.Snapshot.Files[0].Columns["equity"].DecimalScale)
 	}
 }
 

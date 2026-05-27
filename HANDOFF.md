@@ -76,7 +76,7 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 | `zkpor/core/circuit/*` | ✅ complete — universal 헬퍼 4 파일 (Merkle, commitment, arith) |
 | `zkpor/core/host/*` | ✅ off-circuit (native) universal 헬퍼 — `VerifyMerkleProof` (Poseidon BN254 SMT, legacy parity). **R8-A: identity + insolvent registries** (78710d5) — `IdentitySchemePassthroughHexBN254ReducedV0` + `InsolventActionDropAndLogV0` self-register via init(). G17 closure. |
 | `zkpor/core/tree/*` | ✅ bsmt depth-28 SMT wrapper + `EmptyAccountLeafHash` (Poseidon(0,0,0,0,0)). memory/redis 백엔드. **default=memory, redis=opt-in** (A0 결정: snapshot-SoT 와 정합). witness + userproof 공유 (commit c96018d) |
-| `zkpor/core/snapshot/*` | ✅ **R9-A/B done** — standard raw snapshot schema metadata + CSV primitives. `schema` 패키지 + 4 model schema (`t1_simple_margin`, `t2_static_haircut_margin`, `t3_tiered_haircut_margin_1pool`, `t4_tiered_haircut_margin_3pool`). `csv` 패키지는 canonical CSV header 검증, scalar type validation, primary-key duplicate detection, `ErrInvalidRow` 분류, context-aware streaming 제공. 표준은 customer 원본이 아니라 mapping 이후 canonical row: integer-scaled amount, BN254 account_id, deterministic account_index/order, cex_assets padding, tier-ratio invariants. Mapping DSL/model parser 구현은 R9-C/D. |
+| `zkpor/core/snapshot/*` | ✅ **R9-A/B/C done** — standard raw snapshot schema metadata + CSV primitives + mapping DSL. `schema` 패키지 + 4 model schema (`t1_simple_margin`, `t2_static_haircut_margin`, `t3_tiered_haircut_margin_1pool`, `t4_tiered_haircut_margin_3pool`). `csv` 패키지는 canonical CSV header 검증, scalar type validation, primary-key duplicate detection, `ErrInvalidRow` 분류, context-aware streaming 제공. `mapping` 패키지는 raw CSV dialect, direct/wide_assets file mapping, source/constant/source_prefix column rules, type assertion, decimal_scale validation 제공. Model parser 구현은 R9-D. |
 | `zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host/*` | ✅ off-circuit model-specific 헬퍼 — `ComputeUserAssetsCommitment` + `ComputeCexAssetsCommitment(slice, capacity)` + `AccountLeafHash` + `PaddingAccounts` + `EncodeBatchWitness`/`DecodeBatchWitness` + 공유 `UserConfig` 타입. **R8-B/2: snapshot connector registry** (4369a91) — factory signature `(dir, id, capacity, PriceScaleProvider)` (pricing tail added R8-E). **R8-B/3: constraint module registry** (fc8325d) — empty ID returns universal noop. 모두 legacy byte-equivalence/round-trip 테스트 통과 |
 | `zkpor/store/*` | ✅ gorm 영속화 계층 — `Open` + `ConvertMySQLErr` + 3 모델 (`BatchWitness` 78acd39, `Proof` + witness 상태머신 메서드 16f36bd, `UserProof` b7e57e6) + **`ProofStore.ListAllInOrder()` (A4, f1ba54a)** for verifier DB 직접 읽기 경로. 단일 instance DB-poll (`ClaimOldestByStatus` 트랜잭션) 채택 — Redis BLPOP 큐는 multi-worker scaling 시 follow-up. PostgreSQL adapter 는 slice D (deferred) |
 | `zkpor/cmd/verifier/*` | ✅ R3 step 4 첫 service (legacy `src/verifier` 의 zkpor-native 대체, 3-mode CLI: batch / -user / -hash). DB 직접 읽기 모드 (A4). per-asset equity<debt warning (A5). **R8-D (950c728)**: profile.toml-driven — `-profile <toml>` + `-keys-dir <path>` (batch) + `-asset-capacity` override. config.json 슬림 (DB + DbSuffix + ProofTable + CexAssetsInfo). tiers/stems/capacity 는 declarative builder + resolveFromProfile 로 derive. |
@@ -101,6 +101,14 @@ ea3244c docs(handoff): close verifier slice, frame witness as next R3 step 4
 최근 작업 흐름:
 
 ```text
+<R9/C>   feat(zkpor): R9-C — snapshot mapping DSL + profile schema bump
+        (`core/snapshot/mapping`: Format + File + Column DSL,
+         direct/wide_assets modes, source/constant/source_prefix rules,
+         decimal_scale/type validation, CSV option builder. profile.toml
+         additive fields: [snapshot.format] + [[snapshot.files]].
+         BuildSnapshotMapping validates mappings against the selected
+         model's StandardSchema. Reference TOMLs add null_values only;
+         profile adapters remain procedural until R9-D/E/F.)
 <R9/B>   feat(zkpor): R9-B — standard snapshot CSV primitives
         (`core/snapshot/csv`: schema-bound header parser, dialect
          options, normalized Row, uint/bigint/account-id scalar
@@ -909,7 +917,7 @@ hatch) 로 흡수.
 자세한 내용 PRODUCTION_ROADMAP §R9. 작업 분해 ~6-8 슬라이스:
   R9-A   ✅ 모델별 표준 schema 정의 (4 model) + docs/04 §12
   R9-B   ✅ Core CSV parser primitives
-  R9-C   Mapping config DSL (toml [snapshot.column_map] table)
+  R9-C   ✅ Mapping config DSL (toml [snapshot.format] + [[snapshot.files]])
   R9-D   Model parser combiner + snapshot connector registry 적응
   R9-E   profile/binance snapshot.go thin rewrite
   R9-F   profile/sea_reference snapshot.go thin rewrite

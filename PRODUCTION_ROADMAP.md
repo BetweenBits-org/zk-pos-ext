@@ -773,7 +773,7 @@ Blocking gates: G18 (Customer raw data schema v1 freeze).
 R9-A   ✅ 모델별 표준 schema 정의 — 4 model 각각 (core/snapshot/<model>/
        standard_schema.go) + docs/04 §12 별첨 spec page
 R9-B   ✅ Core CSV parser primitives (core/snapshot/csv/)
-R9-C   Mapping config DSL (core/snapshot/mapping/ + profile.toml
+R9-C   ✅ Mapping config DSL (core/snapshot/mapping/ + profile.toml
        schema additive minor bump in profile/declarative/profile.go)
 R9-D   Model parser combiner (core/snapshot/<model>/parser.go) +
        snapshot connector registry 적응

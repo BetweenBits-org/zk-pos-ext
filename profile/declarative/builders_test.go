@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
+	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
@@ -51,6 +53,50 @@ func TestBuildInsolvent_UnknownPanics(t *testing.T) {
 		}
 	}()
 	declarative.BuildInsolvent(declarative.Insolvent{Action: "missing.v0"})
+}
+
+// TestBuildSnapshotMapping_ValidatesAgainstModelSchema verifies the
+// profile-level builder binds R9-C mappings to the selected model's
+// standard schema.
+func TestBuildSnapshotMapping_ValidatesAgainstModelSchema(t *testing.T) {
+	cfg, err := declarative.BuildSnapshotMapping(spec.T1SimpleMargin, declarative.Snapshot{
+		Files: []snapshotmapping.File{{
+			Name:   "accounts.csv",
+			Source: "user_balances.csv",
+			Columns: map[string]snapshotmapping.Column{
+				"account_id":  {Source: "id", Type: snapshotschema.FieldAccountID},
+				"asset_index": {Source: "asset_index", Type: snapshotschema.FieldUint16},
+				"equity":      {Source: "balance", Type: snapshotschema.FieldUint64, DecimalScale: 100_000_000},
+				"debt":        {Constant: "0", Type: snapshotschema.FieldUint64},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BuildSnapshotMapping: %v", err)
+	}
+	if len(cfg.Files) != 1 || cfg.Files[0].Name != "accounts.csv" {
+		t.Fatalf("cfg.Files = %+v", cfg.Files)
+	}
+}
+
+// TestBuildSnapshotMapping_RejectsWrongModelShape confirms validation
+// is tied to profile.model, not just arbitrary column names.
+func TestBuildSnapshotMapping_RejectsWrongModelShape(t *testing.T) {
+	_, err := declarative.BuildSnapshotMapping(spec.T4TieredHaircutMargin3Pool, declarative.Snapshot{
+		Files: []snapshotmapping.File{{
+			Name:   "accounts.csv",
+			Source: "user_balances.csv",
+			Columns: map[string]snapshotmapping.Column{
+				"account_id":  {Source: "id"},
+				"asset_index": {Source: "asset_index"},
+				"equity":      {Source: "balance"},
+				"debt":        {Constant: "0"},
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("BuildSnapshotMapping accepted T1-shaped mapping for T4")
+	}
 }
 
 // TestBuildBatchShape_HappyDefault verifies non-override path: shapes
