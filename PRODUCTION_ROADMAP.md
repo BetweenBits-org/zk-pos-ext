@@ -575,16 +575,19 @@ Blocking gates: G4 ✅, G10 ✅ — 모두 closed.
 
 R7 close 후 다음 갈래 (post-R7):
 
-- **R8** (next stage) — Profile descriptor wiring + adapter cleanup.
+- **R8** (closed) — Profile descriptor wiring + adapter cleanup.
   declarative 가능한 어댑터 (catalog, batch_shape, identity, insolvent,
   pricing, risk, constraint_noop) 를 profile.toml + registry 패턴으로
   대체. profile/<customer>/ 에 procedural-only (snapshot 등) + tests 만
   남도록 정리. 자세한 내용 §R8 아래.
-- **V1-PROD** (R8 후) — 첫 customer 통합 + production .pk 마이그레이션
-  (legacy stem → StandardKeyName, byte 불변 단순 rename). R8 의 wiring
-  위에 customer-specific delta 만 추가.
-- **R5-FU** — sea_reference end-to-end smoke (T1 path). R8 와 독립
-  가능 (현 procedural adapter 형태에서도 실행 가능).
+- **R9** (next stage) — Customer raw data standardization. 모델별 표준
+  raw schema (core 측 정의) + profile 측 mapping config 로 어댑팅.
+  snapshot.go 가 thin (~10-30 LoC) 으로 수렴. 자세한 내용 §R9 아래.
+- **V1-PROD** (R8 후 가능, R9 후 진짜 최적) — 첫 customer 통합 +
+  production .pk 마이그레이션 (legacy stem → StandardKeyName, byte 불변
+  단순 rename). R9 종료 후 raw data adapter 비용 최소.
+- **R5-FU** — sea_reference end-to-end smoke (T1 path). R8 / R9 와 독립
+  가능 (어느 시점에서든 실행 가능).
 - **G15** — first production prove SLA 측정 후 GPU 가속 (ICICLE) 결정.
 
 ### Stage R8 — Profile descriptor wiring + adapter cleanup (CLOSED)
@@ -688,6 +691,106 @@ R8-F  profile/sea_reference cleanup + sea_reference smoke 동등성 검증
 R8-close  G17 closure + handoff/roadmap + docs/02 §6 갱신
 ```
 
+### Stage R9 — Customer raw data standardization (model 별 표준 schema + mapping config)
+
+R8 종결 시점에 `profile/<customer>/snapshot.go` 는 *유일하게 customer-
+specific* 인 코드 — 각 거래소의 raw data (CSV/DB/JSONL) 포맷이 다르기
+때문. R9 의 목표는 **그 customer-specific 부분도 가능한 한 축소**:
+core 에 model 별 *표준 raw schema* 를 정의하고, customer 는 자기 데이터를
+mapping config 로 어댑팅 (필요 시 thin adapter 코드 추가).
+
+목표: customer onboarding 시 *raw data adapter* 작성 비용 감소. snapshot.go
+가 ~10-30 LoC 로 수렴 (mapping 으로 표현 가능 시) 또는 thin adapter
+(escape hatch — mapping 으로 표현 불가능한 transform).
+
+설계 방향 lock:
+
+- **Layer**: core 에 *file/data format level* 의 표준. R8 의 Go interface
+  level 표준 (`SnapshotSource`) 위에 추가 layer.
+- **표준 단위**: **model 별** (T1/T2/T3/T4 각각). 각 model 의 자연 raw
+  schema (field set) 가 다름 — universal single schema 는 bloat.
+- **Customer 변환 부담**: 최소화. customer 가 *자기 CSV/JSONL 그대로
+  publish 가능*. mapping config 로 column / field rename + type cast.
+- **Escape hatch**: mapping 으로 표현 불가능한 transform (complex hex,
+  multi-column merge, customer-specific invariant) 은 thin adapter 코드
+  로 — `core/snapshot/<model>/` 의 primitive helpers 호출하는 minimal Go.
+
+산출물:
+
+- **모델별 표준 schema** (`core/snapshot/<model>/standard_schema.go`):
+  - 4 model 각각 field set / type / invariant 명세.
+  - 첫 row (header) format, per-row layout (CSV / JSONL first), data
+    type / 범위 제약.
+  - docs/04 의 model 별 schema 별첨 page 작성.
+
+- **Core CSV parser primitives** (`core/snapshot/csv/`):
+  - header parsing, row streaming, invariant 검증, invalid-row 분류
+    (`drop_and_log.v0` policy 활용).
+  - 거래소별 CSV variant (quote, delimiter, NA handling) 흡수.
+
+- **Mapping config DSL** (`core/snapshot/mapping/`):
+  - profile.toml 의 `[snapshot.column_map]` 또는 `[snapshot.format]`
+    table 신설 (R7 schema 의 additive minor bump).
+  - 표현력 범위: column rename / type cast / column wildcards (e.g.
+    `equity_column_prefix = "balance_"`) / 단순 transform (hex decode,
+    decimal scale).
+
+- **Model parser combiner** (`core/snapshot/<model>/parser.go`):
+  - standard schema + CSV primitives + mapping config 결합.
+  - `SnapshotSource` interface 구현.
+  - R8 의 snapshot connector registry 와 정합 — connector ID
+    예: `t1_standard_csv.v1`, `t4_standard_csv.v1` (model-blind 명명).
+
+- **기존 customer adapter rewrite**:
+  - `profile/binance/snapshot.go`: thick 30k LoC → thin (~30 LoC, init
+    등록 + 필요 시 customer-specific transform — `cex_assets_info.csv`
+    별도 file handling 등).
+  - `profile/sea_reference/snapshot.go`: thick 15k LoC → thin / 또는
+    완전 declarative (mapping config 만).
+  - 기존 snapshot_test 가 새 path 로도 통과 — byte-equivalence 검증
+    (raw_data → SnapshotSource 변환 결과 동일).
+
+- **Documentation**:
+  - `docs/02-module-architecture.md`: raw data layer 섹션 신설.
+  - `docs/04-solvency-models.md`: model 별 standard schema 별첨 page
+    (T1~T4 각각 1 page 또는 통합 별첨).
+
+Exit criteria:
+
+- 4 model 각각 standard schema 정의 + parser 구현 + test.
+- 기존 customer 2 개 (binance, sea_reference) 가 mapping config 만으로
+  또는 thin adapter 추가로 동작.
+- 신규 customer 통합 비용 = `<customer>.toml` (mapping 포함) +
+  (필요 시) thin adapter (~10-30 LoC).
+- Audit pipeline: 모든 customer 의 raw data 가 같은 spec 의 schema
+  검증 통과 → audit 측 통일.
+
+Blocking gates: G18 (Customer raw data schema v1 freeze).
+
+작업 분해 예 (~6-8 슬라이스):
+
+```
+R9-A   모델별 표준 schema 정의 — 4 model 각각 (core/snapshot/<model>/
+       standard_schema.go) + docs/04 별첨 spec page
+R9-B   Core CSV parser primitives (core/snapshot/csv/)
+R9-C   Mapping config DSL (core/snapshot/mapping/ + profile.toml
+       schema additive minor bump in profile/declarative/profile.go)
+R9-D   Model parser combiner (core/snapshot/<model>/parser.go) +
+       snapshot connector registry 적응
+R9-E   profile/binance snapshot.go thin rewrite + byte-equivalence 검증
+R9-F   profile/sea_reference snapshot.go thin rewrite + smoke 동등성
+R9-close  G18 closure + handoff/roadmap + docs/02 raw data layer 섹션
+```
+
+Stage 분리 근거 (R8 와 분리):
+
+- R8 의 정의 (Profile descriptor wiring + declarative adapter cleanup)
+  가 깨끗 유지 — wiring layer 만.
+- R9 는 *raw data layer* 의 별 작업 — R8 종료 후 진입.
+- R8 + R9 둘 다 통합 시 총 ~14 슬라이스 한 stage = scope creep.
+- V1-PROD 진입 가능 시점: R8 종료 후 (raw data adapter 가 thick 인
+  상태로도). R9 종료 후 *진짜 최적 customer onboarding cost*.
+
 ## Decision Gate Register
 
 닫아야 할 설계 결정. 상태 의미:
@@ -717,6 +820,7 @@ R8-close  G17 closure + handoff/roadmap + docs/02 §6 갱신
 | **G15** Prove-path GPU 가속 backend 채택 여부 | deferred | post-R3 step 4 / first production prove SLA | gnark README 가 ICICLE backend (Ingonyama) 통한 GPU 가속을 **공식 지원** — BN254 + Groth16 호환, 라벨 "Experimental". `.pk`/`.vk` byte-equivalence (G1) 와는 **직교** (accelerator 가 같은 ceremony 출력 사용 — R1CS/`.pk`/`.vk` 모두 그대로). 채택 시 audit 추가 surface = ICICLE backend 자체 (수학적 동치이지만 trust boundary 증가). 결정은 첫 production deployment 의 CPU prove 시간 측정 → 24h snapshot SLA 와 비교 후. pre-결정 작업: ICICLE 공식 docs 에서 (a) PoR-scale R1CS 의 speedup 벤치마크, (b) build/CUDA toolkit 요건, (c) GPU 없는 환경에서의 fallback 동작 확인. | 첫 production prove SLA 측정 시점에 surface. binding 하면 채택 검토 → closed, 그렇지 않으면 CPU 만 사용. |
 | **G16** Module composition compatibility 검토 프로세스 | deferred | first multi-module composition (R5 candidate) | `docs/02-module-architecture.md` §1 의 add-only 원칙으로 composition 자체는 수학적으로 안전. 그러나 module 간 hidden assumption 충돌 (한 module 이 system 의 변수 의미를 전제, 다른 module 이 그걸 깸 → unsat) 가능. 방향 lock: (a) 각 module 의 doc/audit note 에 assumed invariants 명시 의무, (b) composition 등록 (= 새 `.vk` ceremony 시작) 전에 reviewer 가 invariant 호환성 검토, (c) 자동화는 future work. process detail (reviewer who, document where, fail-mode) 는 첫 multi-module 등장 시 채움. | 첫 multi-module composition customer 등장 시 process detail 확정 + 이 row 의 status `deferred → closed`. |
 | **G17** Registry pattern v1 freeze (identity / insolvent / snapshot-connector / constraint-module) | closed | R8 | **In-process build-time registries, ID format `<id>.v<version>`, missing/dup → panic** — locked in R8-A/B (commit chain 78710d5 → fc8325d). Four registry surfaces shipped: `core/host` owns identity + insolvent (model-blind universal contracts); `core/solvency/<model>/host` owns snapshot connector + constraint module (model-typed). Snapshot factory carries `(dir, snapshotID, capacity, PriceScaleProvider)` (R8-E surfaced the pricing tail). Builders in `profile/declarative/builders.go` map profile.toml fields → registry lookups; service startup panics on unknown / unregistered IDs. v1 entries: `passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`, `binance_csv.v1`, `sea_csv.v1`, plus the two model-typed noops (empty-string fast path). Further additions follow the same G11 rule-of-three governance. Detailed shape doc: `docs/02-module-architecture.md §6.2`. | — |
+| **G18** Customer raw data schema v1 freeze (모델별 standard schema) | deferred | R9 | 4 model 각각의 *file/data format level* raw schema (CSV first, JSONL/Parquet 후순위) 의 v1 freeze. 방향 lock: (a) **모델별 schema** (single universal schema 비채택 — field bloat). T1=(account_id, asset_idx, equity, debt), T4=T1+collateral × 3 bucket. (b) Customer 측 변환 부담 최소화 — mapping config (toml `[snapshot.column_map]`) 로 column rename + type cast + 단순 transform 흡수. (c) Escape hatch — mapping 표현력 부족 시 customer 의 thin adapter 코드 (~10-30 LoC). (d) Schema 변경 governance = R7 catalog freeze 와 동일 (additive = minor, removal/rename = disallowed). | R9 entry 시 4 model schema 정의 + parser implementation. R9 close 시 `deferred → closed`. |
 
 ## Gate → Stage Dependency
 
@@ -737,6 +841,7 @@ G14 --> post-V1 / customer SLA (user-facing verification distribution)
 G15 --> post-R3 step 4 / first production prove SLA (GPU acceleration backend)
 G16 --> R5 candidate (module composition compatibility process)
 G17 --> R8 (registry pattern v1 freeze)
+G18 --> R9 (customer raw data schema v1 freeze)
 
 (G7, G8, G9 는 R0 시점에 closed)
 ```

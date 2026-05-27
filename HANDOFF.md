@@ -879,16 +879,49 @@ R6 후 surface 된 환경 이슈 (별 슬라이스 후보):
 
 다음 슬라이스 갈래 (post-R8) — agent 가 선택 (또는 user 와 합의):
 
-**갈래 V1-PROD — Production deployment (R8 후 자연 다음)**:
+**갈래 R9 — Customer raw data standardization (RECOMMENDED, V1-PROD 직전 자연 다음)**:
 
 ```text
-R8 wiring 위에 첫 customer 통합 + production .pk 마이그레이션 (legacy
-stem → StandardKeyName, byte 불변 단순 rename). production keygen +
-scripts/smoke.sh 풀 파이프라인 production 환경 검증 (m6i.{2,4}xlarge
-권장). customer-specific delta (snapshot CSV format) 만 추가.
+R8 종결 시점 (현재) 의 customer-specific 코드 = profile/<customer>/
+snapshot.go (binance ~31k LoC, sea_reference ~16k LoC). 거래소마다
+raw data (CSV/DB/JSONL) 포맷이 달라 어쩔 수 없는 형태였음.
 
-R8 진행 전이라도 V1-PROD 진행 가능 — 단 customer adapter 가 현재
-procedural 형태로 작성 (R8 후 cleanup 시 자연 마이그레이션).
+R9 의 목표는 그 customer-specific 부분도 *모델별 표준 raw schema +
+mapping config* 로 축소. snapshot.go 가 thin (~10-30 LoC) 으로 수렴.
+Mapping 으로 표현 불가능한 transform 은 thin adapter 코드 (escape
+hatch) 로 흡수.
+
+자세한 내용 PRODUCTION_ROADMAP §R9. 작업 분해 ~6-8 슬라이스:
+  R9-A   모델별 표준 schema 정의 (4 model)
+  R9-B   Core CSV parser primitives
+  R9-C   Mapping config DSL (toml [snapshot.column_map] table)
+  R9-D   Model parser combiner + snapshot connector registry 적응
+  R9-E   profile/binance snapshot.go thin rewrite
+  R9-F   profile/sea_reference snapshot.go thin rewrite
+  R9-close  G18 closure + handoff/roadmap
+
+R9 종료 후 customer onboarding 비용:
+  toml (mapping 포함) + (필요 시) thin adapter ~10-30 LoC
+```
+
+**갈래 V1-PROD — Production deployment (R9 후 진짜 최적)**:
+
+```text
+R8 종결 시점에도 V1-PROD 진행 가능 — customer adapter 가 thick 인 상태
+(현재 binance / sea_reference snapshot.go 패턴). 그러나 R9 종료 후가
+*진짜 최적* — raw data adapter 비용 최소화.
+
+V1-PROD 의 핵심 작업:
+  - 첫 real customer 통합 (SEA reference 또는 다른)
+  - production .pk 마이그레이션 (legacy stem → StandardKeyName, byte
+    불변 단순 rename)
+  - production keygen (capacity=500, shape={50_700, 500_92})
+  - scripts/smoke.sh 풀 파이프라인 production 환경 검증
+  - 권장 사양: m6i.{2,4}xlarge
+
+R9 와 V1-PROD 의 우선순위:
+  - 첫 customer signal 이 *지금 들어옴* → V1-PROD 먼저, R9 carry
+  - 첫 customer signal 없음 + engine 성숙도 우선 → R9 먼저, V1-PROD 후
 ```
 
 **갈래 R5-FU — sea_reference end-to-end smoke**:
