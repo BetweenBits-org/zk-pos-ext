@@ -25,8 +25,8 @@ import (
 // parse) is deferred to AccountStream/CexAssets.
 //
 // One factory per connector ID. Connectors are registered at build
-// time via init() in the customer profile that owns the ETL
-// implementation (e.g. profile/binance/snapshot.go).
+// time via init() in the package that owns the canonical snapshot
+// implementation.
 type SnapshotFactory func(
 	userDataDir, snapshotID string,
 	assetCapacity int,
@@ -41,9 +41,8 @@ type SnapshotFactory func(
 // (dir, snapshotID, capacity) keep the registration shape consistent
 // across models even though the returned interface type does not.
 //
-// ID format convention (G17): "<connector_id>.v<version>". First v1
-// entry: "binance_csv.v1" (CSV ETL implementation lives in
-// profile/binance/snapshot.go).
+// ID format convention (G17): "<connector_id>.v<version>". The V1
+// product connector is "t4_standard_csv.v1" from core/snapshot.
 //
 // Lifetime: registration at build time via init(). Read-only after
 // package init. Misses panic — every connector referenced by a

@@ -12,9 +12,8 @@ import (
 // SnapshotFactory constructs a t1_simple_margin SnapshotSource from
 // the universal arguments captured in the declarative profile. Same
 // signature as t4_tiered_haircut_margin_3pool's factory — see that file for
-// argument semantics (R8-E added the PriceScaleProvider tail
-// argument so customer ETL can fully drop its in-package pricing
-// adapter).
+// argument semantics. Standard CSV connectors ignore pricing because
+// their inputs are already scaled canonical integers.
 type SnapshotFactory func(
 	userDataDir, snapshotID string,
 	assetCapacity int,
@@ -25,8 +24,8 @@ type SnapshotFactory func(
 //
 // Identical shape to t4_tiered_haircut_margin_3pool/host's registry — the table
 // lives per-model because SnapshotSource is model-typed. ID format
-// "<connector_id>.v<version>". First v1 entry: "sea_csv.v1"
-// (implementation in profile/sea_reference/snapshot.go).
+// "<connector_id>.v<version>". The V1 product connector is
+// "t1_standard_csv.v1" from core/snapshot.
 var (
 	snapshotRegistryMu sync.RWMutex
 	snapshotRegistry   = map[string]SnapshotFactory{}

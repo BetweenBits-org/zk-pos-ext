@@ -15,10 +15,8 @@ func stubFactory(string, string, int, corespec.PriceScaleProvider) t4spec.Snapsh
 	return nil
 }
 
-// Note: binance_csv.v1 registration is verified in profile/binance's
-// own test package, where its init() actually runs. This file only
-// covers registry mechanics (no profile-package import to avoid
-// reversing the dependency direction).
+// Note: t4_standard_csv.v1 registration is covered by core/snapshot's
+// parser package. This file only covers registry mechanics.
 
 // TestSnapshotRegistry_RegisterAndLookup exercises the mechanism with
 // a one-off id that no profile claims.

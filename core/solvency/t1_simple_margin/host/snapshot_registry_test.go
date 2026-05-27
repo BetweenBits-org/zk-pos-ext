@@ -13,9 +13,8 @@ func stubFactory(string, string, int, corespec.PriceScaleProvider) t1spec.Snapsh
 	return nil
 }
 
-// Note: sea_csv.v1 registration is verified in profile/sea_reference's
-// own test package, where its init() actually runs. This file only
-// covers registry mechanics.
+// Note: t1_standard_csv.v1 registration is covered by core/snapshot's
+// parser package. This file only covers registry mechanics.
 
 // TestSnapshotRegistry_RegisterAndLookup exercises the mechanism with
 // a one-off id.
