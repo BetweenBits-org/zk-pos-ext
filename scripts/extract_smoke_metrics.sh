@@ -86,17 +86,25 @@ sub "CAPACITY" "${CAPACITY:-unknown}"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR" "$STRIPPED"' EXIT
 
-awk '
-/^\[ec2\] === smoke: / {
-  if (out) close(out)
-  match($0, /profile\/([a-z0-9_]+)\//, m)
-  out = "'"$TMPDIR"'/" m[1] ".log"
-  next
-}
-{
-  if (out) print > out
-}
-' "$STRIPPED"
+python3 - "$STRIPPED" "$TMPDIR" <<'PY'
+import re
+import sys
+log, outdir = sys.argv[1], sys.argv[2]
+section_re = re.compile(r"^\[ec2\] === smoke: profile/([a-z0-9_]+)/")
+out = None
+with open(log) as f:
+    for line in f:
+        m = section_re.search(line)
+        if m:
+            if out is not None:
+                out.close()
+            out = open(f"{outdir}/{m.group(1)}.log", "w")
+            continue
+        if out is not None:
+            out.write(line)
+if out is not None:
+    out.close()
+PY
 
 for tier in t1 t2 t3 t4; do
   file="$TMPDIR/${tier}_reference.log"
