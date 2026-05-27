@@ -790,7 +790,72 @@ zkmerkle-proof-of-solvency/                   (cwd — parent repo)
 3. baseline 검증 명령 실행 (Required Commands 참고).
 4. 다음 슬라이스 진입.
 
-**R3 step 4 + R4 + R5 + R6 + R7 + R8 종결**. V1 catalog freeze + profile wiring 완료.
+**R3..R10 종결 + Phase 1/2/3a/3b/3c 진행 중**. T1~T4 multi-model
+smoke 진입 path 의 절반 (keygen + witness + prover) 가 model-blind
+dispatch 완료. verifier + userproof + smoke harness 만 남음.
+
+## Phase 1-3c (multi-model smoke prep) — 진행 중
+
+commit chain (5 commits, ~2900 lines net): 35273ae → 106c128 →
+1e99d67 → 190ee28 → a83ed8b.
+
+- **Phase 1** (35273ae) — `profile/t2_reference/`, `profile/t3_reference/`
+  reference profile.toml 신설. T1 (sea_reference) + T4 (binance) 와
+  통일된 패턴, tiny capacity=10 / batch_shape=5_10. declarative.Load
+  round-trip 검증.
+- **Phase 2** (106c128) — 4 model standard CSV sample testdata
+  (`profile/<>/testdata/happy/`). 10 accounts × 3 assets (btc/eth/usdt),
+  sum invariant 충족 (per-asset total_equity = 10 × per_account_value).
+  T1 만 `tier_ratios.csv` 부재, T3 + T4 가 `tier_ratios.csv` 보유 (T4
+  는 collateral_pool enum). 모든 4 model parser 로드 검증.
+- **Phase 3a** (1e99d67) — `cmd/keygen` 의 `newCircuit` switch 가
+  T2 + T3 case 추가. T2/T3 reference profile 로 keygen 실증 (T2:
+  169k constraints / 8.8s Setup / 30MB .pk, T3: 228k / 12.1s / 40MB).
+- **Phase 3b** (190ee28) — witness 4 model runner. 각 `core/solvency/
+  <model>/host/witness_runner.go` 안에 `RunWitness(WitnessRunnerConfig)`.
+  `cmd/witness/main.go` 175 lines (이전 294) — dispatch + universal
+  wiring 만. tiersFromShapes + loadConfig 만 cmd 안에 잔존.
+- **Phase 3c** (a83ed8b) — prover 4 model runner. `core/host/prover.go`
+  의 universal `BatchProofResult` + `<model>/host/prover_runner.go`
+  의 model-typed `DecodeAndProve`. cmd/prover/main 의 lazy snark-params
+  cache + persist 는 model-blind. tier 첫 호출 시 ascending 첫 tier
+  로딩 → mismatch 시 다른 tier 재시도 패턴.
+
+## Phase 1-3c 남은 작업 (다음 세션 진입점)
+
+- **Phase 3d (verifier)** — `cmd/verifier` 의 batch + user mode 둘 다
+  4 model dispatch. config 의 CexAssetsInfo 가 model-typed (현 t4spec)
+  — `json.RawMessage` 로 refactor 후 model 별 unmarshal 필요. 가장 큰
+  슬라이스 (~1500 lines). user 모드 (UserConfig leaf 재계산) 는 T1
+  의 TotalCollateral 부재만 차이 — Phase 3b 패턴 그대로.
+- **Phase 3e (userproof)** — `cmd/userproof` 의 populateTree +
+  writeUserProofs + buildUserProofRow 의 4 model runner. UserConfig
+  type 이 model 별 다름 (T1 만 TotalCollateral 부재). ~700 lines.
+- **Phase 4 (smoke 통합)** — `scripts/smoke.sh` 의 `-profile <toml>`
+  인자화 (현재 `profile/binance/binance.toml` 하드코딩). `src/sampledata`
+  → 각 profile 의 새 `testdata/happy/` 경로 (model-별 가변).
+  smoke variant 4개 또는 단일 generic `smoke.sh <profile>`.
+
+진입 순서 권장 (의존 그래프):
+```
+Phase 3d (verifier) ───┐
+                       │
+Phase 3e (userproof) ──┴─→ Phase 4 (smoke 4 model 실증)
+```
+
+3d 와 3e 는 독립 진행 가능 — 둘 다 끝나야 Phase 4 의 full pipeline
+smoke 가 4 model 모두 통과.
+
+Runner 패턴 lock (Phase 3b/3c 산출):
+- `WitnessRunnerConfig` (witness) / `BatchProofResult` (prover) — model
+  별 runner 가 받는 config struct + 반환 universal result struct.
+- Phase 3d/3e 도 동일 패턴: cmd 의 dispatch 와 universal helpers 만
+  cmd 에 유지, model-typed 코드는 runner 안에.
+
+---
+
+이전 종결 단계 (참조):
+
 
 R8 산출물 (commit chain 78710d5 → 83cbfbe, 11 slices):
 
