@@ -350,6 +350,7 @@ Source-of-truth:
 | CSV primitives | `core/snapshot/csv` | Header validation, typed scalar parsing, duplicate primary-key detection, context-aware row streaming, `ErrInvalidRow` classification. |
 | Mapping DSL | `core/snapshot/mapping` | Reusable preprocessor helper for CSV dialect, direct/wide-assets file rules, source/constant/source-prefix column rules, decimal-scale validation. Not a service runtime raw-adapter contract. |
 | Model standard parsers | `core/snapshot/<model>/parser.go` | Convert canonical files into model-typed `SnapshotSource`; registered as `t*_standard_csv.v1`. |
+| Alpha sidecar schema | `core/snapshot/schema.StandardAlphaSchema` | Model-neutral EAV transport (`alpha_manifest.csv`, `alpha_values.csv`) for arbitrary ConstraintModule inputs. Transport only — module-aware connector code must project values into witness/`ConstraintContext`. |
 
 Model standard files are intentionally model-specific:
 
@@ -372,7 +373,12 @@ Frozen v1 invariants:
    account-asset pairs mean zero balance.
 5. `cex_assets.csv` contains real asset rows. Parsers pad to deployment
    `AssetCapacity` with `reserved` zero slots.
-6. Schema changes follow R7 catalog governance: additive fields are a
+6. Alpha sidecar rows use fixed headers, not arbitrary CSV headers:
+   manifest rows declare `(module_id, scope, field_name, field_type)`;
+   value rows address `snapshot`, `asset`, `account`, or
+   `account_asset` subjects. This keeps customer-specific alpha fields
+   data-driven while preserving a stable parser/audit surface.
+7. Schema changes follow R7 catalog governance: additive fields are a
    minor compatible bump; removal or rename is disallowed in v1.
 
 Current profile status:

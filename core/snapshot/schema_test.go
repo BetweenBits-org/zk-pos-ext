@@ -1,8 +1,10 @@
 package snapshot_test
 
 import (
+	"strings"
 	"testing"
 
+	snapshotcsv "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/csv"
 	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
 	t1schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
 	t2schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t2_static_haircut_margin"
@@ -32,6 +34,51 @@ func TestStandardSchemasValidate(t *testing.T) {
 		if !seen[model] {
 			t.Fatalf("missing standard schema for catalog model %s", model)
 		}
+	}
+}
+
+func TestStandardAlphaSchemaValidate(t *testing.T) {
+	if err := snapshotschema.ValidateAlpha(snapshotschema.StandardAlphaSchema); err != nil {
+		t.Fatalf("ValidateAlpha(StandardAlphaSchema): %v", err)
+	}
+	if got := len(snapshotschema.StandardAlphaSchema.Files); got != 2 {
+		t.Fatalf("alpha file count = %d, want 2", got)
+	}
+	if snapshotschema.StandardAlphaSchema.Files[0].Name != snapshotschema.AlphaManifestFile {
+		t.Fatalf("first alpha file = %q, want %q",
+			snapshotschema.StandardAlphaSchema.Files[0].Name,
+			snapshotschema.AlphaManifestFile)
+	}
+	if snapshotschema.StandardAlphaSchema.Files[1].Name != snapshotschema.AlphaValuesFile {
+		t.Fatalf("second alpha file = %q, want %q",
+			snapshotschema.StandardAlphaSchema.Files[1].Name,
+			snapshotschema.AlphaValuesFile)
+	}
+}
+
+func TestStandardAlphaSchemaCSVShape(t *testing.T) {
+	manifest := snapshotschema.StandardAlphaSchema.Files[0]
+	manifestCSV := `module_id,scope,field_name,field_type,required,description
+regulator.kr.user_limit_v1,account,daily_limit,uint64,1,per-account daily limit
+`
+	if _, err := snapshotcsv.NewReader(strings.NewReader(manifestCSV), manifest, snapshotcsv.DefaultOptions()); err != nil {
+		t.Fatalf("alpha manifest reader: %v", err)
+	}
+
+	values := snapshotschema.StandardAlphaSchema.Files[1]
+	valuesCSV := `module_id,scope,subject,field_name,value
+regulator.kr.user_limit_v1,account,0000000000000000000000000000000000000000000000000000000000000001,daily_limit,100000000
+`
+	reader, err := snapshotcsv.NewReader(strings.NewReader(valuesCSV), values, snapshotcsv.DefaultOptions())
+	if err != nil {
+		t.Fatalf("alpha values reader: %v", err)
+	}
+	row, err := reader.Read()
+	if err != nil {
+		t.Fatalf("alpha values read: %v", err)
+	}
+	if got, _ := row.Value("subject"); got != "0000000000000000000000000000000000000000000000000000000000000001" {
+		t.Fatalf("alpha subject = %q", got)
 	}
 }
 

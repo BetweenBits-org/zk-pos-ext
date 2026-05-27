@@ -316,11 +316,12 @@ column 과 file 을 회로 입력으로 해석하지 않는다.
    - 예: 거래소별 위험등급, product bucket, account group, 특수 collateral
      carve-out 이 회로 안에서 직접 검증되어야 하는 경우.
    - `t4_standard_csv.v1` 에 column 을 몰래 추가하지 않는다.
-   - 새 versioned snapshot connector 를 만든다. 예:
+   - 가능하면 아래 일반 alpha sidecar schema 로 입력을 운반한다.
+   - 그 sidecar 를 실제 witness/`ConstraintContext` 로 투영하는 새
+     versioned snapshot connector 를 만든다. 예:
      `t4_<rule>_standard_csv.v1`.
-   - 그 connector 는 추가 column 또는 추가 file 을 명시한 schema/parser 를
-     소유하고, 필요한 값을 model witness 또는 module 이 볼 수 있는
-     `ConstraintContext` 로 전달하도록 회로 surface 를 함께 확장해야 한다.
+   - 필요한 값이 현재 `ConstraintContext` 에 없으면 회로 surface 를 함께
+     확장해야 한다.
    - 이 변경은 `(model, batch_shape, asset_capacity, module)` 뿐 아니라
      witness/schema 계약까지 바꾸므로 별도 audit 과 trusted setup 이 필요하다.
 3. **public parameter 만 필요한 rule**
@@ -342,6 +343,53 @@ column 과 file 을 회로 입력으로 해석하지 않는다.
 - 추가 schema/parser 또는 `SnapshotSource`
 - 필요 시 `ConstraintContext` / witness struct 확장
 - 새 `.pk/.vk` ceremony
+
+### 일반 alpha sidecar schema
+
+임의의 module field 를 표현하기 위한 공통 sidecar 는 EAV 형태다. CSV header
+자체를 customer 별로 열어두지 않고, `field_name` 과 `value` row 로 임의
+입력을 운반한다. 이 계약은 `core/snapshot/schema.StandardAlphaSchema`
+(`alpha_sidecar.v1`) 에 고정되어 있다.
+
+`alpha_manifest.csv`
+
+```csv
+module_id,scope,field_name,field_type,required,description
+```
+
+`alpha_values.csv`
+
+```csv
+module_id,scope,subject,field_name,value
+```
+
+`scope` 와 `subject` 규칙:
+
+| `scope` | `subject` |
+|---|---|
+| `snapshot` | literal `snapshot` |
+| `asset` | decimal `asset_index` |
+| `account` | 64-hex `account_id` |
+| `account_asset` | `<account_id>:<asset_index>` |
+
+예시:
+
+```csv
+# alpha_manifest.csv
+module_id,scope,field_name,field_type,required,description
+regulator.kr.user_limit_v1,account,daily_limit,uint64,1,per-account limit
+```
+
+```csv
+# alpha_values.csv
+module_id,scope,subject,field_name,value
+regulator.kr.user_limit_v1,account,0000000000000000000000000000000000000000000000000000000000000001,daily_limit,100000000
+```
+
+주의: sidecar schema 는 transport 표준이다. 이 파일이 존재한다고 해서 값이
+자동으로 회로에 들어가지는 않는다. 해당 `constraint.module` 과
+`snapshot.source_type` 이 그 sidecar 를 읽고, typed witness 또는
+`ConstraintContext` 로 값을 전달하도록 명시적으로 구현되어야 한다.
 
 ## 최소 T4 예시
 

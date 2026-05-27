@@ -7,6 +7,11 @@
 // data into these fields; model parsers then validate the schema and
 // build deterministic AccountInfo / CexAssetInfo values for the zk
 // boundary.
+//
+// The package also defines a model-neutral alpha sidecar schema. Alpha
+// sidecars carry extension-module inputs in a stable EAV shape so
+// customer-specific fields do not require ad hoc columns in the base
+// model CSV files.
 package schema
 
 import (
@@ -142,34 +147,38 @@ func Validate(s Schema) error {
 	if len(s.Files) == 0 {
 		return fmt.Errorf("schema %s has no files", s.ModelID)
 	}
+	return validateFiles(fmt.Sprintf("schema %s", s.ModelID), s.Files)
+}
+
+func validateFiles(prefix string, files []File) error {
 	fileNames := map[string]struct{}{}
-	for _, file := range s.Files {
+	for _, file := range files {
 		if file.Name == "" {
-			return fmt.Errorf("schema %s has file with empty name", s.ModelID)
+			return fmt.Errorf("%s has file with empty name", prefix)
 		}
 		if _, ok := fileNames[file.Name]; ok {
-			return fmt.Errorf("schema %s duplicate file %q", s.ModelID, file.Name)
+			return fmt.Errorf("%s duplicate file %q", prefix, file.Name)
 		}
 		fileNames[file.Name] = struct{}{}
 		if len(file.Fields) == 0 {
-			return fmt.Errorf("schema %s file %q has no fields", s.ModelID, file.Name)
+			return fmt.Errorf("%s file %q has no fields", prefix, file.Name)
 		}
 		fields := map[string]struct{}{}
 		for _, field := range file.Fields {
 			if field.Name == "" {
-				return fmt.Errorf("schema %s file %q has field with empty name", s.ModelID, file.Name)
+				return fmt.Errorf("%s file %q has field with empty name", prefix, file.Name)
 			}
 			if _, ok := fields[field.Name]; ok {
-				return fmt.Errorf("schema %s file %q duplicate field %q", s.ModelID, file.Name, field.Name)
+				return fmt.Errorf("%s file %q duplicate field %q", prefix, file.Name, field.Name)
 			}
 			fields[field.Name] = struct{}{}
 			if !knownFieldType(field.Type) {
-				return fmt.Errorf("schema %s file %q field %q has unknown type %q", s.ModelID, file.Name, field.Name, field.Type)
+				return fmt.Errorf("%s file %q field %q has unknown type %q", prefix, file.Name, field.Name, field.Type)
 			}
 		}
 		for _, key := range append(append([]string{}, file.PrimaryKey...), file.SortKey...) {
 			if _, ok := fields[key]; !ok {
-				return fmt.Errorf("schema %s file %q key field %q is not declared", s.ModelID, file.Name, key)
+				return fmt.Errorf("%s file %q key field %q is not declared", prefix, file.Name, key)
 			}
 		}
 	}
