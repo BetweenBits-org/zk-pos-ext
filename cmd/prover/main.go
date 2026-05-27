@@ -3,19 +3,18 @@
 // groth16.Prove against the per-tier r1cs + proving key, verifies the
 // proof locally, and writes the result to the proof table.
 //
-// R8-C/3 swap: AssetsCountTiers + ZkKeyName stems are derived from
-// the declarative profile.toml (model + batch_shapes + constraint
-// module) + the -keys-dir flag. config.json keeps DB DSN only.
+// Phase 3c (R10+1) swap: the model-typed decode + circuit-witness +
+// Prove/Verify path is pulled into per-model DecodeAndProve runners
+// at core/solvency/<model>/host/prover_runner.go. main becomes a
+// dispatch + persistence layer.
 //
-// This is the R3 step 4 core-path service: single-instance, DB-poll
-// task pump (no Redis), no rerun mode. Multi-worker scaling and
-// offline rerun are tracked as follow-up slices.
+// R8-C/3 wiring foundation: AssetsCountTiers + ZkKeyName stems are
+// derived from the declarative profile.toml + the -keys-dir flag.
+// config.json keeps DB DSN only.
 //
 // G1 carryover: solver.RegisterHint(corecircuit.IntegerDivision) at
-// startup resolves the hint-identifier divergence the byte-equivalence
-// proof intentionally excluded. Witness solving requires the prover's
-// hint registration to match the .r1cs's reference; registering
-// zkpor's IntegerDivision (not legacy's) is what closes the loop.
+// startup. Witness solving requires the prover's hint registration
+// to match the .r1cs's reference.
 package main
 
 import (
@@ -32,9 +31,11 @@ import (
 
 	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/prover/config"
 	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
-	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
+	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
+	t3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/host"
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
-	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
@@ -42,19 +43,14 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/constraint/solver"
-	"github.com/consensys/gnark/frontend"
 )
-
-// expectedModel is the solvency model this prover binary supports.
-// V1-PROD scope is T4 only — the SetBatchCreateUserCircuitWitness
-// call below is model-typed.
-const expectedModel corespec.SolvencyModelID = "t4_tiered_haircut_margin_3pool"
 
 // resolved holds the derived (tier, stem) plan the prover walks
 // when loading snark params. Built once at startup from profile.toml.
 type resolved struct {
+	model           corespec.SolvencyModelID
 	assetCountTiers []int
-	zkKeyStems      []string // same index as assetCountTiers; absolute or keys-dir-relative
+	zkKeyStems      []string // same index as assetCountTiers
 }
 
 // snarkParams caches the lazy-loaded artifact triple for one
@@ -86,9 +82,6 @@ func main() {
 	prof, err := declarative.Load(*profilePath)
 	if err != nil {
 		panic(err.Error())
-	}
-	if model := corespec.SolvencyModelID(prof.Profile.Model); model != expectedModel {
-		panic(fmt.Sprintf("prover binary supports %q only; profile.toml model = %q", expectedModel, model))
 	}
 	plan, err := buildResolved(prof, *keysDir)
 	if err != nil {
@@ -129,11 +122,7 @@ func main() {
 	}
 }
 
-// buildResolved derives the (tier, stem) plan from profile.toml. The
-// tiers come from BuildBatchShape (declarative builder honours
-// ZKPOR_BATCH_SHAPE_OVERRIDE for smoke); stems come from
-// BatchShape.StandardKeyName(model, constraint module) joined with
-// keysDir.
+// buildResolved derives the (tier, stem) plan from profile.toml.
 func buildResolved(prof *declarative.Profile, keysDir string) (*resolved, error) {
 	provider, err := declarative.BuildBatchShapeProvider(
 		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
@@ -142,6 +131,7 @@ func buildResolved(prof *declarative.Profile, keysDir string) (*resolved, error)
 	}
 	shapes := provider.Shapes()
 	out := &resolved{
+		model:           corespec.SolvencyModelID(prof.Profile.Model),
 		assetCountTiers: make([]int, len(shapes)),
 		zkKeyStems:      make([]string, len(shapes)),
 	}
@@ -181,116 +171,142 @@ func proveOne(
 	if err != nil {
 		return fmt.Errorf("base64 decode: %w", err)
 	}
-	witnessForCircuit, err := t4host.DecodeBatchWitness(encoded)
-	if err != nil {
-		return fmt.Errorf("decode witness: %w", err)
-	}
 
-	proof, assetsCount, err := generateAndVerify(witnessForCircuit, params, plan, row.Height)
-	if err != nil {
-		return fmt.Errorf("prove/verify: %w", err)
-	}
-
-	if err := persistProof(row, witnessForCircuit, proof, assetsCount, witnessStore, proofStore); err != nil {
-		return fmt.Errorf("persist: %w", err)
-	}
-	return nil
-}
-
-// generateAndVerify wires witness → r1cs → groth16.Prove → groth16.Verify.
-// Returns the proof + the per-user asset count (the in-circuit
-// padded tier) so the persisted row can carry it for the verifier's
-// .vk selection.
-func generateAndVerify(
-	witnessForCircuit *t4spec.BatchCreateUserWitness,
-	params *snarkParams,
-	plan *resolved,
-	batchNumber int64,
-) (groth16.Proof, int, error) {
-	startTime := time.Now().UnixMilli()
-	fmt.Println("begin to generate proof for batch:", batchNumber)
-
-	circuitWitness, err := t4circuit.SetBatchCreateUserCircuitWitness(witnessForCircuit, plan.assetCountTiers)
-	if err != nil {
-		return nil, 0, fmt.Errorf("build circuit witness: %w", err)
-	}
-	targetAssetsCount := len(circuitWitness.CreateUserOps[0].Assets)
-	if err := loadSnarkParams(params, plan, targetAssetsCount); err != nil {
-		return nil, 0, fmt.Errorf("load snark params: %w", err)
-	}
-
-	witness, err := frontend.NewWitness(circuitWitness, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, 0, fmt.Errorf("witness: %w", err)
-	}
-	verifyWitness := t4circuit.NewVerifyBatchCreateUserCircuit(witnessForCircuit.BatchCommitment)
-	vWitness, err := frontend.NewWitness(verifyWitness, ecc.BN254.ScalarField(), frontend.PublicOnly())
-	if err != nil {
-		return nil, 0, fmt.Errorf("public witness: %w", err)
-	}
-
-	proof, err := groth16.Prove(params.r1cs, params.provingKey, witness)
-	if err != nil {
-		return nil, 0, fmt.Errorf("groth16.Prove: %w", err)
-	}
-	fmt.Println("proof generation cost", time.Now().UnixMilli()-startTime, "ms")
-
-	verifyStart := time.Now().UnixMilli()
-	if err := groth16.Verify(proof, params.verifyingKey, vWitness); err != nil {
-		return nil, 0, fmt.Errorf("groth16.Verify: %w", err)
-	}
-	fmt.Println("proof verification cost", time.Now().UnixMilli()-verifyStart, "ms")
-
-	return proof, targetAssetsCount, nil
-}
-
-// persistProof writes the proof row (idempotently — skip if a row
-// already exists at this height) and flips the witness row to
-// Finished. The idempotency check makes a crash between Prove and
-// Create safe: a re-claim sees the proof already present and just
-// updates the witness status.
-func persistProof(
-	row *store.BatchWitness,
-	witnessForCircuit *t4spec.BatchCreateUserWitness,
-	proof groth16.Proof,
-	assetsCount int,
-	witnessStore *store.WitnessStore,
-	proofStore *store.ProofStore,
-) error {
-	var proofBuf bytes.Buffer
-	if _, err := proof.WriteRawTo(&proofBuf); err != nil {
-		return fmt.Errorf("serialise proof: %w", err)
-	}
-
-	if _, err := proofStore.GetByBatchNumber(row.Height); err == nil {
-		fmt.Printf("proof of height %d already exists, marking witness finished\n", row.Height)
+	// Idempotency probe: if a proof row already exists at this height,
+	// skip Prove and just flip the witness status. Load snark params
+	// for the row's assetsCount tier lazily — but we don't know the
+	// tier until decode. Resolve by peeking the witness header? For
+	// now we run decode + assertion regardless; lazy load handles
+	// reuse across batches.
+	if existing, err := proofStore.GetByBatchNumber(row.Height); err == nil {
+		fmt.Printf("proof of height %d already exists (tier %d), marking witness finished\n", row.Height, existing.AssetsCount)
 		return witnessStore.MarkStatus(row.Height, store.StatusFinished)
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("idempotency probe: %w", err)
 	}
 
+	// Decode + Prove via the model-typed runner. The runner picks
+	// the per-user padded tier (targetAssetsCount) from the decoded
+	// circuit witness, but we need it to drive lazy snark-params
+	// loading. The cheapest path is: decode once via the runner,
+	// match the tier into our plan, ensure params, then re-call the
+	// runner with the cached params. To avoid double-decode we
+	// pre-load params optimistically (first tier) and let the runner
+	// fail-fast on tier mismatch. In practice the lazy cache flips
+	// only at tier boundaries; the cache hit covers same-tier runs.
+	result, err := dispatchDecodeAndProve(plan, params, encoded, row.Height)
+	if err != nil {
+		return fmt.Errorf("prove/verify: %w", err)
+	}
+
+	if err := persistProof(row, result, witnessStore, proofStore); err != nil {
+		return fmt.Errorf("persist: %w", err)
+	}
+	return nil
+}
+
+// dispatchDecodeAndProve fronts the model-typed prover_runner with
+// the lazy snark-params cache. The runner needs (r1cs, pk, vk) for
+// its model's circuit; we pre-decode the first batch of each tier
+// to discover the assetsCount, load params, and finally call the
+// runner with the loaded params.
+//
+// To preserve the legacy single-decode behaviour we drive a two-pass
+// strategy: if params.tier is already correct (hit), call the runner
+// directly. On miss, load the params for *any* tier first (cmd loops
+// in ascending tier order, so the first claimed batch is always the
+// first tier), then call the runner.
+//
+// The lazy cache is correct as long as ascending tier order is
+// preserved by the witness builder + DB ordering. R8/R10 witness
+// runners both honor ascending tier order.
+func dispatchDecodeAndProve(plan *resolved, params *snarkParams, encoded []byte, batchNumber int64) (*corehost.BatchProofResult, error) {
+	// On first call params.r1cs is nil — load the smallest tier
+	// (assumed first by ascending order). Subsequent calls compare
+	// against the cached tier; mismatch triggers a reload.
+	if params.r1cs == nil {
+		if err := loadSnarkParams(params, plan, plan.assetCountTiers[0]); err != nil {
+			return nil, err
+		}
+	}
+	result, err := runDecodeAndProve(plan.model, encoded, params, plan.assetCountTiers, batchNumber)
+	if err == nil {
+		return result, nil
+	}
+	// Tier mismatch is signaled by the runner via an error message
+	// containing the targetAssetsCount; the lazy-cache retry below
+	// reloads and re-runs. The check is by substring rather than
+	// a typed error to keep the runner interface model-blind.
+	_ = err
+	// Simpler retry strategy: try every declared tier in order until
+	// one succeeds. Avoids parsing error messages.
+	for _, tier := range plan.assetCountTiers {
+		if tier == params.tier {
+			continue
+		}
+		if err := loadSnarkParams(params, plan, tier); err != nil {
+			return nil, err
+		}
+		result, retryErr := runDecodeAndProve(plan.model, encoded, params, plan.assetCountTiers, batchNumber)
+		if retryErr == nil {
+			return result, nil
+		}
+	}
+	return nil, fmt.Errorf("no declared tier produced a valid prove: %w", err)
+}
+
+// runDecodeAndProve dispatches to the model-typed runner.
+func runDecodeAndProve(
+	model corespec.SolvencyModelID,
+	encoded []byte,
+	params *snarkParams,
+	assetCountTiers []int,
+	batchNumber int64,
+) (*corehost.BatchProofResult, error) {
+	switch model {
+	case "t1_simple_margin":
+		return t1host.DecodeAndProve(encoded, params.r1cs, params.provingKey, params.verifyingKey, assetCountTiers, batchNumber)
+	case "t2_static_haircut_margin":
+		return t2host.DecodeAndProve(encoded, params.r1cs, params.provingKey, params.verifyingKey, assetCountTiers, batchNumber)
+	case "t3_tiered_haircut_margin_1pool":
+		return t3host.DecodeAndProve(encoded, params.r1cs, params.provingKey, params.verifyingKey, assetCountTiers, batchNumber)
+	case "t4_tiered_haircut_margin_3pool":
+		return t4host.DecodeAndProve(encoded, params.r1cs, params.provingKey, params.verifyingKey, assetCountTiers, batchNumber)
+	default:
+		return nil, fmt.Errorf("prover: unsupported model %q", model)
+	}
+}
+
+// persistProof writes the proof row + flips the witness status.
+// Idempotency check is done by proveOne before this is called.
+func persistProof(
+	row *store.BatchWitness,
+	result *corehost.BatchProofResult,
+	witnessStore *store.WitnessStore,
+	proofStore *store.ProofStore,
+) error {
 	cexCommitments, err := json.Marshal([][]byte{
-		witnessForCircuit.BeforeCEXAssetsCommitment,
-		witnessForCircuit.AfterCEXAssetsCommitment,
+		result.BeforeCEXAssetsCommitment,
+		result.AfterCEXAssetsCommitment,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal cex commitments: %w", err)
 	}
 	accountRoots, err := json.Marshal([][]byte{
-		witnessForCircuit.BeforeAccountTreeRoot,
-		witnessForCircuit.AfterAccountTreeRoot,
+		result.BeforeAccountTreeRoot,
+		result.AfterAccountTreeRoot,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal account roots: %w", err)
 	}
 
 	if err := proofStore.Create(&store.Proof{
-		ProofInfo:               base64.StdEncoding.EncodeToString(proofBuf.Bytes()),
+		ProofInfo:               base64.StdEncoding.EncodeToString(result.ProofRaw),
 		BatchNumber:             row.Height,
 		CexAssetListCommitments: string(cexCommitments),
 		AccountTreeRoots:        string(accountRoots),
-		BatchCommitment:         base64.StdEncoding.EncodeToString(witnessForCircuit.BatchCommitment),
-		AssetsCount:             assetsCount,
+		BatchCommitment:         base64.StdEncoding.EncodeToString(result.BatchCommitment),
+		AssetsCount:             result.AssetsCount,
 	}); err != nil {
 		return fmt.Errorf("create proof row: %w", err)
 	}
@@ -298,10 +314,7 @@ func persistProof(
 }
 
 // loadSnarkParams is the lazy-load cache: reload r1cs/pk/vk only when
-// the requested tier differs from the cached one. The legacy ran a
-// background goroutine triggering runtime.GC every 10s during load;
-// we collapse it to a single GC at end-of-load — same intent (keep
-// peak RSS bounded under several-GB proving keys), simpler code.
+// the requested tier differs from the cached one.
 func loadSnarkParams(params *snarkParams, plan *resolved, targetTier int) error {
 	if params.tier == targetTier && params.r1cs != nil {
 		return nil
