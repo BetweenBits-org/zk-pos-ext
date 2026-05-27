@@ -40,9 +40,11 @@ func TestTiersFromShapes_BinanceToml(t *testing.T) {
 }
 
 // TestBuildUserProofRow_ConfigRoundTrip locks the userproof→verifier
-// contract: the JSON payload embedded in UserProof.Config unmarshals
-// back into the verifier's t4host.UserConfig with every field
-// preserved (including raw-byte Proof entries and *big.Int totals).
+// contract for T4: the JSON payload embedded in UserProof.Config
+// unmarshals back into t4host.UserConfig with every field preserved
+// (including raw-byte Proof entries and *big.Int totals). Phase 3e
+// moved BuildUserProofRow into the runner — test calls the runner
+// directly.
 func TestBuildUserProofRow_ConfigRoundTrip(t *testing.T) {
 	account := &t4spec.AccountInfo{
 		AccountIndex:    42,
@@ -63,9 +65,9 @@ func TestBuildUserProofRow_ConfigRoundTrip(t *testing.T) {
 	}
 	rootHex := "deadbeef00000000000000000000000000000000000000000000000000000000"
 
-	row, err := buildUserProofRow(account, leaf, proof, rootHex)
+	row, err := t4host.BuildUserProofRow(account, leaf, proof, rootHex)
 	if err != nil {
-		t.Fatalf("buildUserProofRow: %v", err)
+		t.Fatalf("BuildUserProofRow: %v", err)
 	}
 
 	var got t4host.UserConfig

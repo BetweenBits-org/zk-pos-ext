@@ -5,8 +5,15 @@
 // account — embedded UserConfig payload lets the verifier -user
 // mode recompute and check inclusion locally.
 //
-// R8-D swap: snapshot/asset-capacity/batch-shape now come from
-// profile.toml + the host registries. config.json keeps DB +
+// Phase 3e (R10+1) swap: every model-typed loop (streamAndBucket,
+// populateTree, writeUserProofs, buildUserProofRow) has been pulled
+// into model-specific runner packages at
+// core/solvency/<model>/host/userproof_runner.go. This main is now a
+// thin wiring layer — load profile.toml, build shared dependencies,
+// switch on profile.Model, and delegate to the matching runner.
+//
+// R8-D wiring foundation: snapshot/asset-capacity/batch-shape come
+// from profile.toml + the host registries. config.json keeps DB +
 // TreeDB only.
 //
 // This is the R3 step 4 core-path service: sequential per-account
@@ -21,33 +28,27 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"sort"
 
 	uconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/userproof/config"
+	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
+	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
+	t3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/host"
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
-	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
-	bsmt "github.com/bnb-chain/zkbnb-smt"
 
-	// Register the canonical T4 standard CSV snapshot connector selected
-	// by V1-PROD profile.toml files. Customer raw exports are normalized
-	// before entering this binary.
+	// Register all four model-specific standard CSV snapshot connectors.
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t2_static_haircut_margin"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t3_tiered_haircut_margin_1pool"
 	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
 )
-
-const expectedModel corespec.SolvencyModelID = "t4_tiered_haircut_margin_3pool"
-
-// dbBatchSize is the legacy chunk size for UserProof inserts (~100
-// rows per round-trip); preserved to match operational throughput.
-const dbBatchSize = 100
 
 func main() {
 	profilePath := flag.String("profile", "", "path to the declarative profile.toml (required)")
@@ -68,12 +69,15 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	if model := corespec.SolvencyModelID(prof.Profile.Model); model != expectedModel {
-		panic(fmt.Sprintf("userproof binary supports %q only; profile.toml model = %q", expectedModel, model))
+
+	// G6 closure: BuildPricing carries the ValueScale invariant assert.
+	pricing, err := declarative.BuildPricing(prof.Pricing)
+	if err != nil {
+		panic(fmt.Sprintf("BuildPricing: %v", err))
 	}
 
-	shapeProvider, err := declarative.BuildBatchShapeProvider(
-		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
+	model := corespec.SolvencyModelID(prof.Profile.Model)
+	shapeProvider, err := declarative.BuildBatchShapeProvider(model, prof.BatchShapes)
 	if err != nil {
 		panic(fmt.Sprintf("BuildBatchShapeProvider: %v", err))
 	}
@@ -91,50 +95,11 @@ func main() {
 	if *snapshotID != "" {
 		snapID = *snapshotID
 	}
-	// G6 closure: BuildPricing carries the ValueScale invariant assert.
-	pricing, err := declarative.BuildPricing(prof.Pricing)
-	if err != nil {
-		panic(fmt.Sprintf("BuildPricing: %v", err))
-	}
-	snapshot := t4host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity, pricing)
-
-	ctx := context.Background()
-	accountsByTier := streamAndBucket(ctx, snapshot, assetCountTiers)
-	totalReal := 0
-	for _, accs := range accountsByTier {
-		totalReal += len(accs)
-	}
-	fmt.Printf("loaded %d real accounts across %d tiers\n", totalReal, len(accountsByTier))
-
-	// Per-tier real-vs-padding boundary. After t4host.PaddingAccounts,
-	// accounts[0..realCount[tier]) are real; the rest are padding.
-	realCount := make(map[int]int, len(accountsByTier))
-	for k, v := range accountsByTier {
-		realCount[k] = len(v)
-	}
-
-	tiers := sortedKeys(accountsByTier)
-	paddingStart := totalReal
-	for _, k := range tiers {
-		shape, err := shapeProvider.SelectFor(k)
-		if err != nil {
-			panic(err.Error())
-		}
-		paddingStart, accountsByTier[k] = t4host.PaddingAccounts(accountsByTier[k], k, paddingStart, shape.UsersPerBatch)
-	}
 
 	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("account tree initialised, root = %x\n", accountTree.Root())
-
-	populateTree(accountTree, accountsByTier, tiers, assetCountTiers)
-	if _, err := accountTree.Commit(nil); err != nil {
-		panic(err.Error())
-	}
-	rootHex := hex.EncodeToString(accountTree.Root())
-	fmt.Printf("account tree populated, root = %s\n", rootHex)
 
 	db, err := store.Open(cfg.MysqlDataSource)
 	if err != nil {
@@ -145,8 +110,55 @@ func main() {
 		panic(err.Error())
 	}
 
-	written := writeUserProofs(accountTree, accountsByTier, tiers, realCount, assetCountTiers, rootHex, userProofStore)
-	fmt.Printf("userproof run finished, %d rows written\n", written)
+	ctx := context.Background()
+
+	switch model {
+	case "t1_simple_margin":
+		snapshot := t1host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity, pricing)
+		_, _, err = t1host.RunUserProof(t1host.UserProofRunnerConfig{
+			Ctx:             ctx,
+			Snapshot:        snapshot,
+			AccountTree:     accountTree,
+			UserProofStore:  userProofStore,
+			ShapeProvider:   shapeProvider,
+			AssetCountTiers: assetCountTiers,
+		})
+	case "t2_static_haircut_margin":
+		snapshot := t2host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity, pricing)
+		_, _, err = t2host.RunUserProof(t2host.UserProofRunnerConfig{
+			Ctx:             ctx,
+			Snapshot:        snapshot,
+			AccountTree:     accountTree,
+			UserProofStore:  userProofStore,
+			ShapeProvider:   shapeProvider,
+			AssetCountTiers: assetCountTiers,
+		})
+	case "t3_tiered_haircut_margin_1pool":
+		snapshot := t3host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity, pricing)
+		_, _, err = t3host.RunUserProof(t3host.UserProofRunnerConfig{
+			Ctx:             ctx,
+			Snapshot:        snapshot,
+			AccountTree:     accountTree,
+			UserProofStore:  userProofStore,
+			ShapeProvider:   shapeProvider,
+			AssetCountTiers: assetCountTiers,
+		})
+	case "t4_tiered_haircut_margin_3pool":
+		snapshot := t4host.NewSnapshot(prof.Snapshot.SourceType, dataDir, snapID, capacity, pricing)
+		_, _, err = t4host.RunUserProof(t4host.UserProofRunnerConfig{
+			Ctx:             ctx,
+			Snapshot:        snapshot,
+			AccountTree:     accountTree,
+			UserProofStore:  userProofStore,
+			ShapeProvider:   shapeProvider,
+			AssetCountTiers: assetCountTiers,
+		})
+	default:
+		panic(fmt.Sprintf("userproof: unsupported solvency model %q", model))
+	}
+	if err != nil {
+		panic(err.Error())
+	}
 
 	if *dumpUserIndex >= 0 {
 		if *dumpUserPath == "" {
@@ -183,154 +195,4 @@ func tiersFromShapes(shapes []corespec.BatchShape) []int {
 		out[i] = s.AssetCountTier
 	}
 	return out
-}
-
-// streamAndBucket drains the snapshot's account stream and groups
-// accounts by the smallest BatchShape AssetCountTier that fits their
-// non-empty asset count.
-func streamAndBucket(ctx context.Context, snapshot t4spec.SnapshotSource, tiers []int) map[int][]t4spec.AccountInfo {
-	ch, err := snapshot.AccountStream(ctx)
-	if err != nil {
-		panic(err.Error())
-	}
-	out := make(map[int][]t4spec.AccountInfo)
-	for account := range ch {
-		tier := t4spec.PickAssetCountTier(t4spec.CountNonEmptyAssets(account.Assets), tiers)
-		if tier == 0 {
-			panic(fmt.Sprintf("account %d has %d non-empty assets — no tier in %v fits",
-				account.AccountIndex, t4spec.CountNonEmptyAssets(account.Assets), tiers))
-		}
-		out[tier] = append(out[tier], account)
-	}
-	return out
-}
-
-// sortedKeys returns the map's keys in ascending order — the
-// tier-iteration order witness and userproof must agree on so the
-// resulting tree state matches.
-func sortedKeys(m map[int][]t4spec.AccountInfo) []int {
-	out := make([]int, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Ints(out)
-	return out
-}
-
-// populateTree walks every account (real and padding, in the same
-// tier-then-position order the witness uses) and Sets its leaf hash
-// into the tree. Padding accounts contribute their zero-balance leaf
-// hash so the resulting root matches the witness's published root.
-func populateTree(
-	accountTree bsmt.SparseMerkleTree,
-	accountsByTier map[int][]t4spec.AccountInfo,
-	tiers []int,
-	assetCountTiers []int,
-) {
-	for _, k := range tiers {
-		for i := range accountsByTier[k] {
-			account := &accountsByTier[k][i]
-			leaf := t4host.AccountLeafHash(account, assetCountTiers)
-			if err := accountTree.Set(uint64(account.AccountIndex), leaf); err != nil {
-				panic(err.Error())
-			}
-		}
-	}
-}
-
-// writeUserProofs iterates real accounts (skipping padding) in
-// tier-then-position order, fetches each proof from the populated
-// tree, builds the UserProof + embedded UserConfig JSON, and flushes
-// to the DB in dbBatchSize chunks. Returns the total number of rows
-// written.
-func writeUserProofs(
-	accountTree bsmt.SparseMerkleTree,
-	accountsByTier map[int][]t4spec.AccountInfo,
-	tiers []int,
-	realCount map[int]int,
-	assetCountTiers []int,
-	rootHex string,
-	userProofStore *store.UserProofStore,
-) int {
-	batch := make([]store.UserProof, 0, dbBatchSize)
-	written := 0
-
-	flush := func() {
-		if len(batch) == 0 {
-			return
-		}
-		if err := userProofStore.Create(batch); err != nil {
-			panic(err.Error())
-		}
-		written += len(batch)
-		batch = batch[:0]
-	}
-
-	for _, k := range tiers {
-		realN := realCount[k]
-		for i := range realN {
-			account := &accountsByTier[k][i]
-			proof, err := accountTree.GetProof(uint64(account.AccountIndex))
-			if err != nil {
-				panic(err.Error())
-			}
-			leaf := t4host.AccountLeafHash(account, assetCountTiers)
-
-			row, err := buildUserProofRow(account, leaf, proof, rootHex)
-			if err != nil {
-				panic(err.Error())
-			}
-			batch = append(batch, row)
-			if len(batch) >= dbBatchSize {
-				flush()
-			}
-		}
-	}
-	flush()
-	return written
-}
-
-// buildUserProofRow serialises one account into a UserProof DB row,
-// including the JSON-marshalled UserConfig payload the verifier
-// -user mode reads to recompute the leaf.
-func buildUserProofRow(
-	account *t4spec.AccountInfo,
-	leaf []byte,
-	proof [][]byte,
-	rootHex string,
-) (store.UserProof, error) {
-	proofJSON, err := json.Marshal(proof)
-	if err != nil {
-		return store.UserProof{}, fmt.Errorf("marshal proof: %w", err)
-	}
-	assetsJSON, err := json.Marshal(account.Assets)
-	if err != nil {
-		return store.UserProof{}, fmt.Errorf("marshal assets: %w", err)
-	}
-	userConfig := t4host.UserConfig{
-		AccountIndex:    account.AccountIndex,
-		AccountIdHash:   hex.EncodeToString(account.AccountID),
-		TotalEquity:     account.TotalEquity,
-		TotalDebt:       account.TotalDebt,
-		TotalCollateral: account.TotalCollateral,
-		Assets:          account.Assets,
-		Root:            rootHex,
-		Proof:           proof,
-	}
-	configJSON, err := json.Marshal(userConfig)
-	if err != nil {
-		return store.UserProof{}, fmt.Errorf("marshal user config: %w", err)
-	}
-
-	return store.UserProof{
-		AccountIndex:    account.AccountIndex,
-		AccountId:       hex.EncodeToString(account.AccountID),
-		AccountLeafHash: hex.EncodeToString(leaf),
-		TotalEquity:     account.TotalEquity.String(),
-		TotalDebt:       account.TotalDebt.String(),
-		TotalCollateral: account.TotalCollateral.String(),
-		Assets:          string(assetsJSON),
-		Proof:           string(proofJSON),
-		Config:          string(configJSON),
-	}, nil
 }
