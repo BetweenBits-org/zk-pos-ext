@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Install Docker + Go + git on the EC2 host. Idempotent — re-running is
-# safe. Designed for Ubuntu 22.04 LTS (the default Canonical AMI on
-# m6i instances); for Amazon Linux 2023 swap apt-get for dnf.
+# Install Docker + Go + git on the EC2 host. Idempotent — re-running
+# is safe. Detects apt-get (Ubuntu) vs dnf (Amazon Linux 2023) and
+# adapts; the current zk-por-dev host is AL2023 so the dnf path is
+# the default exercised.
 #
 # Usage: scripts/ec2/bootstrap.sh
 
 source "$(dirname "$0")/_lib.sh"
 
-GO_VERSION="1.22.7"  # match zkpor/go.mod toolchain pin closely
+# Matches parent go.mod's `toolchain go1.23.1` pin. Go 1.22 + auto-
+# downloaded toolchain works too, but pinning here avoids the per-
+# build toolchain fetch overhead.
+GO_VERSION="1.23.1"
 
 log "bootstrapping $EC2_HOST (Docker + Go $GO_VERSION + git)"
 
