@@ -357,12 +357,22 @@ func SetBatchCreateUserCircuitWitness(
 	for i := range w.CreateUserOps {
 		w.CreateUserOps[i].BeforeAccountTreeRoot = batchWitness.CreateUserOps[i].BeforeAccountTreeRoot
 		w.CreateUserOps[i].AfterAccountTreeRoot = batchWitness.CreateUserOps[i].AfterAccountTreeRoot
+		// AssetsForUpdateCex must be dense zero-init even for sparse
+		// user input — same fix class as the T1 regression.
 		w.CreateUserOps[i].AssetsForUpdateCex = make([]UserAssetMeta, cexAssetsCount)
+		for j := range w.CreateUserOps[i].AssetsForUpdateCex {
+			w.CreateUserOps[i].AssetsForUpdateCex[j] = UserAssetMeta{
+				Equity:     uint64(0),
+				Debt:       uint64(0),
+				Collateral: uint64(0),
+			}
+		}
 
+		// Place per-asset contribution at the slot named by Index.
 		existingKeys := make([]int, 0)
 		for j := range batchWitness.CreateUserOps[i].Assets {
 			u := batchWitness.CreateUserOps[i].Assets[j]
-			w.CreateUserOps[i].AssetsForUpdateCex[j] = UserAssetMeta{
+			w.CreateUserOps[i].AssetsForUpdateCex[u.Index] = UserAssetMeta{
 				Equity:     u.Equity,
 				Debt:       u.Debt,
 				Collateral: u.Collateral,

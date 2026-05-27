@@ -311,12 +311,28 @@ func SetBatchCreateUserCircuitWitness(
 	for i := range w.CreateUserOps {
 		w.CreateUserOps[i].BeforeAccountTreeRoot = batchWitness.CreateUserOps[i].BeforeAccountTreeRoot
 		w.CreateUserOps[i].AfterAccountTreeRoot = batchWitness.CreateUserOps[i].AfterAccountTreeRoot
+		// AssetsForUpdateCex is the per-asset slot accumulation vector
+		// indexed by slot ordinal. MUST be dense zero-init even when
+		// the user holds a sparse subset — gnark frontend rejects nil
+		// Variables, and the circuit accumulates every slot into
+		// AfterCex regardless of whether the user touched it. Same
+		// fix class as the T1 sparse-input regression — latent under
+		// dense raw-CSV input, surfaces under R9 standard CSV.
 		w.CreateUserOps[i].AssetsForUpdateCex = make([]UserAssetMeta, cexAssetsCount)
+		for j := range w.CreateUserOps[i].AssetsForUpdateCex {
+			w.CreateUserOps[i].AssetsForUpdateCex[j] = UserAssetMeta{
+				Equity:     uint64(0),
+				Debt:       uint64(0),
+				Collateral: uint64(0),
+			}
+		}
 
+		// Place per-asset contribution at the slot named by Index, not
+		// at the loop index `j` over the user's sparse Assets slice.
 		existingKeys := make([]int, 0)
 		for j := range batchWitness.CreateUserOps[i].Assets {
 			u := batchWitness.CreateUserOps[i].Assets[j]
-			w.CreateUserOps[i].AssetsForUpdateCex[j] = UserAssetMeta{
+			w.CreateUserOps[i].AssetsForUpdateCex[u.Index] = UserAssetMeta{
 				Equity:     u.Equity,
 				Debt:       u.Debt,
 				Collateral: u.Collateral,

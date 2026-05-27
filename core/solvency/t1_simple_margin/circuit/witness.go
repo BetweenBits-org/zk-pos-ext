@@ -44,12 +44,35 @@ func SetBatchCreateUserCircuitWitness(
 	for i := range w.CreateUserOps {
 		w.CreateUserOps[i].BeforeAccountTreeRoot = batchWitness.CreateUserOps[i].BeforeAccountTreeRoot
 		w.CreateUserOps[i].AfterAccountTreeRoot = batchWitness.CreateUserOps[i].AfterAccountTreeRoot
+		// AssetsForUpdateCex is the per-asset slot accumulation vector
+		// the circuit indexes by slot ordinal (j = asset_index). It MUST
+		// be dense — every slot zero-initialised — even when the user
+		// holds only a sparse subset of assets. gnark's frontend rejects
+		// nil Variables with "can't set fr.Element with <nil>"; the
+		// circuit also accumulates ALL slots into AfterCex regardless of
+		// whether the user touched them. This zero-init is the same fix
+		// class as the A5 padding zero-init for UserAssetInfo (commit
+		// d7c23f3); it was latent when raw CSV producers emitted dense
+		// per-asset rows but surfaces under the R9 standard CSV path
+		// where producers emit only non-zero rows.
 		w.CreateUserOps[i].AssetsForUpdateCex = make([]UserAssetMeta, cexAssetsCount)
+		for j := range w.CreateUserOps[i].AssetsForUpdateCex {
+			w.CreateUserOps[i].AssetsForUpdateCex[j] = UserAssetMeta{
+				Equity: uint64(0),
+				Debt:   uint64(0),
+			}
+		}
 
+		// Place the user's per-asset contribution at the slot named by
+		// the asset's Index (NOT by the loop index `j` over the user's
+		// sparse Assets slice). Dense-row layouts happen to satisfy
+		// `j == Index` but sparse layouts (R9 standard CSV) do not, and
+		// the wrong-slot routing made the per-asset linear-combination
+		// cross-check fail with "constraint #16677 is not satisfied".
 		existingKeys := make([]int, 0)
 		for j := range batchWitness.CreateUserOps[i].Assets {
 			u := batchWitness.CreateUserOps[i].Assets[j]
-			w.CreateUserOps[i].AssetsForUpdateCex[j] = UserAssetMeta{
+			w.CreateUserOps[i].AssetsForUpdateCex[u.Index] = UserAssetMeta{
 				Equity: u.Equity,
 				Debt:   u.Debt,
 			}
