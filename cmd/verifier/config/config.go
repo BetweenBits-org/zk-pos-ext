@@ -3,11 +3,15 @@
 // per-snapshot fields only; per-customer values (asset capacity, tiers,
 // verifying-key stems) are derived from profile.toml + the -keys-dir
 // flag.
+//
+// Phase 3d (R10+1): CexAssetsInfo is kept as json.RawMessage so the
+// verifier can dispatch to the per-model runner that knows the typed
+// schema. Each model's BuildCexCommitments unmarshals into its own
+// CexAssetInfo shape (T1: no collateral; T2: Haircut + Collateral;
+// T3: 1-pool tiered; T4: 3-pool tiered).
 package config
 
-import (
-	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
-)
+import "encoding/json"
 
 // Config drives the batch-verification mode of the verifier: it points
 // at the prover's proof table and carries the published CEX asset
@@ -36,14 +40,16 @@ type Config struct {
 	// only when MysqlDataSource is set.
 	DbSuffix string
 
-	// CexAssetsInfo is the published per-asset global state. Its
-	// Poseidon commitment must equal the final batch's after-CEX
-	// commitment. Entries MUST carry full corespec.TierCount-length
-	// ratio tables — an operator-supplied incomplete table yields a
-	// commitment mismatch, not a silent pass.
-	CexAssetsInfo []t4spec.CexAssetInfo
+	// CexAssetsInfo is the published per-asset global state, kept as
+	// raw JSON so the verifier can dispatch to a per-model runner that
+	// unmarshals it into its model-typed slice. Its Poseidon commitment
+	// must equal the final batch's after-CEX commitment. Entries MUST
+	// carry the full per-model schema — operator-supplied incomplete
+	// data yields a commitment mismatch, not a silent pass.
+	CexAssetsInfo json.RawMessage
 }
 
-// UserConfig (per-user inclusion-proof artifact) is defined in
-// zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host so the userproof writer and
-// verifier reader share one type. Import t4host.UserConfig.
+// UserConfig (per-user inclusion-proof artifact) is defined per model
+// in zkpor/core/solvency/<model>/host so the userproof writer and
+// verifier reader share one type. The verifier dispatches on
+// profile.Model to pick the matching runner.

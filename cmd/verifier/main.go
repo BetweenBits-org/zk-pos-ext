@@ -1,6 +1,6 @@
 // Command verifier is the zkpor-native proof of solvency verifier.
 // Same three CLI modes as legacy src/verifier, but wired entirely
-// through zkpor packages and (post R8-D) the declarative profile.
+// through zkpor packages and (post Phase 3d) dispatched on model.
 //
 // Modes:
 //
@@ -11,9 +11,16 @@
 //	                         config/user_config.json
 //	verifier -hash A B       print Poseidon(A, B) for two base64 inputs
 //
-// R8-D swap: AssetCapacity / AssetsCountTiers / ZkKeyName come from
+// Phase 3d (R10+1) swap: per-model verification logic (CEX commitment
+// build, public-witness construction, user-leaf reconstruction) lives
+// in core/solvency/<model>/host/verifier_runner.go. cmd/verifier dispatches
+// on profile.Model and keeps the universal proof-loading and chain
+// check in main. The expectedModel guard is removed.
+//
+// R8-D wiring: AssetCapacity / AssetsCountTiers / ZkKeyName come from
 // profile.toml + -keys-dir (batch + -user modes). config.json keeps
-// DB + CexAssetsInfo (per-snapshot published totals).
+// DB + CexAssetsInfo (now json.RawMessage; per-snapshot published
+// totals).
 //
 // The verifier never solves a witness, so it registers no solver hints;
 // groth16.Verify consumes only the proving artifacts and public input.
@@ -34,28 +41,24 @@ import (
 
 	vconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/verifier/config"
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
+	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
+	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
+	t3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/host"
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
-	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 	"github.com/consensys/gnark/backend/groth16"
-	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/backend/witness"
 	"github.com/gocarina/gocsv"
 )
 
-// expectedModel — V1-PROD T4 only.
-const expectedModel corespec.SolvencyModelID = "t4_tiered_haircut_margin_3pool"
-
-// resolved holds the derived plan the verifier walks for both batch
-// mode (.vk per tier) and -user mode (assetCountTiers for leaf padding).
+// resolved bundles the derived plan plus the chosen model for dispatch.
 type resolved struct {
-	assetCapacity   int
-	assetCountTiers []int
-	zkKeyStems      []string // same index as assetCountTiers
+	model corespec.SolvencyModelID
+	plan  *corehost.VerifierPlan
 }
 
 // pflags carries the parsed profile-driven flags. main passes a
@@ -72,16 +75,6 @@ type pflags struct {
 // standard (corespec.AccountTreeDepth); mirrors the legacy verifier
 // constant.
 const emptyAccountTreeRootHex = "08696bfcb563a2ee4dde9e1dbd34f68d3f4643df6e3709cdb1855c9f886240c7"
-
-// proofRow is one record of the prover-produced proof table.
-type proofRow struct {
-	BatchNumber        int64    `csv:"batch_number"`
-	ZkProof            string   `csv:"proof_info"`
-	CexAssetCommitment []string `csv:"cex_asset_list_commitments"`
-	AccountTreeRoots   []string `csv:"account_tree_roots"`
-	BatchCommitment    string   `csv:"batch_commitment"`
-	AssetsCount        int      `csv:"assets_count"`
-}
 
 func main() {
 	userFlag := flag.Bool("user", false, "verify a single user's inclusion proof")
@@ -107,8 +100,8 @@ func main() {
 	}
 }
 
-// resolveFromProfile loads profile.toml + derives the (capacity, tiers,
-// stems) plan. Used by both batch + -user modes.
+// resolveFromProfile loads profile.toml + derives the (model, capacity,
+// tiers, stems) plan. Used by both batch + -user modes.
 func resolveFromProfile(flags *pflags) (*resolved, error) {
 	if flags.profilePath == "" {
 		return nil, fmt.Errorf("-profile is required (path to profile.toml)")
@@ -117,28 +110,25 @@ func resolveFromProfile(flags *pflags) (*resolved, error) {
 	if err != nil {
 		return nil, err
 	}
-	if model := corespec.SolvencyModelID(prof.Profile.Model); model != expectedModel {
-		return nil, fmt.Errorf("verifier binary supports %q only; profile.toml model = %q", expectedModel, model)
-	}
-	provider, err := declarative.BuildBatchShapeProvider(
-		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
+	model := corespec.SolvencyModelID(prof.Profile.Model)
+	provider, err := declarative.BuildBatchShapeProvider(model, prof.BatchShapes)
 	if err != nil {
 		return nil, err
 	}
 	shapes := provider.Shapes()
-	out := &resolved{
-		assetCapacity:   prof.Profile.AssetCapacity,
-		assetCountTiers: make([]int, len(shapes)),
-		zkKeyStems:      make([]string, len(shapes)),
+	plan := &corehost.VerifierPlan{
+		AssetCapacity:   prof.Profile.AssetCapacity,
+		AssetCountTiers: make([]int, len(shapes)),
+		ZkKeyStems:      make([]string, len(shapes)),
 	}
 	if flags.capacity > 0 {
-		out.assetCapacity = flags.capacity
+		plan.AssetCapacity = flags.capacity
 	}
 	for i, s := range shapes {
-		out.assetCountTiers[i] = s.AssetCountTier
-		out.zkKeyStems[i] = filepath.Join(flags.keysDir, provider.KeyName(s, prof.Constraint.Module))
+		plan.AssetCountTiers[i] = s.AssetCountTier
+		plan.ZkKeyStems[i] = filepath.Join(flags.keysDir, provider.KeyName(s, prof.Constraint.Module))
 	}
-	return out, nil
+	return &resolved{model: model, plan: plan}, nil
 }
 
 // loadVerifyingKey reads a groth16 BN254 verifying key from disk.
@@ -154,63 +144,70 @@ func loadVerifyingKey(path string) (groth16.VerifyingKey, error) {
 	return vk, nil
 }
 
-// runUserVerification recomputes a single account's leaf hash from
-// config/user_config.json and checks it against the published account
-// tree root via the Merkle path. This is the engine-side primitive a
-// customer's self-inclusion UI would wrap (the UI itself is out of V1
-// scope).
+// dispatchBuildCexCommitments routes raw CexAssetsInfo through the
+// model's typed unmarshal + commitment computation.
+func dispatchBuildCexCommitments(model corespec.SolvencyModelID, raw json.RawMessage, capacity int) (empty, final []byte, err error) {
+	switch model {
+	case "t1_simple_margin":
+		return t1host.BuildCexCommitments(raw, capacity)
+	case "t2_static_haircut_margin":
+		return t2host.BuildCexCommitments(raw, capacity)
+	case "t3_tiered_haircut_margin_1pool":
+		return t3host.BuildCexCommitments(raw, capacity)
+	case "t4_tiered_haircut_margin_3pool":
+		return t4host.BuildCexCommitments(raw, capacity)
+	default:
+		return nil, nil, fmt.Errorf("verifier: unsupported model %q", model)
+	}
+}
+
+// dispatchNewVerifyPublicWitness builds the model-specific public
+// witness for groth16.Verify.
+func dispatchNewVerifyPublicWitness(model corespec.SolvencyModelID, batchCommitment []byte) (witness.Witness, error) {
+	switch model {
+	case "t1_simple_margin":
+		return t1host.NewVerifyPublicWitness(batchCommitment)
+	case "t2_static_haircut_margin":
+		return t2host.NewVerifyPublicWitness(batchCommitment)
+	case "t3_tiered_haircut_margin_1pool":
+		return t3host.NewVerifyPublicWitness(batchCommitment)
+	case "t4_tiered_haircut_margin_3pool":
+		return t4host.NewVerifyPublicWitness(batchCommitment)
+	default:
+		return nil, fmt.Errorf("verifier: unsupported model %q", model)
+	}
+}
+
+// dispatchVerifyUserInclusion runs the model-typed user-leaf
+// reconstruction + Merkle inclusion check.
+func dispatchVerifyUserInclusion(model corespec.SolvencyModelID, plan *corehost.VerifierPlan, userConfigPath string) error {
+	switch model {
+	case "t1_simple_margin":
+		return t1host.VerifyUserInclusion(plan, userConfigPath)
+	case "t2_static_haircut_margin":
+		return t2host.VerifyUserInclusion(plan, userConfigPath)
+	case "t3_tiered_haircut_margin_1pool":
+		return t3host.VerifyUserInclusion(plan, userConfigPath)
+	case "t4_tiered_haircut_margin_3pool":
+		return t4host.VerifyUserInclusion(plan, userConfigPath)
+	default:
+		return fmt.Errorf("verifier: unsupported model %q", model)
+	}
+}
+
+// runUserVerification dispatches to the model's user-inclusion runner.
 func runUserVerification(flags *pflags) {
-	plan, err := resolveFromProfile(flags)
+	r, err := resolveFromProfile(flags)
 	if err != nil {
 		panic(err.Error())
 	}
-	content, err := os.ReadFile("config/user_config.json")
-	if err != nil {
+	if err := dispatchVerifyUserInclusion(r.model, r.plan, "config/user_config.json"); err != nil {
 		panic(err.Error())
-	}
-	userConfig := &t4host.UserConfig{}
-	if err := json.Unmarshal(content, userConfig); err != nil {
-		panic(err.Error())
-	}
-
-	root, err := hex.DecodeString(userConfig.Root)
-	if err != nil || len(root) != 32 {
-		panic("invalid account tree root")
-	}
-
-	// UserConfig.Proof is [][]byte — JSON decode already base64'd the
-	// wire form back to raw 32-byte sibling hashes.
-	for i, p := range userConfig.Proof {
-		if len(p) != 32 {
-			panic(fmt.Sprintf("invalid proof[%d] len=%d, want 32", i, len(p)))
-		}
-	}
-	proof := userConfig.Proof
-
-	assetCommitment := t4host.ComputeUserAssetsCommitment(userConfig.Assets, plan.assetCountTiers)
-
-	accountIDHash, err := hex.DecodeString(userConfig.AccountIdHash)
-	if err != nil || len(accountIDHash) != 32 {
-		panic("the AccountIdHash is invalid")
-	}
-	accountHash := poseidon.PoseidonBytes(
-		accountIDHash,
-		userConfig.TotalEquity.Bytes(),
-		userConfig.TotalDebt.Bytes(),
-		userConfig.TotalCollateral.Bytes(),
-		assetCommitment,
-	)
-	fmt.Println("user merkle leave hash base64 encode: ", base64.StdEncoding.EncodeToString(accountHash))
-	fmt.Printf("user merkle leave hash hex encode: %x\n", accountHash)
-
-	if corehost.VerifyMerkleProof(root, userConfig.AccountIndex, proof, accountHash) {
-		fmt.Println("verify pass!!!")
-	} else {
-		fmt.Println("verify failed...")
 	}
 }
 
 // runHash prints Poseidon(arg0, arg1) for two base64-encoded inputs.
+// Model-blind — kept in main.
 func runHash(args []string) {
 	if len(args) != 2 {
 		panic("invalid hash command, it needs two arguments")
@@ -236,8 +233,11 @@ func runHash(args []string) {
 // after-state is batch i+1's before-state), the first batch starts
 // from the empty tree, and the final CEX commitment equals the
 // commitment of the published totals.
+//
+// Per-proof groth16.Verify and the empty/final CEX commitment are
+// dispatched per model; the chain walk is universal.
 func runBatchVerification(flags *pflags) {
-	plan, err := resolveFromProfile(flags)
+	r, err := resolveFromProfile(flags)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -263,43 +263,22 @@ func runBatchVerification(flags *pflags) {
 		panic("wrong empty account tree root")
 	}
 
-	// Index the published CEX totals by their declared asset index and
-	// enforce the per-asset equity >= debt floor before computing the
-	// expected final commitment.
-	cexAssetsInfo := make([]t4spec.CexAssetInfo, len(verifierConfig.CexAssetsInfo))
-	for i := range verifierConfig.CexAssetsInfo {
-		entry := verifierConfig.CexAssetsInfo[i]
-		cexAssetsInfo[entry.Index] = entry
-		// Per-asset equity < debt is allowed under t4_tiered_haircut_margin_3pool: model
-		// invariants are per-account (sum collateral ≥ sum debt across
-		// the user's portfolio), not per-asset. Surface as a warning so
-		// operators notice unusual distributions, but do not panic.
-		if entry.TotalEquity < entry.TotalDebt {
-			fmt.Printf("warning: %s asset equity %d less than debt %d (allowed by model; check distribution)\n",
-				entry.Symbol, entry.TotalEquity, entry.TotalDebt)
-		}
-	}
-	emptyCexAssetsInfo := make([]t4spec.CexAssetInfo, len(cexAssetsInfo))
-	copy(emptyCexAssetsInfo, cexAssetsInfo)
-	for i := range emptyCexAssetsInfo {
-		emptyCexAssetsInfo[i].TotalDebt = 0
-		emptyCexAssetsInfo[i].TotalEquity = 0
-		emptyCexAssetsInfo[i].LoanCollateral = 0
-		emptyCexAssetsInfo[i].MarginCollateral = 0
-		emptyCexAssetsInfo[i].PortfolioMarginCollateral = 0
-	}
-	if plan.assetCapacity <= 0 {
+	if r.plan.AssetCapacity <= 0 {
 		panic("verifier: profile.asset_capacity must be > 0")
 	}
-	emptyCexAssetListCommitment := t4host.ComputeCexAssetsCommitment(emptyCexAssetsInfo, plan.assetCapacity)
-	expectFinalCexAssetsInfoComm := t4host.ComputeCexAssetsCommitment(cexAssetsInfo, plan.assetCapacity)
+	emptyCexAssetListCommitment, expectFinalCexAssetsInfoComm, err := dispatchBuildCexCommitments(
+		r.model, verifierConfig.CexAssetsInfo, r.plan.AssetCapacity,
+	)
+	if err != nil {
+		panic(err.Error())
+	}
 
 	prevCexAssetListCommitments := make([][]byte, 2)
 	prevAccountTreeRoots := make([][]byte, 2)
 	prevAccountTreeRoots[1] = emptyAccountTreeRoot
 	prevCexAssetListCommitments[1] = emptyCexAssetListCommitment
 
-	if !verifyAllProofs(proofs, plan) {
+	if !verifyAllProofs(proofs, r) {
 		os.Exit(1)
 	}
 
@@ -332,7 +311,7 @@ func runBatchVerification(flags *pflags) {
 // cfg.ProofTable. In both cases the returned slice is indexed by
 // BatchNumber — i.e. result[i] is the proof for batch i, assuming
 // batch numbers are a dense 0..N-1 sequence as the prover produces.
-func loadProofs(cfg *vconfig.Config) ([]proofRow, error) {
+func loadProofs(cfg *vconfig.Config) ([]corehost.ProofRow, error) {
 	if cfg.MysqlDataSource != "" {
 		return loadProofsFromDB(cfg)
 	}
@@ -341,18 +320,18 @@ func loadProofs(cfg *vconfig.Config) ([]proofRow, error) {
 
 // loadProofsFromCSV unmarshals the CSV at path and re-indexes the
 // resulting slice so result[i] is the proof for batch i.
-func loadProofsFromCSV(path string) ([]proofRow, error) {
+func loadProofsFromCSV(path string) ([]corehost.ProofRow, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open proof table %q: %w", path, err)
 	}
 	defer f.Close()
 
-	tmp := []*proofRow{}
+	tmp := []*corehost.ProofRow{}
 	if err := gocsv.UnmarshalFile(f, &tmp); err != nil {
 		return nil, fmt.Errorf("parse proof table %q: %w", path, err)
 	}
-	out := make([]proofRow, len(tmp))
+	out := make([]corehost.ProofRow, len(tmp))
 	for i := range tmp {
 		out[tmp[i].BatchNumber] = *tmp[i]
 	}
@@ -360,13 +339,13 @@ func loadProofsFromCSV(path string) ([]proofRow, error) {
 }
 
 // loadProofsFromDB reads every proof row from the prover's proof table
-// in BatchNumber order and converts each store.Proof into the proofRow
+// in BatchNumber order and converts each store.Proof into the ProofRow
 // shape the verifier downstream consumes. The conversion mirrors the
 // CSV column layout: ProofInfo / BatchCommitment / AssetsCount /
 // BatchNumber are direct copies; CexAssetListCommitments and
 // AccountTreeRoots are unmarshalled from JSON (the prover writes them
 // as JSON-encoded [][]byte → []base64-string arrays).
-func loadProofsFromDB(cfg *vconfig.Config) ([]proofRow, error) {
+func loadProofsFromDB(cfg *vconfig.Config) ([]corehost.ProofRow, error) {
 	db, err := store.Open(cfg.MysqlDataSource)
 	if err != nil {
 		return nil, fmt.Errorf("open mysql: %w", err)
@@ -379,7 +358,7 @@ func loadProofsFromDB(cfg *vconfig.Config) ([]proofRow, error) {
 	if len(rows) == 0 {
 		return nil, fmt.Errorf("proof table is empty (suffix %q)", cfg.DbSuffix)
 	}
-	out := make([]proofRow, len(rows))
+	out := make([]corehost.ProofRow, len(rows))
 	for _, row := range rows {
 		converted, err := convertStoredProof(row)
 		if err != nil {
@@ -393,20 +372,20 @@ func loadProofsFromDB(cfg *vconfig.Config) ([]proofRow, error) {
 	return out, nil
 }
 
-// convertStoredProof maps one store.Proof into the proofRow shape the
+// convertStoredProof maps one store.Proof into the ProofRow shape the
 // verifier uses. The two JSON-encoded slices are decoded directly into
 // []string — json.Marshal of [][]byte writes base64-encoded strings,
 // which is the same on-wire shape the CSV path produces.
-func convertStoredProof(row store.Proof) (proofRow, error) {
+func convertStoredProof(row store.Proof) (corehost.ProofRow, error) {
 	var cexCommits []string
 	if err := json.Unmarshal([]byte(row.CexAssetListCommitments), &cexCommits); err != nil {
-		return proofRow{}, fmt.Errorf("unmarshal cex commitments: %w", err)
+		return corehost.ProofRow{}, fmt.Errorf("unmarshal cex commitments: %w", err)
 	}
 	var treeRoots []string
 	if err := json.Unmarshal([]byte(row.AccountTreeRoots), &treeRoots); err != nil {
-		return proofRow{}, fmt.Errorf("unmarshal account tree roots: %w", err)
+		return corehost.ProofRow{}, fmt.Errorf("unmarshal account tree roots: %w", err)
 	}
-	return proofRow{
+	return corehost.ProofRow{
 		BatchNumber:        row.BatchNumber,
 		ZkProof:            row.ProofInfo,
 		CexAssetCommitment: cexCommits,
@@ -418,7 +397,7 @@ func convertStoredProof(row store.Proof) (proofRow, error) {
 
 // decodeBatchMetadata base64-decodes the account-tree-roots and
 // cex-asset-commitment pairs of one proof row.
-func decodeBatchMetadata(p proofRow) (roots [][]byte, commits [][]byte) {
+func decodeBatchMetadata(p corehost.ProofRow) (roots [][]byte, commits [][]byte) {
 	roots = make([][]byte, 2)
 	commits = make([][]byte, 2)
 	for i := 0; i < len(p.AccountTreeRoots) && i < 2; i++ {
@@ -443,7 +422,7 @@ func decodeBatchMetadata(p proofRow) (roots [][]byte, commits [][]byte) {
 // account-tree-roots and cex-commitments and checked against the
 // embedded batch commitment before the proof is verified. Returns
 // false if any proof fails.
-func verifyAllProofs(proofs []proofRow, plan *resolved) bool {
+func verifyAllProofs(proofs []corehost.ProofRow, r *resolved) bool {
 	workersNum := max(16, runtime.NumCPU())
 	averageProofCount := (len(proofs) + workersNum - 1) / workersNum
 
@@ -461,7 +440,7 @@ func verifyAllProofs(proofs []proofRow, plan *resolved) bool {
 				return
 			}
 			endIndex := min((index+1)*averageProofCount, len(proofs))
-			if !verifyProofRange(proofs[startIndex:endIndex], plan) {
+			if !verifyProofRange(proofs[startIndex:endIndex], r) {
 				mu.Lock()
 				ok = false
 				mu.Unlock()
@@ -474,8 +453,10 @@ func verifyAllProofs(proofs []proofRow, plan *resolved) bool {
 
 // verifyProofRange verifies a contiguous slice of proof rows. The
 // verifying key is (re)loaded only when the asset-count tier changes,
-// matching the prover's tier-grouped ordering.
-func verifyProofRange(rows []proofRow, plan *resolved) bool {
+// matching the prover's tier-grouped ordering. The public witness is
+// constructed via the model-specific runner so the verify circuit
+// shape matches the .vk.
+func verifyProofRange(rows []corehost.ProofRow, r *resolved) bool {
 	var vk groth16.VerifyingKey
 	currentAssetCountsTier := -1
 
@@ -515,16 +496,15 @@ func verifyProofRange(rows []proofRow, plan *resolved) bool {
 			panic("verify proof " + strconv.Itoa(batchNumber) + " failed")
 		}
 
-		verifyWitness := t4circuit.NewVerifyBatchCreateUserCircuit(actualHash)
-		vWitness, err := frontend.NewWitness(verifyWitness, ecc.BN254.ScalarField(), frontend.PublicOnly())
+		vWitness, err := dispatchNewVerifyPublicWitness(r.model, actualHash)
 		if err != nil {
 			panic(err.Error())
 		}
 
 		if row.AssetsCount != currentAssetCountsTier {
 			keyIndex := -1
-			for p := range plan.assetCountTiers {
-				if plan.assetCountTiers[p] == row.AssetsCount {
+			for p := range r.plan.AssetCountTiers {
+				if r.plan.AssetCountTiers[p] == row.AssetsCount {
 					keyIndex = p
 					break
 				}
@@ -532,7 +512,7 @@ func verifyProofRange(rows []proofRow, plan *resolved) bool {
 			if keyIndex == -1 {
 				panic("invalid asset counts tier")
 			}
-			vk, err = loadVerifyingKey(plan.zkKeyStems[keyIndex] + ".vk")
+			vk, err = loadVerifyingKey(r.plan.ZkKeyStems[keyIndex] + ".vk")
 			if err != nil {
 				panic(err.Error())
 			}

@@ -5,28 +5,33 @@ import (
 	"encoding/json"
 	"testing"
 
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 )
 
 // TestResolveFromProfile_Binance locks the verifier's derivation of
 // asset capacity / tiers / .vk stems from the binance reference
-// profile. -user mode uses plan.assetCountTiers to pad a user's
-// asset list; batch mode uses plan.zkKeyStems + plan.assetCapacity.
+// profile. -user mode uses plan.AssetCountTiers to pad a user's asset
+// list; batch mode uses plan.ZkKeyStems + plan.AssetCapacity. Phase 3d
+// adds the model selector — binance.toml resolves to T4.
 func TestResolveFromProfile_Binance(t *testing.T) {
-	plan, err := resolveFromProfile(&pflags{
+	r, err := resolveFromProfile(&pflags{
 		profilePath: "../../profile/binance/binance.toml",
 		keysDir:     "/keys",
 	})
 	if err != nil {
 		t.Fatalf("resolveFromProfile: %v", err)
 	}
-	if plan.assetCapacity != 500 {
-		t.Errorf("assetCapacity = %d, want 500", plan.assetCapacity)
+	if r.model != "t4_tiered_haircut_margin_3pool" {
+		t.Errorf("model = %q, want t4_tiered_haircut_margin_3pool", r.model)
+	}
+	if r.plan.AssetCapacity != 500 {
+		t.Errorf("AssetCapacity = %d, want 500", r.plan.AssetCapacity)
 	}
 	wantTiers := []int{50, 500}
 	for i := range wantTiers {
-		if plan.assetCountTiers[i] != wantTiers[i] {
-			t.Errorf("tier[%d] = %d, want %d", i, plan.assetCountTiers[i], wantTiers[i])
+		if r.plan.AssetCountTiers[i] != wantTiers[i] {
+			t.Errorf("tier[%d] = %d, want %d", i, r.plan.AssetCountTiers[i], wantTiers[i])
 		}
 	}
 	wantStems := []string{
@@ -34,8 +39,8 @@ func TestResolveFromProfile_Binance(t *testing.T) {
 		"/keys/zkpor.t4_tiered_haircut_margin_3pool.500_92",
 	}
 	for i := range wantStems {
-		if plan.zkKeyStems[i] != wantStems[i] {
-			t.Errorf("stem[%d] = %q, want %q", i, plan.zkKeyStems[i], wantStems[i])
+		if r.plan.ZkKeyStems[i] != wantStems[i] {
+			t.Errorf("stem[%d] = %q, want %q", i, r.plan.ZkKeyStems[i], wantStems[i])
 		}
 	}
 }
@@ -43,7 +48,7 @@ func TestResolveFromProfile_Binance(t *testing.T) {
 // TestResolveFromProfile_CapacityOverride confirms -asset-capacity
 // supersedes profile.asset_capacity (smoke harness behaviour).
 func TestResolveFromProfile_CapacityOverride(t *testing.T) {
-	plan, err := resolveFromProfile(&pflags{
+	r, err := resolveFromProfile(&pflags{
 		profilePath: "../../profile/binance/binance.toml",
 		keysDir:     "/keys",
 		capacity:    5,
@@ -51,8 +56,23 @@ func TestResolveFromProfile_CapacityOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveFromProfile: %v", err)
 	}
-	if plan.assetCapacity != 5 {
-		t.Errorf("override ignored: assetCapacity = %d, want 5", plan.assetCapacity)
+	if r.plan.AssetCapacity != 5 {
+		t.Errorf("override ignored: AssetCapacity = %d, want 5", r.plan.AssetCapacity)
+	}
+}
+
+// TestResolveFromProfile_SeaReference locks T1 dispatch via the
+// sea_reference profile. Confirms Phase 3d removed the T4-only guard.
+func TestResolveFromProfile_SeaReference(t *testing.T) {
+	r, err := resolveFromProfile(&pflags{
+		profilePath: "../../profile/sea_reference/sea_reference.toml",
+		keysDir:     "/keys",
+	})
+	if err != nil {
+		t.Fatalf("resolveFromProfile: %v", err)
+	}
+	if r.model != "t1_simple_margin" {
+		t.Errorf("model = %q, want t1_simple_margin", r.model)
 	}
 }
 
@@ -65,7 +85,7 @@ func TestDecodeBatchMetadata(t *testing.T) {
 	commitBefore := []byte("cex-commit-before-32-bytes......")
 	commitAfter := []byte("cex-commit-after-32-bytes.......")
 
-	row := proofRow{
+	row := corehost.ProofRow{
 		AccountTreeRoots: []string{
 			base64.StdEncoding.EncodeToString(rootBefore),
 			base64.StdEncoding.EncodeToString(rootAfter),
@@ -128,7 +148,7 @@ func TestConvertStoredProof(t *testing.T) {
 
 	// json.Marshal of [][]byte encodes each entry as a base64 string.
 	// The verifier's decodeBatchMetadata base64-decodes the same — i.e.
-	// CSV path and DB path are byte-equivalent at the proofRow seam.
+	// CSV path and DB path are byte-equivalent at the ProofRow seam.
 	if got.CexAssetCommitment[0] != base64.StdEncoding.EncodeToString(commitBefore) {
 		t.Fatalf("cex[0]: got %q", got.CexAssetCommitment[0])
 	}
