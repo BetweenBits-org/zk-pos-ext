@@ -107,16 +107,27 @@ EC2_REMOTE_DIR=/home/ec2-user/zkmerkle-proof-of-solvency
 ### 3. 원격 smoke 실행
 
 ```bash
-# 기본: production capacity (500) + shapes 50_700,500_92
+# 기본: production capacity (500) + shapes 50_700,500_92 (T4 only)
 ./scripts/ec2/smoke.sh
 
-# tiny smoke (로컬과 동일):
+# tiny smoke (로컬과 동일, T4 only):
 ./scripts/ec2/smoke.sh tiny
+
+# mid-tier 4 model loop (capacity=50, shape=20_500 default):
+./scripts/ec2/smoke.sh mid
+# 또는 단일 model:
+PROFILE=profile/t1_reference/t1_reference.toml ./scripts/ec2/smoke.sh mid
+# 커스텀 shape/capacity:
+CAPACITY=30 SHAPE=10_200 ./scripts/ec2/smoke.sh mid
+
+# 완전 env-driven custom:
+PROFILE=profile/t3_reference/t3_reference.toml CAPACITY=20 SHAPE=10_100 \
+    ./scripts/ec2/smoke.sh custom
 ```
 
-→ EC2 에서 `./zkpor/scripts/smoke.sh` 실행. R8 wiring 후의 smoke.sh
-는 내부에서 `-profile profile/binance/binance.toml` 을 자동으로
-모든 service 에 전달. `ZKPOR_BATCH_SHAPE_OVERRIDE` 와
+→ EC2 에서 `./zkpor/scripts/smoke.sh <profile>` 실행. Phase 4 의 smoke.sh
+가 첫 인자로 받은 profile 을 모든 service 에 전달.
+`ZKPOR_BATCH_SHAPE_OVERRIDE` 와
 `ZKPOR_SMOKE_ASSET_CAPACITY` 만 env 로 넘기면 됨.
 
 production mode 실측 (2026-05-27, r7a.4xlarge, capacity=500,
