@@ -230,6 +230,9 @@ base_price = 6500012000000
 
 - `core/snapshot/csv` 와 공유하는 optional CSV dialect 설정.
 - 일반 기본값: `null_values = ["", "NA", "null"]`.
+- R10 product runtime 은 canonical standard CSV 를 기본 dialect 로 읽는다.
+  고객 raw export 의 dialect/column mapping 은 preprocessor 단계에서
+  처리하는 것이 정상 경로다.
 
 `[[batch_shapes]]`
 
@@ -293,6 +296,52 @@ Profile 에서 회로를 고르는 설정은 세 단계다.
 V1 catalog 에 등록된 비-noop alpha module 은 아직 없다. 따라서 현행 profile
 TOML 은 새 module 을 의도적으로 추가하고 ceremony 를 분기하기 전까지
 `module = ""` 를 유지한다.
+
+## 추가회로가 추가 입력을 요구할 때
+
+추가회로(alpha module)는 열려 있지만, 입력 확장은 아무 CSV 에나 임의 열을
+붙이는 방식으로 열려 있지 않다. 현재 `t*_standard_csv.v1` connector 는
+model-standard schema 를 기준으로 동작한다. 기본 reader 는 schema 에 없는
+column 과 file 을 회로 입력으로 해석하지 않는다.
+
+추가회로를 붙일 때는 필요한 입력 수준에 따라 경로가 갈린다.
+
+1. **기존 witness 로 검증 가능한 rule**
+   - 예: account total, CEX total, collateral total, 공개된 tier curve 로
+     표현 가능한 추가 제약.
+   - 새 `ConstraintModule` 을 model host registry 에 등록하고
+     `[constraint].module` 에 그 id 를 쓴다.
+   - CSV schema 는 그대로 둔다.
+2. **새 per-account/per-asset private input 이 필요한 rule**
+   - 예: 거래소별 위험등급, product bucket, account group, 특수 collateral
+     carve-out 이 회로 안에서 직접 검증되어야 하는 경우.
+   - `t4_standard_csv.v1` 에 column 을 몰래 추가하지 않는다.
+   - 새 versioned snapshot connector 를 만든다. 예:
+     `t4_<rule>_standard_csv.v1`.
+   - 그 connector 는 추가 column 또는 추가 file 을 명시한 schema/parser 를
+     소유하고, 필요한 값을 model witness 또는 module 이 볼 수 있는
+     `ConstraintContext` 로 전달하도록 회로 surface 를 함께 확장해야 한다.
+   - 이 변경은 `(model, batch_shape, asset_capacity, module)` 뿐 아니라
+     witness/schema 계약까지 바꾸므로 별도 audit 과 trusted setup 이 필요하다.
+3. **public parameter 만 필요한 rule**
+   - 예: 한도값, jurisdiction code, 정책 threshold.
+   - 가능하면 CSV private input 이 아니라 public input 으로 둔다.
+   - parameter 값을 in-circuit constant 로 박으면 값이 바뀔 때마다 ceremony 가
+     갈라지므로 피한다.
+4. **회로와 무관한 audit/preprocessor metadata**
+   - raw export 단계에서는 어떤 부가 파일이나 column 을 써도 된다.
+   - 단, zkpor `snapshot.user_data_dir` 로 들어오는 standard CSV 에는 회로와
+     public statement 에 필요한 canonical field 만 남긴다.
+
+즉, 추가 입력까지 필요한 customer-specific 회로는
+`[constraint].module` 하나만으로 끝나지 않는다. 보통 다음을 한 묶음으로
+버전 관리한다.
+
+- 새 `constraint.module` id
+- 새 `snapshot.source_type` id
+- 추가 schema/parser 또는 `SnapshotSource`
+- 필요 시 `ConstraintContext` / witness struct 확장
+- 새 `.pk/.vk` ceremony
 
 ## 최소 T4 예시
 
