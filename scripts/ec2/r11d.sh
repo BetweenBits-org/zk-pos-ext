@@ -7,10 +7,17 @@
 #   4. saves labeled .json + raw log to .artifacts/reports/R11D_<cell>/
 #
 # Cell contract (Tier-shape pairing must match testdata's non-empty count):
-#   cell=t1_700   : shape=50_700,  users=700,   asset_count=50  → Tier 1 isolation, 1 batch
-#   cell=t2_92    : shape=500_92,  users=92,    asset_count=500 → Tier 2 isolation, 1 batch
-#   cell=t1_10k   : shape=50_700,  users=10000, asset_count=50  → Tier 1 multi-batch (≈15 batches)
-#   cell=t2_10k   : shape=500_92,  users=10000, asset_count=500 → Tier 2 multi-batch (≈109 batches)
+#   Phase 1 dense (R11-D §2.6, density=1.0):
+#     cell=t1_700      : shape=50_700,  users=700,   asset_count=50  → Tier 1, 1 batch
+#     cell=t2_92       : shape=500_92,  users=92,    asset_count=500 → Tier 2, 1 batch
+#     cell=t1_10k      : shape=50_700,  users=10000, asset_count=50  → Tier 1 multi-batch (≈15)
+#     cell=t2_10k      : shape=500_92,  users=10000, asset_count=500 → Tier 2 multi-batch (≈109)
+#
+#   Phase 2 density ablation (single m8a.8xl, sparse benefit 정량화):
+#     cell=t1_700_d50  : shape=50_700,  users=700,   asset_count=25  → Tier 1 density 50%
+#     cell=t1_700_d10  : shape=50_700,  users=700,   asset_count=5   → Tier 1 density 10%
+#     cell=t2_92_d50   : shape=500_92,  users=92,    asset_count=250 → Tier 2 density 50%
+#     cell=t2_92_d10   : shape=500_92,  users=92,    asset_count=50  → Tier 2 density 10%
 #
 # Profile is always T4 production (profile/t4_reference/t4_reference.toml,
 # asset_capacity=500). The .pk used must be a production keygen artifact
@@ -47,12 +54,18 @@ case "$CELL" in
     ASSET_COUNT=0              # default → catalog * cap, irrelevant for setup
     DATA_LABEL="bootstrap"
     ;;
-  t1_700)   SHAPE="50_700"  ; USERS=700   ; ASSET_COUNT=50  ; DATA_LABEL="t1_700"  ;;
-  t2_92)    SHAPE="500_92"  ; USERS=92    ; ASSET_COUNT=500 ; DATA_LABEL="t2_92"   ;;
-  t1_10k)   SHAPE="50_700"  ; USERS=10000 ; ASSET_COUNT=50  ; DATA_LABEL="t1_10k"  ;;
-  t2_10k)   SHAPE="500_92"  ; USERS=10000 ; ASSET_COUNT=500 ; DATA_LABEL="t2_10k"  ;;
+  # Phase 1 dense
+  t1_700)       SHAPE="50_700" ; USERS=700   ; ASSET_COUNT=50  ; DATA_LABEL="t1_700"      ;;
+  t2_92)        SHAPE="500_92" ; USERS=92    ; ASSET_COUNT=500 ; DATA_LABEL="t2_92"       ;;
+  t1_10k)       SHAPE="50_700" ; USERS=10000 ; ASSET_COUNT=50  ; DATA_LABEL="t1_10k"      ;;
+  t2_10k)       SHAPE="500_92" ; USERS=10000 ; ASSET_COUNT=500 ; DATA_LABEL="t2_10k"      ;;
+  # Phase 2 density ablation (sparse cells, density 50% / 10%)
+  t1_700_d50)   SHAPE="50_700" ; USERS=700   ; ASSET_COUNT=25  ; DATA_LABEL="t1_700_d50"  ;;
+  t1_700_d10)   SHAPE="50_700" ; USERS=700   ; ASSET_COUNT=5   ; DATA_LABEL="t1_700_d10"  ;;
+  t2_92_d50)    SHAPE="500_92" ; USERS=92    ; ASSET_COUNT=250 ; DATA_LABEL="t2_92_d50"   ;;
+  t2_92_d10)    SHAPE="500_92" ; USERS=92    ; ASSET_COUNT=50  ; DATA_LABEL="t2_92_d10"   ;;
   *)
-    echo "unknown cell '$CELL' — expected setup|t1_700|t2_92|t1_10k|t2_10k" >&2
+    echo "unknown cell '$CELL' — expected setup | t1_700 | t2_92 | t1_10k | t2_10k | t{1_700,2_92}_d{10,50}" >&2
     exit 1
     ;;
 esac
@@ -100,8 +113,30 @@ if [ "$CELL" != "setup" ]; then
   fi
 fi
 
-# 2. Run smoke. For setup, the testdata/happy/ default is enough — keygen
-#    only reads the profile to determine circuit dim, not the data.
+# 2a. Background RSS sampler for the prover process (skip setup — no
+#     prover invocation). 2s interval lets even 30s 1-batch prove
+#     capture ~15 samples for peak/avg/min computation.
+MEM_TSV="$REPORT_ROOT/run_${RUN_TS}.mem.tsv"
+SAMPLER_PID=""
+if [ "$CELL" != "setup" ]; then
+  (
+    echo "ts_utc pid rss_kb vsz_kb" > "$MEM_TSV"
+    while true; do
+      pid=$(pgrep -f "exe/prover" 2>/dev/null | head -1)
+      if [ -n "$pid" ]; then
+        stat=$(ps -o pid,rss,vsz --no-headers -p "$pid" 2>/dev/null | tr -s ' ' | sed 's/^ *//')
+        [ -n "$stat" ] && echo "$(date -u +%Y%m%dT%H%M%SZ) $stat" >> "$MEM_TSV"
+      fi
+      sleep 2
+    done
+  ) &
+  SAMPLER_PID=$!
+  trap '[ -n "$SAMPLER_PID" ] && kill $SAMPLER_PID 2>/dev/null || true' EXIT
+  log "RSS sampler started (pid=$SAMPLER_PID, out=$MEM_TSV)"
+fi
+
+# 2b. Run smoke. For setup, the testdata/happy/ default is enough — keygen
+#     only reads the profile to determine circuit dim, not the data.
 log "running smoke (output → $LOG)"
 if [ -n "$TESTDATA_DIR" ]; then
   ZKPOR_BATCH_SHAPE_OVERRIDE="$SHAPE" \
@@ -114,6 +149,33 @@ else
     ./scripts/smoke.sh "$PROFILE" 2>&1 | tee -a "$LOG"
 fi
 
+# 2c. Stop sampler + summarize RSS stats into log.
+if [ -n "$SAMPLER_PID" ]; then
+  kill $SAMPLER_PID 2>/dev/null || true
+  wait $SAMPLER_PID 2>/dev/null || true
+  if [ -s "$MEM_TSV" ] && command -v python3 >/dev/null 2>&1; then
+    python3 - "$MEM_TSV" >> "$LOG" 2>&1 <<'PY'
+import sys
+rss = []
+for line in open(sys.argv[1]):
+    p = line.split()
+    if len(p) < 4 or p[0] == 'ts_utc':
+        continue
+    try:
+        rss.append(int(p[2]))
+    except ValueError:
+        continue
+if not rss:
+    print("[r11d] prover RSS: no samples captured")
+else:
+    peak = max(rss)
+    avg = sum(rss) // len(rss)
+    minv = min(rss)
+    print(f"[r11d] prover RSS samples: n={len(rss)} peak={peak/1024:.0f}MB avg={avg/1024:.0f}MB min={minv/1024:.0f}MB peak_GiB={peak/1024/1024:.1f}")
+PY
+  fi
+fi
+
 # 3. Extract metrics → json.
 log "extracting metrics → $JSON_OUT"
 ./scripts/extract_smoke_metrics.sh "$LOG" --json "$JSON_OUT" 2>&1 | tee -a "$LOG"
@@ -122,3 +184,4 @@ log "cell $CELL done. artifacts: $REPORT_ROOT"
 log "  meta : $META"
 log "  log  : $LOG"
 log "  json : $JSON_OUT"
+[ -n "$SAMPLER_PID" ] && log "  mem  : $MEM_TSV"
