@@ -1,0 +1,182 @@
+// Package witness is the zkpor-native witness builder engine. It reads
+// the customer snapshot, builds the depth-28 account SMT, walks
+// accounts in tier-grouped batches, and writes one
+// BatchCreateUserWitness per batch into the witness MySQL table for
+// the prover to pick up.
+//
+// Phase 3b (R10+1) swap: every model-typed loop (streamAndBucket,
+// runBatches, buildBatch, safeAdd) is pulled into model-specific
+// runner packages at core/solvency/<model>/host/witness_runner.go.
+// This package is a thin wiring layer — load profile.toml, build
+// shared dependencies, switch on profile.Model, and delegate to the
+// matching runner.
+//
+// Sequential per-account hashing, fresh-start only (no DB resume, no
+// tree rollback). G6 (ValueScale invariant) closure happens inside
+// declarative.BuildPricing.
+//
+// R12-A library extraction: previously this code lived in
+// cmd/witness/main.go as package main. The orchestration body moved
+// here unchanged (Conservative slice). cmd/witness is now a thin shim
+// that parses flags and calls Run.
+//
+// The four standard snapshot connectors are blank-imported below so
+// in-process callers of Run automatically have every model's
+// source_type registered; G17/G18 panic semantics on unknown
+// source_type are preserved.
+package witness
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
+	wconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/witness/config"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
+
+	// Register all four model-specific standard CSV snapshot connectors.
+	// init() in each parser package adds the connector to its model's
+	// host registry; an unknown source_type in profile.toml panics at
+	// engine startup (G17/G18).
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t2_static_haircut_margin"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t3_tiered_haircut_margin_1pool"
+	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
+)
+
+// Options bundles the inputs Run needs.
+type Options struct {
+	// ProfilePath points at the declarative profile.toml. Required.
+	ProfilePath string
+
+	// ConfigPath points at the witness deployment config JSON
+	// (DB DSN + TreeDB driver/endpoint). Defaults to
+	// "config/config.json" when empty.
+	ConfigPath string
+
+	// UserDataDir overrides profile.snapshot.user_data_dir when
+	// non-empty. Smoke harness + per-snapshot ops use this; production
+	// callers should leave it empty so the profile value is authoritative.
+	UserDataDir string
+
+	// SnapshotID overrides profile.snapshot.snapshot_id when non-empty.
+	// Per-snapshot ops use this to write a fresh batch series for a new
+	// snapshot generation.
+	SnapshotID string
+
+	// CapacityOverride supersedes profile.asset_capacity when > 0.
+	// Smoke-harness use only.
+	CapacityOverride int
+
+	// DumpFinalCex, when non-empty, makes the runner write the
+	// post-batch CexAssetsInfo slice as JSON to this path. Smoke
+	// harness convenience; leave empty in production callers.
+	DumpFinalCex string
+}
+
+// Run builds and writes one full snapshot's worth of batch witness
+// rows, then returns. Panics on any wiring or runner failure (v0
+// reference behaviour).
+func Run(opts Options) {
+	if opts.ProfilePath == "" {
+		fmt.Fprintln(os.Stderr, "ProfilePath is required (path to profile.toml)")
+		os.Exit(2)
+	}
+	configPath := opts.ConfigPath
+	if configPath == "" {
+		configPath = "config/config.json"
+	}
+
+	cfg := loadConfig(configPath)
+	prof, err := declarative.Load(opts.ProfilePath)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// G6 closure: BuildPricing rejects invariant violations at build time.
+	pricing, err := declarative.BuildPricing(prof.Pricing)
+	if err != nil {
+		panic(fmt.Sprintf("BuildPricing: %v", err))
+	}
+
+	model := corespec.SolvencyModelID(prof.Profile.Model)
+	shapeProvider, err := declarative.BuildBatchShapeProvider(model, prof.BatchShapes)
+	if err != nil {
+		panic(fmt.Sprintf("BuildBatchShapeProvider: %v", err))
+	}
+	assetCountTiers := tiersFromShapes(shapeProvider.Shapes())
+
+	capacity := prof.Profile.AssetCapacity
+	if opts.CapacityOverride > 0 {
+		capacity = opts.CapacityOverride
+	}
+	dataDir := prof.Snapshot.UserDataDir
+	if opts.UserDataDir != "" {
+		dataDir = opts.UserDataDir
+	}
+	snapID := prof.Snapshot.SnapshotID
+	if opts.SnapshotID != "" {
+		snapID = opts.SnapshotID
+	}
+
+	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	db, err := store.Open(cfg.MysqlDataSource)
+	if err != nil {
+		panic(err.Error())
+	}
+	witnessStore := store.NewWitnessStore(db, cfg.DbSuffix)
+	if err := witnessStore.CreateTable(); err != nil {
+		panic(err.Error())
+	}
+
+	ctx := context.Background()
+
+	deps := dispatchInput{
+		model:           model,
+		ctx:             ctx,
+		sourceType:      prof.Snapshot.SourceType,
+		dataDir:         dataDir,
+		snapID:          snapID,
+		capacity:        capacity,
+		pricing:         pricing,
+		accountTree:     accountTree,
+		witnessStore:    witnessStore,
+		shapeProvider:   shapeProvider,
+		assetCountTiers: assetCountTiers,
+		dumpFinalCex:    opts.DumpFinalCex,
+	}
+	if err := dispatchRunWitness(deps); err != nil {
+		panic(err.Error())
+	}
+}
+
+// loadConfig reads and parses the on-disk JSON config.
+func loadConfig(path string) *wconfig.Config {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		panic(err.Error())
+	}
+	cfg := &wconfig.Config{}
+	if err := json.Unmarshal(raw, cfg); err != nil {
+		panic(err.Error())
+	}
+	return cfg
+}
+
+// tiersFromShapes flattens the deployment's BatchShape set to the
+// sorted-ascending []int the host commitment helpers consume.
+func tiersFromShapes(shapes []corespec.BatchShape) []int {
+	out := make([]int, len(shapes))
+	for i, s := range shapes {
+		out[i] = s.AssetCountTier
+	}
+	return out
+}

@@ -1,8 +1,12 @@
 // Package config declares the on-disk configuration the zkpor witness
-// service consumes. R8-C/2 slimmed this down to deployment-secret +
+// engine consumes. R8-C/2 slimmed this down to deployment-secret +
 // runtime-ops fields only; per-customer values (asset capacity, user
 // data directory, snapshot id, pricing, batch shapes) flow from the
-// declarative profile.toml referenced by the -profile flag instead.
+// declarative profile.toml referenced via Options.ProfilePath instead.
+//
+// R12-A library extraction: this schema moved out from
+// zkpor/cmd/witness/config so other in-process clients can import the
+// witness engine without dragging in cmd/main wiring.
 package config
 
 // Config drives the witness service.
@@ -16,7 +20,7 @@ package config
 //
 // Unknown JSON fields are tolerated by json.Unmarshal — pre-R8 configs
 // that still carry UserDataFile/AssetCapacity will load cleanly but
-// those values are ignored. The -profile flag is the new source of
+// those values are ignored. The profile.toml is the new source of
 // truth; smoke + production wiring write the slimmed shape.
 type Config struct {
 	MysqlDataSource string
