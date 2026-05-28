@@ -1,7 +1,11 @@
 // Package config declares the on-disk configuration the zkpor userproof
-// service consumes. R8-D slimmed this to deployment-secret + runtime-
+// engine consumes. R8-D slimmed this to deployment-secret + runtime-
 // ops fields only; per-customer values (asset capacity, user data
 // directory, snapshot id) flow from the declarative profile.toml.
+//
+// R12-A library extraction: this schema moved out from
+// zkpor/cmd/userproof/config so other in-process clients can import
+// the userproof engine without dragging in cmd/main wiring.
 package config
 
 // Config drives the userproof service.
