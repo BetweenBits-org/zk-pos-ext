@@ -1,4 +1,4 @@
-package main
+package verifier
 
 import (
 	"encoding/base64"
@@ -11,13 +11,13 @@ import (
 
 // TestResolveFromProfile_T4Reference locks the verifier's derivation of
 // asset capacity / tiers / .vk stems from the T4 reference profile.
-// -user mode uses plan.AssetCountTiers to pad a user's asset list;
+// User mode uses plan.AssetCountTiers to pad a user's asset list;
 // batch mode uses plan.ZkKeyStems + plan.AssetCapacity. Phase 3d adds
 // the model selector — t4_reference.toml resolves to T4.
 func TestResolveFromProfile_T4Reference(t *testing.T) {
-	r, err := resolveFromProfile(&pflags{
-		profilePath: "../../profile/t4_reference/t4_reference.toml",
-		keysDir:     "/keys",
+	r, err := resolveFromProfile(Options{
+		ProfilePath: "../../profile/t4_reference/t4_reference.toml",
+		KeysDir:     "/keys",
 	})
 	if err != nil {
 		t.Fatalf("resolveFromProfile: %v", err)
@@ -45,13 +45,13 @@ func TestResolveFromProfile_T4Reference(t *testing.T) {
 	}
 }
 
-// TestResolveFromProfile_CapacityOverride confirms -asset-capacity
+// TestResolveFromProfile_CapacityOverride confirms CapacityOverride
 // supersedes profile.asset_capacity (smoke harness behaviour).
 func TestResolveFromProfile_CapacityOverride(t *testing.T) {
-	r, err := resolveFromProfile(&pflags{
-		profilePath: "../../profile/t4_reference/t4_reference.toml",
-		keysDir:     "/keys",
-		capacity:    5,
+	r, err := resolveFromProfile(Options{
+		ProfilePath:      "../../profile/t4_reference/t4_reference.toml",
+		KeysDir:          "/keys",
+		CapacityOverride: 5,
 	})
 	if err != nil {
 		t.Fatalf("resolveFromProfile: %v", err)
@@ -64,9 +64,9 @@ func TestResolveFromProfile_CapacityOverride(t *testing.T) {
 // TestResolveFromProfile_T1Reference locks T1 dispatch via the T1
 // reference profile. Confirms Phase 3d removed the T4-only guard.
 func TestResolveFromProfile_T1Reference(t *testing.T) {
-	r, err := resolveFromProfile(&pflags{
-		profilePath: "../../profile/t1_reference/t1_reference.toml",
-		keysDir:     "/keys",
+	r, err := resolveFromProfile(Options{
+		ProfilePath: "../../profile/t1_reference/t1_reference.toml",
+		KeysDir:     "/keys",
 	})
 	if err != nil {
 		t.Fatalf("resolveFromProfile: %v", err)

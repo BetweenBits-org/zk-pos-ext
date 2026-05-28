@@ -1,14 +1,19 @@
 // Package config declares the on-disk configuration shapes consumed by
-// the zkpor verifier CLI. R8-D slimmed Config to deployment-secret +
+// the zkpor verifier engine. R8-D slimmed Config to deployment-secret +
 // per-snapshot fields only; per-customer values (asset capacity, tiers,
-// verifying-key stems) are derived from profile.toml + the -keys-dir
-// flag.
+// verifying-key stems) are derived from profile.toml + the keys-dir
+// option.
 //
 // Phase 3d (R10+1): CexAssetsInfo is kept as json.RawMessage so the
 // verifier can dispatch to the per-model runner that knows the typed
 // schema. Each model's BuildCexCommitments unmarshals into its own
 // CexAssetInfo shape (T1: no collateral; T2: Haircut + Collateral;
 // T3: 1-pool tiered; T4: 3-pool tiered).
+//
+// R12-A library extraction: this schema previously lived under
+// zkpor/cmd/verifier/config; it moved to pkg/verifier/config so other
+// in-process clients can import the verifier as a library without
+// dragging in cmd/main wiring.
 package config
 
 import "encoding/json"
