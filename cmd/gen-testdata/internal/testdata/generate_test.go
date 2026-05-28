@@ -10,7 +10,7 @@ import (
 	t2snapshot "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t2_static_haircut_margin"
 	t3snapshot "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t3_tiered_haircut_margin_1pool"
 	t4snapshot "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/internal/testdata"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/gen-testdata/internal/testdata"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
@@ -18,7 +18,7 @@ import (
 // shipped reference toml files — same input format the engine reads.
 func loadProfile(t *testing.T, name string) *declarative.Profile {
 	t.Helper()
-	prof, err := declarative.Load(filepath.Join("../../profile", name, name+".toml"))
+	prof, err := declarative.Load(filepath.Join("../../../../profile", name, name+".toml"))
 	if err != nil {
 		t.Fatalf("load profile %q: %v", name, err)
 	}

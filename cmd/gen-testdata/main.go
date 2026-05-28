@@ -1,7 +1,7 @@
 // Command gen-testdata generates real-scale synthetic standard-CSV
 // snapshots for measurement (R11-A). Reads a profile.toml + sizing
 // flags, dispatches to the model-typed synthesis under
-// internal/testdata, and writes accounts.csv + cex_assets.csv
+// cmd/gen-testdata/internal/testdata, and writes accounts.csv + cex_assets.csv
 // [+ tier_ratios.csv] to the chosen output directory.
 //
 // Output is intended for `.artifacts/testdata/<profile>_<N>/` —
@@ -32,7 +32,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/internal/testdata"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/gen-testdata/internal/testdata"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
