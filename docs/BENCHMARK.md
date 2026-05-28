@@ -350,6 +350,10 @@ bandwidth 가 vCPU scaling 캡. r7a.4xl 직접 측정으로 검증 필요.
 | 11 | m8a.8xl | T4 (Tier 2, 1-batch) | 500_92 | 500 | 63,822,805 | 29.7 s | **dense 1.0** | n/a (sample miss) |
 | 12 | m8a.8xl | T4 (Tier 1, 15-batch) | 50_700 | 500 | 64,341,094 | 32.6 s avg | **dense 1.0** | **122 GiB** |
 | 13 | m8a.8xl | T4 (Tier 2, 109-batch) | 500_92 | 500 | 63,822,805 | 30.7 s avg | **dense 1.0** | **118 GiB** |
+| 14 | m8a.8xl | T4 (Tier 1) | 50_700 | 500 | 64,341,094 | 33.5 s | **sparse 0.50** | **~66 GiB** |
+| 15 | m8a.8xl | T4 (Tier 1) | 50_700 | 500 | 64,341,094 | 33.5 s | **sparse 0.10** | **~56 GiB** |
+| 16 | m8a.8xl | T4 (Tier 2) | 500_92 | 500 | 63,822,805 | 30.2 s | **sparse 0.50** | **~63 GiB** |
+| 17 | m8a.8xl | T4 (Tier 2) | 500_92 | 500 | 63,822,805 | 30.2 s | **sparse 0.10** | **~62 GiB** |
 
 ### 2.6 R11-D Setup/Prove ablation, dense (2026-05-28)
 
@@ -438,15 +442,111 @@ prove RSS peak **~118-122 GiB** (free 메모리 5-8 GiB 만):
 | EBS gp3 150GB × 2hr | — | ~$0.04 |
 | **합** | **~2 hr** | **~$3.75** |
 
-**미완 / 후속**:
+**미완 / 후속**: Phase 2 density ablation (§2.7).
 
-- m8a.4xl × m7a.4xl × T4 production-dense → **OOM 으로 좌초**. 추후
-  density ablation (sparse 0.1, 0.5) cell 로 4xl viable 검증
-- 1-batch (t1_700, t2_92) 시점 RSS 직접 측정 — RSS sampling 주기를
-  10s 로 줄이면 32s prove 안에서 sample 가능. r11d.sh 에 prove PID
-  RSS 로깅 추가 필요 (후속)
-- Setup artifact (`.pk`/`.vk`/`.r1cs` × 2 shape, 31 GB 합) 는 EBS
-  보존 — instance stopped, type-switch 또는 sparse cell 측정 시 재사용
+### 2.7 R11-D Phase 2 density ablation (2026-05-28)
+
+**T4 production sparse smoke** — Phase 1 의 dense workload (density
+100%) 에서 좌초된 4xl-class instance ablation 을 단일 m8a.8xl × density
+축으로 재플랜. asset_count 만 줄여 user별 non-empty asset 수 조절,
+shape 은 Tier 1/2 production 그대로.
+
+| 항목 | 값 |
+|---|---|
+| 호스트 | m8a.8xlarge (Phase 1 동일 instance, EBS 재사용) |
+| Instance ID | `i-05da73a6bb557498e` |
+| zkpor commit | `48d5b5e` (Phase 2 cell 정의 + RSS sampler 추가) |
+| Setup artifact | Phase 1 의 .pk × 2 shape (24 GB) lazy reload, 재실행 불요 |
+
+**Prove phase (4 sparse cells, 1-batch each)**:
+
+| Cell | Density | asset_count | Prover | Solver | Gen/batch |
+|---|---:|---:|---:|---:|---:|
+| t1_700_d10 | 10% | 5 | 21.7s | 11.1s | **33.5s** |
+| t1_700_d50 | 50% | 25 | 21.4s | 11.3s | **33.4s** |
+| t2_92_d10 | 10% | 50 | 19.7s | 10.3s | **30.2s** |
+| t2_92_d50 | 50% | 250 | 19.8s | 10.2s | **30.2s** |
+
+**Sanity checks**:
+
+1. **Density 가 prove time 에 거의 무관** ✓ — 같은 회로
+   (NbConstraints 동일), per-batch prove 변동 <0.5% across density.
+   `verify pass` 4/4.
+
+2. **Phase 1 dense anchor (density=100%) 와 비교**:
+
+   | Shape | d10 | d50 | d100 (Phase 1) |
+   |---|---:|---:|---:|
+   | Tier 1 (50_700) | 33.5s | 33.4s | 32.6s |
+   | Tier 2 (500_92) | 30.2s | 30.2s | 30.7s |
+
+   sparse 가 dense 보다 살짝 느림 (~2%) — 측정 오차 범위. **prove
+   wall-clock 은 density 함수가 아닌 회로 함수**임을 lock-in.
+
+**메모리 측정 (가설 vs 실측)**:
+
+| Cell | Density | 가설 (linear) | 30s polling 실측 | 차이 |
+|---|---:|---:|---:|---|
+| Tier 1 dense (§2.6) | 100% | ~120 GiB | 122 GiB | ✓ |
+| t1_700_d50 | 50% | ~65 GiB | **~66 GiB** | ✓ |
+| t1_700_d10 | 10% | ~30 GiB | **~56 GiB** | ❌ (가설 1.9×) |
+| Tier 2 dense (§2.6) | 100% | ~120 GiB | 118 GiB | ✓ |
+| t2_92_d50 | 50% | ~65 GiB | **~63 GiB** | ✓ |
+| t2_92_d10 | 10% | ~30 GiB | **~62 GiB** | ❌ (가설 2.1×) |
+
+**RSS scaling 가설 보정**: linear (`floor + slope×density`) 가 low
+density 영역에서 깨짐. 실측 패턴은 더 가까운 **plateau + step**:
+
+- density ≤ 50% 영역에서 RSS ~60-66 GiB plateau
+- density 50% → 100% 에서 RSS ~66 → 122 GiB 급증
+
+가능한 메커니즘:
+- PK 12 GB 적재 + 솔버/MSM base 가 회로 size 에 의존 (density 무관)
+- gnark/Go runtime 의 buffer growth 가 dense entries 의 threshold
+  넘을 때만 발생 (power-of-2 또는 specific cutoff)
+- Pippenger MSM 의 bucket size 가 sparse 영역에선 sub-linear
+  optimization 발생
+
+새 추정 공식 (보정):
+
+```
+prove_peak_RSS ≈ floor(constraints) + step_jump(dense_entries)
+  floor(64M constraints, 32 workers) ≈ 50-60 GiB
+  step_jump: ~60-65 GiB plateau in density ≤ 50%,
+             rises to ~120 GiB as density → 100%
+```
+
+**Capacity planning 의미**:
+
+| 워크로드 | Density 추정 | RSS 추정 | Instance 권장 |
+|---|---:|---:|---|
+| Spot 거래소 (대부분 활성 ≤ 3-5 asset) | 5-10% | ~55-60 GiB | m8a.4xl (64 GB) **살얼음 / m8a.8xl 안전** |
+| Margin 거래소 (활성 user 다양) | 10-30% | ~60-65 GiB | m8a.4xl 살얼음, **m8a.8xl 권장** |
+| 활성 user 다수 활용 | 30-60% | ~65-70 GiB | m8a.8xl OK |
+| Power-user 90%+ asset | 90-100% | ~110-122 GiB | m8a.12xl (192 GB) 필수 |
+
+**4xl 재가능성 검증**: t1_700_d10 의 56 GiB / t2_92_d10 의 62 GiB 모두
+m8a.4xl (64 GB) 안에 fit. **실제 거래소 워크로드 (density ≤10%) 에서
+m8a.4xl viable** — 단, peak ≈ 62 GiB 라 안전 margin <5%. m8a.8xl 권장.
+
+**비용 / 시간** (Phase 2 실측):
+
+| 항목 | 시간 | 비용 |
+|---|---:|---:|
+| Wall-clock (4 cells) | ~13min | $0.39 |
+| Boot + idle | ~5min | $0.15 |
+| **Phase 2 합** | **~18min** | **$0.54** |
+
+**R11-D 총 비용 (Phase 1 + 2)**: ~**$4.3** (예산 ~$5.25 의 82%).
+
+**미완 / 후속**:
+- **2s RSS sampling 데이터** — Phase 2 의 r11d.sh sampler 는 `set
+  -euo pipefail` 전파로 subshell 조기 종료, .mem.tsv 가 비었음 (`2dc4bbd`
+  에서 fix). 정확한 peak 측정 (±1 GiB) 은 d1 cell 후 retroactive 가능
+- **d1 cell (density 1-2%)** — Phase 2 의 plateau 아래쪽 floor 확정.
+  진행 시 RSS 측정 정확.
+- **m8a.4xl viability 직접 측정** — 가설 (d10 = 56-62 GiB < 64 GB) 을
+  실제 m8a.4xl 에서 검증
 
 ---
 
@@ -580,7 +680,7 @@ size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 | (m8a.12xl, T4, shape=50_700/500_92, cap=500, sparse) | Measured (§2.4) | ✅ High |
 | **(m8a.8xl, T4, prod, dense, multi-batch)** | **Measured (§2.6 R11-D)** | **✅ High** |
 | **(any 4xl, T4 prod, dense)** | **OOM 확인 (~120 GB > 64 GB)** | **✅ High (negative)** |
-| (m8a.4xl/m7a.4xl, T4 prod, sparse) | Hypothesis (sparse fit) | 🟡 Medium — **R11-D Phase 2 후** |
+| **(m8a.4xl/m7a.4xl, T4 prod, sparse density ≤10%)** | **Fits inference (~56-62 GB < 64 GB, m8a.8xl 측정)** | **🟢 Medium-High — 직접 m8a.4xl 측정 미시행** |
 | (m8a.12xl, T4, shape=20_500, cap=200) | Extrapolated | 🟢 Medium-High |
 | (any instance, T1-T3, mid-tier) | Extrapolated | 🟡 Medium |
 | (any instance, T1-T3, production) | Extrapolated | 🟠 Low-Medium |
@@ -606,7 +706,11 @@ size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 + Setup artifact 보존. 핵심 발견: prove RSS peak ~120 GiB → §1.3 memory
 budget 4× 빗나갔던 점 보정.
 
-**Phase 2 (density ablation): pending — 단일 m8a.8xl, 4 sparse cells**.
+**Phase 2 (density ablation): closed (2026-05-28, §2.7)**. 4 sparse cells
+on m8a.8xl 측정 완료. 핵심 발견: **linear scaling 가설 깨짐** — low
+density 영역은 plateau (~60 GiB), dense=100% 만 ~120 GiB 급증. 실제
+거래소 워크로드 (density ≤10%) 에선 m8a.4xl viable 가능 (직접 측정
+미시행, inference).
 
 원래 plan 의 instance × shape 매트릭스 (3 instance × 2 shape) 가 dense
 workload 메모리 한계로 좌초 — 단순화하여 density 축만 추가:
@@ -673,8 +777,10 @@ overhead ~1.1-1.3.
 
 | 순위 | 측정 | 비용 | 효과 |
 |---|---|---:|---|
-| 0 | ~~**R11-D dense 4 cells** (§2.6) — **완료**~~ | $3.75 (실측) | Setup/Prove dense ablation + memory worst-case lock-in |
-| 1 | **R11-D density ablation** (sparse 0.1/0.5 cell + 4xl 재가능 검증) | ~$3-5 | 실제 거래소 sparse benefit 정량화 + instance ablation 완성 |
+| 0a | ~~**R11-D Phase 1 dense 4 cells** (§2.6) — **완료**~~ | $3.75 (실측) | Setup/Prove dense ablation + memory worst-case lock-in |
+| 0b | ~~**R11-D Phase 2 density 4 cells** (§2.7) — **완료**~~ | $0.54 (실측) | density 축 — plateau pattern 발견 (linear 가설 부정) |
+| 1 | **d1 cell + d10 rerun (정확 2s RSS)** | ~$0.50 | low-density floor 확정 + d10 정확 peak |
+| 1.5 | **m8a.4xl viability direct test** (sparse density 10%) | ~$0.10 | inference → measured for capacity planning |
 | 2 | **T1 production-scale** (cap=50, 50_1000, m8a.12xl) | ~$3-5 | Spot GTM segment 견적 정확화 |
 | 3 | **R12 PoC** (GPU L4/L40S single point, ≥g6e.8xl) | ~$5-8 | GPU 옵션 + host RAM 요구 검증 |
 | 4 | **R13 multi-worker** (4× m8a.8xl) | ~$15-20 | Multi-instance overhead 실측 |
