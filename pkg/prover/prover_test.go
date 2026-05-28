@@ -1,4 +1,4 @@
-package main
+package prover
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/prover/config"
+	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/prover/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 

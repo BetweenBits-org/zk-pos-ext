@@ -1,11 +1,15 @@
 // Package config declares the on-disk configuration the zkpor prover
-// service consumes. R8-C/3 slimmed this to deployment-secret fields
+// engine consumes. R8-C/3 slimmed this to deployment-secret fields
 // only — AssetsCountTiers and ZkKeyName stems are derived from the
-// declarative profile.toml + the -keys-dir flag.
+// declarative profile.toml + the keys-dir option.
 //
 // Redis is omitted; the core-path prover uses DB-poll
 // (ClaimOldestByStatus) instead of a BLPOP queue. A multi-worker
 // follow-up slice will re-add the redis field if/when it lands.
+//
+// R12-A library extraction: this schema moved out from
+// zkpor/cmd/prover/config so other in-process clients can import the
+// prover engine without dragging in cmd/main wiring.
 package config
 
 // Config drives the prover service.
