@@ -110,48 +110,53 @@ round** 를 ablation 안에 묶어 sanity check:
 
 | 측정 | 목적 |
 |---|---|
-| **1-batch × 3 instance × 3 shape (9 cells)** | per-batch isolation, instance + shape ablation |
-| **10K user × 3 instance × 1 shape (3 cells)** | multi-batch sanity (GC drift, memory growth, lookup-table rebuild overhead), 1-batch math derive 정확도 검증 |
+| **1-batch × 2 shape × 3 instance (6 cells)** | per-batch isolation, instance + shape ablation (Setup artifact reuse) |
+| **10K user × 2 shape × 1 instance (2 cells, m8a.8xl)** | multi-batch sanity (GC drift, memory growth, lookup-table rebuild overhead), 1-batch math derive 정확도 검증 |
 
-10K user shape 선택: **T4 mid (20_500)** — 10K / 500 = 20 batches,
-적당한 batch count, RAM gentle (25-30 GiB peak), 모든 instance 가용.
-R11-A testdata generator (`cmd/gen-testdata`) 출력 사용.
+10K user shape 선택: **T4 production 2 shape (50_700 + 500_92)** — Setup
+단계에서 생성한 동일 R1CS / `.pk` 재활용. 10K / 700 ≈ 15 batch (Tier 1)
++ 10K / 92 ≈ 109 batch (Tier 2). m8a.8xl 단일 측정으로 충분 (instance
+ablation 은 1-batch 6 cells 에서 이미 분리).
 
 10K 측정의 핵심 검증:
 - `per_batch_prove(batch=N) ≈ per_batch_prove(batch=1)` (linear 가정)
 - 누적 GC pause / 메모리 leak 없음 (peak RAM 안정)
-- Tier 전환 (multi-shape 시) 오버헤드 측정 (single-shape 10K 에선 N/A)
+- Tier 전환 (50_700 → 500_92) PK reload 오버헤드 측정
 
 ### 1.6 Minimum viable benchmark plan
 
-총 **14 cells, ~$25-30, ~5-7hr** 측정:
+Setup artifact reuse 패턴 채택 → 총 **8 cells, ~$8-10, ~2-3hr** 측정:
 
-| 구분 | Cells | 비용 (대략) | 측정 instance |
-|---|---:|---:|---|
-| Setup OOM | 1 | ~$1 | m8a.4xl (T4 production setup attempt) |
-| Setup OK | 1 | ~$4 | m8a.8xl (T4 production setup full) |
-| Prove 1-batch × 3 shapes × 3 instances | 9 | ~$10-15 | m7a.4xl, m8a.4xl, m8a.8xl |
-| Prove 10K user × 1 shape × 3 instances | 3 | ~$10 | 동일 (T4 mid 20_500, R11-A testdata) |
-| **합** | **14** | **~$25-30** | |
+| 구분 | Cells | 시간 | 비용 (대략) | 측정 instance |
+|---|---:|---|---:|---|
+| Setup (T4 production 2 shape) | — | <1hr | ~$2 | m8a.8xl (1대, keygen 풀 실행 → `.pk`/`.r1cs` EBS 보존) |
+| Prove 1-batch × 2 shape × 3 instance | 6 | ~1hr (직렬 type-switch) | ~$2 | m7a.4xl, m8a.4xl, m8a.8xl (artifact 재사용) |
+| Prove 10K user × 2 shape × 1 instance | 2 | ~1hr | ~$3 | m8a.8xl (artifact 재사용, multi-batch) |
+| 오버헤드 (EBS, snapshot, 재시도) | — | — | ~$2 | — |
+| **합** | **8** | **~2-3hr** | **~$8-10** | |
 
-10K user 측정은 §1.5 의 sanity check — 1-batch math derive 의 linear
-scaling 가정과 GC/메모리 drift 부재를 검증.
+핵심 비용 절감 요인:
+- Setup 1회 → 6 prove cell 에서 keygen 중복 제거 (기존 plan 의 ~$15-20 절약)
+- Prove 단계는 `.pk` lazy reload (cmd/prover snarkParams 패턴, Phase 3c) 활용 → 인스턴스 가동 시간 ≈ prove 실측 시간 + 부팅 10분
+- 10K user 도 100 batch × ~30s = ~50min 이내 (single-instance, 1 cell ~1hr)
 
 ### 1.7 Instance type-switch 전략
 
 `.pk` 24GB EBS 공유로 측정 instance 마다 keygen 재실행 불요:
 
 ```
-launch m8a.4xl (us-east-1c, gp3 150GB EBS)
-  ↓ setup attempt → OOM 측정 (T4 production)
-  ↓ stop + type change → m8a.8xl
-setup OK + prove 측정 (3 cells)
-  ↓ stop + type change → m7a.4xl
-prove 측정 (3 cells, .pk 재활용 from EBS)
+launch m8a.8xl (us-east-1c, gp3 200GB EBS)
+  ↓ Setup: T4 production 2 shape (50_700 + 500_92) keygen → .pk/.vk/.r1cs 보존
+  ↓ Prove 10K user × 2 shape 측정 (2 cells, multi-batch)
+  ↓ Prove 1-batch × 2 shape 측정 (2 cells)
   ↓ stop + type change → m8a.4xl
-prove 측정 (3 cells, .pk 재활용)
+Prove 1-batch × 2 shape 측정 (2 cells, .pk 재활용 from EBS)
+  ↓ stop + type change → m7a.4xl
+Prove 1-batch × 2 shape 측정 (2 cells, .pk 재활용)
   ↓ stop + terminate (EBS DeleteOnTermination=true)
 ```
+
+총 1대 인스턴스 가동 (type-switch 3회), 누적 wall-clock ~2-3hr.
 
 **Capacity 변동 대비**: 다른 AZ 에 새 EBS + 인스턴스 launch (production
 T4 측정에서 활용한 fallback).
@@ -457,14 +462,17 @@ size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 
 ### 4.1 R11-D minimum viable plan (Setup/Prove ablation)
 
-§1.6 의 14 cells. 진행 시점은 R11 dev infra (R11-A/B/C, 이미 완료) 후.
+§1.6 의 8 cells. 진행 시점은 R11 dev infra (R11-A/B/C, 이미 완료) 후.
 
 **구성**:
-- Setup OOM (m8a.4xl, T4 production) — peak RAM lock
-- Setup OK (m8a.8xl, T4 production) — 통과 baseline
-- **1-batch prove** × 3 shapes × {m7a.4xl, m8a.4xl, m8a.8xl} = 9 cells
-- **10K user prove** × T4 mid (20_500) × {m7a.4xl, m8a.4xl, m8a.8xl} = 3 cells
-  - R11-A `cmd/gen-testdata` 로 testdata 합성
+- **Setup** (artifact 생성): m8a.8xl 1대, T4 production 2 shape (50_700,
+  500_92), <1hr → `.pk`/`.vk`/`.r1cs` EBS 보존
+- **Prove 1-batch** × 2 shape × {m7a.4xl, m8a.4xl, m8a.8xl} = **6 cells**
+  - Setup artifact 재사용 (cmd/prover lazy reload, instance type-switch
+    간 동일 EBS attach)
+- **Prove 10K user** × 2 shape × m8a.8xl = **2 cells**
+  - R11-A `cmd/gen-testdata` 로 10K user testdata 합성 (T4 production
+    cap=500, shape 50_700 + 500_92)
   - R11-B `ZKPOR_SMOKE_USER_DATA` 로 smoke harness 에 주입
   - R11-C `--json` 출력으로 multi-batch aggregate 자동 추출
 
@@ -474,6 +482,7 @@ size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 - §2.4 의 production T4 m8a.12xl ~1.3× speedup 가설 (RAM bandwidth
   bound) 검증
 - 10K real-batch vs 1-batch math derive 정확도 (per-batch invariance 검증)
+- Tier 전환 (50_700 → 500_92) PK reload 오버헤드 측정
 
 ### 4.2 R12 — Prove-path GPU 가속 (ICICLE)
 
@@ -511,7 +520,7 @@ overhead ~1.1-1.3.
 
 | 순위 | 측정 | 비용 | 효과 |
 |---|---|---:|---|
-| 1 | **R11-D 14 cells** (§4.1) | ~$25-30 | Setup/Prove ablation matrix + 10K multi-batch sanity |
+| 1 | **R11-D 8 cells** (§4.1) | ~$8-10 | Setup/Prove ablation matrix + 10K multi-batch sanity (artifact reuse) |
 | 2 | **T1 production-scale** (cap=50, 50_1000, m8a.12xl) | ~$3-5 | Spot GTM segment 견적 정확화 |
 | 3 | **R12 PoC** (GPU L4 single point) | ~$2 | GPU column lock-in |
 | 4 | **R11-A 의 real-scale testdata** + multi-batch sanity | dev work | 1-batch math derive 정확도 검증 |
