@@ -1,0 +1,9 @@
+{
+  "run_id": "smoke_20260528T054451Z",
+  "log_file": ".artifacts/reports/R11D_m8a.8xl_t2_92_d1/run_20260528T054032Z.log",
+  "shape": "unknown",
+  "capacity": "unknown",
+  "models": [
+    {"model":"T1","status":"NOT_RUN"},{"model":"T2","status":"NOT_RUN"},{"model":"T3","status":"NOT_RUN"},{"model":"T4","status":"NOT_RUN"}
+  ]
+}
