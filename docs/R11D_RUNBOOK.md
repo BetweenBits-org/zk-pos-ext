@@ -1,194 +1,160 @@
 # R11-D Runbook — Setup/Prove ablation 측정
 
-`docs/BENCHMARK.md` §4.1 의 8-cell plan 실행 절차. 본 문서는 EC2 launch
-부터 cell 별 측정, 결과 fold-in 까지 단계별 체크리스트.
+`docs/BENCHMARK.md §4.1` 의 R11-D plan 실행 절차. Phase 1 closed,
+Phase 2 pending.
 
-목표: T4 production (cap=500, shape=50_700+500_92) 의 **Setup 한 번 →
-Prove ablation 6 cell + 10K multi-batch sanity 2 cell** 측정. 예산
-~$8-10, wall-clock ~2-3hr.
+## 상태
 
-## 1. EC2 launch 사전 결정
+| Phase | 상태 | 결과 |
+|---|---|---|
+| **Phase 1** (Setup + 4 dense cells) | ✅ closed (2026-05-28) | BENCHMARK §2.6 |
+| **Phase 2** (4 sparse density cells) | ⏳ pending | 이 runbook §3-5 |
+
+**Phase 1 핵심 발견**: T4 production dense prove peak RSS ~120 GiB —
+회로 size × density 함수 (§1.3 보정). 4xl-class instance 의 dense
+workload 측정 불가 → Phase 2 단일 m8a.8xl × density 축으로 단순화.
+
+## 1. EC2 자산 (현재 stopped)
 
 | 항목 | 값 |
 |---|---|
-| Region 우선순위 | us-east-2 (Ohio) → us-east-1 fallback (AZ 가용성에 따라) |
-| 초기 인스턴스 | **m8a.8xlarge** (Setup + cells 5,6,7,8 처리) |
-| AMI | Amazon Linux 2023 (`al2023-ami-*-x86_64`) |
-| EBS | gp3 **150 GB**, `DeleteOnTermination=true` |
-| Security group | SSH(22) 만 허용 |
-| Key pair | 기존 dev key 재활용 (`ue1-dev` 또는 region 별 신규) |
-| Cost ceiling | $15 CloudWatch alarm (안전 margin) |
+| Instance ID | `i-05da73a6bb557498e` |
+| Type | m8a.8xlarge (32 vCPU Zen5 / 128 GB) |
+| Region/AZ | us-east-1a |
+| EBS | gp3 150 GB, `DeleteOnTermination=true` |
+| 보존 artifact | `.pk` × 2 shape (24 GB) + `.vk` + `.r1cs` + Phase 1 testdata |
+| Key pair | `ue1-dev` (`~/Documents/keypairs/ue1-dev.pem`) |
+| Security group | `sg-042b08f0a129f3832` (SSH 22 open) |
+| Restart 비용 | ~2min boot + status-ok 대기 |
 
-**Fallback**: 선택 AZ 가 InsufficientInstanceCapacity 반환 시 다른 AZ
-로 즉시 재시도. 동일 region 안에서만 EBS 재사용 가능 (region 간 이전
-시 snapshot 필요 → R11-D 한도 초과).
+**State 갱신 시 주의**: AWS console 또는 `aws ec2 start-instances` 후
+public IP 가 매 재시작 마다 바뀜 → `scripts/ec2/.env` 의 `EC2_HOST`
+수동 갱신 필요 (agent 권한 막힘).
 
-## 2. Cell 정의
+## 2. Phase 2 cell 정의
 
-`scripts/ec2/r11d.sh <cell>` 가 모든 cell parameter (testdata gen +
-shape override + asset cap) 를 enforce. 사용자는 cell name 만 지정.
+`scripts/ec2/r11d.sh <cell>` 가 모든 parameter + RSS sampler enforce.
 
-| Cell | Shape | Users | AssetCount | Batches | 측정 목적 |
-|---|---|---:|---:|---:|---|
-| `setup` | 50_700,500_92 | 700 | 0 (default) | — | initial keygen (`.pk`/`.vk`/`.r1cs`) |
-| `t1_700` | 50_700 | 700 | 50 | 1 | Tier 1 isolation, 1-batch prove |
-| `t2_92` | 500_92 | 92 | 500 | 1 | Tier 2 isolation, 1-batch prove |
-| `t1_10k` | 50_700 | 10000 | 50 | 15 | Tier 1 multi-batch sanity |
-| `t2_10k` | 500_92 | 10000 | 500 | 109 | Tier 2 multi-batch sanity |
+| Cell | Shape | Users | AssetCount | Density | Batches | 기대 RSS |
+|---|---|---:|---:|---:|---:|---:|
+| `t1_700_d10` | 50_700 | 700 | 5 | ~10% | 1 | ~30 GiB |
+| `t1_700_d50` | 50_700 | 700 | 25 | ~50% | 1 | ~65 GiB |
+| `t2_92_d10` | 500_92 | 92 | 50 | ~10% | 1 | ~30 GiB |
+| `t2_92_d50` | 500_92 | 92 | 250 | ~50% | 1 | ~65 GiB |
 
-**핵심 invariant**: `--asset-count` (per-user non-empty asset count) 가
-shape 의 `asset_count_tier` 와 일치해야 라우팅 일관성 유지. r11d.sh 가
-강제.
+기존 Phase 1 의 `t1_700` / `t2_92` 가 density=100% 의 anchor.
 
-## 3. 측정 순서 (type-switch 최소화)
+**Cell pairing invariant**: `asset_count` 가 shape 의 `asset_count_tier`
+(50 또는 500) 이내여야 라우팅 일관. r11d.sh case 분기가 강제.
 
-instance type-switch 가 cell 보다 비싸므로 instance 별로 묶어 처리:
+## 3. Phase 2 절차
 
-```
-m8a.8xlarge (Setup + 4 cells)
-  setup       — keygen .pk × 2 shape (~1hr)
-  t1_700      — 1-batch Tier 1 (~수 분)
-  t2_92       — 1-batch Tier 2 (~수 분)
-  t1_10k      — Tier 1 multi-batch (15 batches × ~10s = ~3min)
-  t2_10k      — Tier 2 multi-batch (109 batches × ~17s = ~30min)
-  ↓ switch_type.sh m8a.4xlarge
-m8a.4xlarge (2 cells)
-  t1_700      — 1-batch Tier 1
-  t2_92       — 1-batch Tier 2
-  ↓ switch_type.sh m7a.4xlarge
-m7a.4xlarge (2 cells)
-  t1_700      — 1-batch Tier 1
-  t2_92       — 1-batch Tier 2
-  ↓ aws ec2 terminate-instances
-```
-
-총 **8 cell × 1회씩 + setup 1회 = 9회 실행**. 모든 결과는
-`.artifacts/reports/R11D_<instance_tag>_<cell>/run_<ts>.{log,json,meta.json}`
-으로 누적.
-
-## 4. 절차
-
-### 4.1 초기 launch (m8a.8xlarge)
+### 3.1 Instance start + IP 갱신
 
 ```bash
-# 1. AWS console 또는 CLI 로 instance launch (us-east-2 권장):
-aws ec2 run-instances --region us-east-2 \
-  --image-id <al2023-ami-id> --instance-type m8a.8xlarge \
-  --key-name ue2-dev --security-group-ids <sg-id> \
-  --block-device-mappings 'DeviceName=/dev/xvda,Ebs={VolumeSize=150,VolumeType=gp3,DeleteOnTermination=true}' \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=zkpor-r11d}]'
+# 1. Start
+aws ec2 start-instances --region us-east-1 --instance-ids i-05da73a6bb557498e
+aws ec2 wait instance-running --region us-east-1 --instance-ids i-05da73a6bb557498e
+aws ec2 wait instance-status-ok --region us-east-1 --instance-ids i-05da73a6bb557498e
 
-# 2. .env 작성 (instance ID + 새 IP 포함):
-cat > scripts/ec2/.env <<EOF
-EC2_HOST=ec2-user@<public-ip>
-EC2_KEY=~/path/to/ue2-dev.pem
-EC2_REMOTE_DIR=/home/ec2-user/zkmerkle-proof-of-solvency
-EC2_INSTANCE_ID=i-xxxxxxxx
-AWS_REGION=us-east-2
-EOF
-chmod 600 ~/path/to/ue2-dev.pem
+# 2. IP 확인
+aws ec2 describe-instances --region us-east-1 \
+  --instance-ids i-05da73a6bb557498e \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text
 
-# 3. bootstrap:
-./scripts/ec2/bootstrap.sh
+# 3. .env 갱신 (사용자 수동 — agent 권한 막힘)
+#    scripts/ec2/.env 의 EC2_HOST=ec2-user@<new-ip> 수정
+```
+
+### 3.2 코드 sync
+
+```bash
 ./scripts/ec2/sync.sh
 ```
 
-### 4.2 Setup phase (m8a.8xlarge)
+(현재 `48d5b5e` 의 r11d.sh + sparse cell 정의 + RSS sampler 가 EC2 측에
+적용됨)
+
+### 3.3 4 sparse cells 순차
 
 ```bash
-# 1. setup cell — keygen 2 shape × 1회
-ssh ec2-user@<ip> "cd zkmerkle-proof-of-solvency/zkpor && \
-  INSTANCE_TAG=m8a.8xl scripts/ec2/r11d.sh setup"
+ssh -i ~/Documents/keypairs/ue1-dev.pem ec2-user@<ip> '
+  cd zkmerkle-proof-of-solvency/zkpor && \
+  export INSTANCE_TAG=m8a.8xl && \
+  export PATH=$PATH:/usr/local/go/bin && \
+  setsid nohup bash -c "
+    set -e
+    ./scripts/ec2/r11d.sh t1_700_d10
+    ./scripts/ec2/r11d.sh t1_700_d50
+    ./scripts/ec2/r11d.sh t2_92_d10
+    ./scripts/ec2/r11d.sh t2_92_d50
+    date -u > /home/ec2-user/r11d_phase2_done.flag
+  " > /home/ec2-user/r11d_phase2.out 2>&1 </dev/null &
+  echo \"[launched] pid=$!\"; exit 0
+'
 ```
 
-예상 wall-clock: keygen 50_700 (~25min) + keygen 500_92 (~25min) +
-짧은 smoke validation = ~50-60min. `.artifacts/zkpor.*.pk` 24GB × 2
-보존 — 후속 prove cell 에서 lazy reload.
+cell 당 ~5min × 4 = ~20-30min wall-clock.
 
-### 4.3 Prove cells on m8a.8xlarge (4 cells)
+### 3.4 Monitor
+
+Phase 1 의 polling monitor 패턴 — `/home/ec2-user/r11d_phase2_done.flag`
+파일 등장까지 polling, 도중 `/home/ec2-user/r11d_phase2.out` tail 로
+진행 추적.
+
+### 3.5 Fetch + stop
 
 ```bash
-ssh ec2-user@<ip> "cd zkmerkle-proof-of-solvency/zkpor && \
-  INSTANCE_TAG=m8a.8xl scripts/ec2/r11d.sh t1_700  && \
-  INSTANCE_TAG=m8a.8xl scripts/ec2/r11d.sh t2_92   && \
-  INSTANCE_TAG=m8a.8xl scripts/ec2/r11d.sh t1_10k  && \
-  INSTANCE_TAG=m8a.8xl scripts/ec2/r11d.sh t2_10k"
+rsync -avz -e "ssh -i ~/Documents/keypairs/ue1-dev.pem" \
+  ec2-user@<ip>:/home/ec2-user/zkmerkle-proof-of-solvency/zkpor/.artifacts/reports/ \
+  .artifacts/reports/
+
+aws ec2 stop-instances --region us-east-1 --instance-ids i-05da73a6bb557498e
 ```
 
-### 4.4 Switch to m8a.4xlarge + 2 cells
+### 3.6 Fold-in to BENCHMARK §2.7
 
-```bash
-./scripts/ec2/switch_type.sh m8a.4xlarge
-./scripts/ec2/sync.sh
-ssh ec2-user@<new-ip> "cd zkmerkle-proof-of-solvency/zkpor && \
-  INSTANCE_TAG=m8a.4xl scripts/ec2/r11d.sh t1_700 && \
-  INSTANCE_TAG=m8a.4xl scripts/ec2/r11d.sh t2_92"
+Phase 2 결과는 새 `### 2.7 R11-D Phase 2 density ablation` 섹션 추가
++ §3.x fit 갱신.
+
+## 4. RSS sampler 사용
+
+r11d.sh 가 자동 sample, 종료 시 log 에 summary 출력:
+
+```
+[r11d] prover RSS samples: n=15 peak=68000MB avg=65000MB min=51000MB peak_GiB=66.4
 ```
 
-### 4.5 Switch to m7a.4xlarge + 2 cells
+Raw data: `.artifacts/reports/R11D_<tag>_<cell>/run_<ts>.mem.tsv`
+(TSV: `ts_utc pid rss_kb vsz_kb`).
 
-```bash
-./scripts/ec2/switch_type.sh m7a.4xlarge
-./scripts/ec2/sync.sh
-ssh ec2-user@<new-ip> "cd zkmerkle-proof-of-solvency/zkpor && \
-  INSTANCE_TAG=m7a.4xl scripts/ec2/r11d.sh t1_700 && \
-  INSTANCE_TAG=m7a.4xl scripts/ec2/r11d.sh t2_92"
-```
+## 5. 비용 / 시간 예상
 
-### 4.6 결과 회수
+| 항목 | 예상 |
+|---|---:|
+| Wall-clock | ~50min (boot 2min + 4 cells ~30min + idle/fetch ~18min) |
+| Instance cost | $1.50 (~50min × $1.80/hr) |
+| EBS gp3 (already created) | 무시 |
+| **합** | **~$1.5** |
 
-```bash
-./scripts/ec2/fetch.sh  # .artifacts/reports/ 동기화
-ls -1 .artifacts/reports/R11D_*/
-```
+## 6. 트러블슈팅
 
-### 4.7 정리
+- **Public IP 변경 후 SSH fingerprint 충돌**: `ssh-keygen -R <new-ip>`
+  또는 SSH 옵션 `-o StrictHostKeyChecking=accept-new -o
+  UserKnownHostsFile=/tmp/...` 사용 (RUNBOOK 의 orchestration script
+  패턴 참고).
+- **r11d.sh `extract_smoke_metrics.sh: Permission denied`**: `25cefd7`
+  에서 chmod +x 적용됨. 새 EC2 에서 재발 시 `ssh ... 'cd ... && chmod
+  +x scripts/extract_smoke_metrics.sh scripts/ec2/*.sh'`.
+- **prover OOM**: density 10% 도 64 GiB 한계 (m8a.4xl) 넘으면 (가설
+  반대) m8a.8xl 도 살얼음일 수 있음. Phase 2 cell t1_700_d10 의 RSS
+  sample 이 65 GiB 초과 시 RSS scaling 가설 재검증 필요.
+- **RSS sampler 가 sample 0개**: prover process 찾는 패턴 (`exe/prover`)
+  과 실제 binary 명 mismatch. `ps aux | grep prover` 로 검증 후 r11d.sh
+  의 `pgrep -f` 패턴 조정.
 
-```bash
-./scripts/ec2/down.sh
-aws ec2 terminate-instances --region us-east-2 --instance-ids $EC2_INSTANCE_ID
-```
+## 7. R11-D closure 후 다음
 
-EBS `DeleteOnTermination=true` 이므로 volume 자동 회수. 비용 leak 없음.
-
-## 5. 측정 결과 fold-in
-
-각 cell 의 `.json` 을 `docs/BENCHMARK.md §2` 의 새 measurement 섹션
-(`### 2.6 R11-D Setup/Prove ablation`) 으로 합치고, §3 의 fit
-(NbConstraints → prove, instance speedup) 을 새 data 로 업데이트.
-
-자동화 helper (현재 미작성, 필요 시 후속):
-- `.artifacts/reports/R11D_*/run_*.json` → markdown table compose
-- Per-batch prove time variance 분석 (cell *_10k vs *_1batch 비교)
-
-## 6. 예상 비용 / 시간
-
-| 단계 | Wall-clock | Instance × 시간 | 단가 ($/hr) | 비용 |
-|---|---|---|---:|---:|
-| Launch + bootstrap | ~10min | m8a.8xl × 0.17hr | 1.80 | $0.31 |
-| Setup | ~1hr | m8a.8xl × 1hr | 1.80 | $1.80 |
-| 4 cells on m8a.8xl | ~45min | m8a.8xl × 0.75hr | 1.80 | $1.35 |
-| type-switch + 2 cells on m8a.4xl | ~20min | m8a.4xl × 0.33hr | 0.92 | $0.30 |
-| type-switch + 2 cells on m7a.4xl | ~20min | m7a.4xl × 0.33hr | 0.92 | $0.30 |
-| EBS (gp3 150GB × 3hr) | — | — | 0.013/GB-month | ~$0.03 |
-| 오버헤드 / 재시도 여유 | — | — | — | ~$2 |
-| **합** | **~2.5-3hr** | | | **~$6-8** |
-
-(BENCHMARK §1.6 의 $8-10 추정 안에 들어옴)
-
-## 7. 트러블슈팅
-
-- **InsufficientInstanceCapacity** (특정 AZ): 다른 AZ 에서 launch 재시도
-  (us-east-2a/b/c 순회). EBS 함께 신규 생성.
-- **smoke.sh keygen artifact mismatch**: `.artifacts/zkpor.*.r1cs` 가
-  현재 코드와 다른 git commit 의 회로일 때 `groth16.Prove` 가 mismatch.
-  → 해당 `.pk/.vk/.r1cs` 삭제 후 r11d.sh setup 재실행
-- **type-switch 후 SSH timeout**: 새 public IP 가 .env 갱신됐는데 SSH
-  fingerprint 미신규 → `ssh-keygen -R <new-ip>` + 재시도
-- **`.pk` lazy reload 시 Tier 1↔Tier 2 전환 비용**: r11d.sh 의 cell
-  순서 (`t1_*` → `t2_*`) 가 항상 Tier 1 → Tier 2 reload 1회 유발. 측정
-  시 첫 batch 의 setup overhead 별도 계산 필요.
-
-## 8. 후속
-
-R11-D closure → `PRODUCTION_ROADMAP.md §Stage R12` (GPU PoC) 진입.
+R11-D 종료 → `PRODUCTION_ROADMAP.md §Stage R12` (GPU PoC). entry
+instance 는 host RAM ≥128 GB (Phase 1 발견에서 도출) — g6e.8xl ($3.2/hr)
+또는 g6.12xl ($2.5/hr) 후보.

@@ -124,73 +124,76 @@ at production T4 (n=64M, 32 worker) 검증:
 → 3 instances × 3 shape (T4 mid 20_500 / Tier 1 50_700 / Tier 2 500_92)
 = **9 cells** 로 instance × shape matrix 완성.
 
-### 1.5 User count: math derive + 10K real-batch sanity
+### 1.5 R11-D 2-phase plan: dense + density ablation
 
-`cmd/prover` multi-batch lazy reload → per-batch prove time 은 batches
-수에 독립.
+**Phase 1 (closed, §2.6)** — 4 dense cells on single m8a.8xl:
+- 1-batch × 2 shape (t1_700, t2_92) — per-batch isolation
+- 10K user × 2 shape (t1_10k, t2_10k) — multi-batch sanity
+
+**Phase 2 (next)** — 4 sparse cells on same m8a.8xl (Setup artifact reuse):
+- Tier 1 × density {10%, 50%}: t1_700_d10 (asset_count=5), t1_700_d50 (=25)
+- Tier 2 × density {10%, 50%}: t2_92_d10 (asset_count=50), t2_92_d50 (=250)
+
+Instance ablation 은 §2.3 mid-tier 3-way (r7a/m8a/c8a) + §2.4 vs §2.6
+(m8a.12xl vs m8a.8xl) 로 이미 커버. 4xl-class 는 dense workload 메모리
+한계로 좌초 (§3.9) — Phase 2 sparse 측정이 실제 거래소 워크로드의
+viability 를 정량화.
+
+**Phase 2 핵심 invariants 검증**:
+- `per_batch_prove(density=d)` ≈ `per_batch_prove(density=1.0)` (constraint
+  count 동일이므로 prove 시간 변동 ≤10% 예상)
+- `prove_peak_RSS(density=d)` ≈ pk + r1cs + `k × constraints × d × workers`
+  (linear scaling 가설)
+- 4xl viability: density ≤30% 면 m8a.4xl (64GB) 도 가능 — Phase 2
+  closure 후 별도 cell 로 검증 (옵션)
+
+**RSS 측정 인프라**: r11d.sh 의 background sampler 가 prover PID 의
+RSS 를 2s 주기로 `${REPORT_ROOT}/run_*.mem.tsv` 에 기록 — peak/avg/min
+계산. Phase 1 의 monitor 60s polling 으로는 1-batch (30s) sample miss
+했던 점 보정.
+
+### 1.6 R11-D 2-phase plan + cost (single m8a.8xl)
+
+Setup artifact reuse + 단일 instance → type-switch 인프라 미사용. Phase
+1 closed cost 실측 후 Phase 2 추정 정리:
+
+| 구분 | Cells | 시간 | 비용 | 상태 |
+|---|---:|---:|---:|---|
+| Phase 1: Setup (T4 production 2 shape) | — | 48min | $1.44 | ✅ closed |
+| Phase 1: dense 4 cells (t1_700, t2_92, t1_10k, t2_10k) | 4 | ~65min | $1.95 | ✅ closed |
+| Phase 1: idle / boot | — | ~10min | $0.36 | ✅ closed |
+| **Phase 1 합** | **4** | **~2hr** | **$3.75** | **✅ closed (§2.6)** |
+| Phase 2: sparse 4 cells (density 10%, 50%) | 4 | ~30-40min | ~$1-1.5 | ⏳ next |
+| Phase 2: boot + idle | — | ~10min | ~$0.30 | ⏳ next |
+| **Phase 2 합** | **4** | **~50min** | **~$1.5** | ⏳ |
+| **R11-D 총 합 (Phase 1+2)** | **8** | **~3hr** | **~$5.25** | |
+
+핵심 단순화:
+- Setup 1회 → 모든 prove cell 에서 keygen 중복 제거
+- 단일 m8a.8xl → instance type-switch 비용 + 복잡도 제거
+- Phase 2 의 sparse 측정이 Tier 1 + Tier 2 × density {10/50/100} = 6
+  density 데이터 포인트 (Phase 1 의 density=100 합산)
+
+### 1.7 R11-D 측정 sequence (단일 m8a.8xl)
+
+Phase 1 + 2 모두 동일 instance + EBS 재사용. type-switch 인프라
+(`scripts/ec2/switch_type.sh`) 는 R12 (GPU instance) / R13 (multi-
+worker) 시점에 활용.
 
 ```
-total_prove_time = batches × per_batch_prove_time
-batches = ceil(users / users_per_batch)
+launch m8a.8xl (us-east-1a, gp3 150GB EBS)
+  ↓ Phase 1 setup: 2 shape keygen → .pk/.vk/.r1cs 보존 (24 GB 합)
+  ↓ Phase 1 dense cells (t1_700, t2_92, t1_10k, t2_10k)
+  ↓ aws ec2 stop-instances (idle 절약)
+  ⋯ (다른 작업 / 분석 / 코드 변경) ⋯
+  ↓ aws ec2 start-instances (~2min)
+  ↓ Phase 2 sparse cells (t1_700_d10, t1_700_d50, t2_92_d10, t2_92_d50)
+  ↓ aws ec2 stop-instances (R11-D closure)
+  ↓ R12/R13 진입 시 type-switch or 새 GPU instance
 ```
 
-→ **1-batch 실측 후 batches math 만 곱하면 N users prove time 추정**.
-
-다만 100% math derive 는 자의적이라, **10K user multi-batch 실측 1
-round** 를 ablation 안에 묶어 sanity check:
-
-| 측정 | 목적 |
-|---|---|
-| **1-batch × 2 shape × 3 instance (6 cells)** | per-batch isolation, instance + shape ablation (Setup artifact reuse) |
-| **10K user × 2 shape × 1 instance (2 cells, m8a.8xl)** | multi-batch sanity (GC drift, memory growth, lookup-table rebuild overhead), 1-batch math derive 정확도 검증 |
-
-10K user shape 선택: **T4 production 2 shape (50_700 + 500_92)** — Setup
-단계에서 생성한 동일 R1CS / `.pk` 재활용. 10K / 700 ≈ 15 batch (Tier 1)
-+ 10K / 92 ≈ 109 batch (Tier 2). m8a.8xl 단일 측정으로 충분 (instance
-ablation 은 1-batch 6 cells 에서 이미 분리).
-
-10K 측정의 핵심 검증:
-- `per_batch_prove(batch=N) ≈ per_batch_prove(batch=1)` (linear 가정)
-- 누적 GC pause / 메모리 leak 없음 (peak RAM 안정)
-- Tier 전환 (50_700 → 500_92) PK reload 오버헤드 측정
-
-### 1.6 Minimum viable benchmark plan
-
-Setup artifact reuse 패턴 채택 → 총 **8 cells, ~$8-10, ~2-3hr** 측정:
-
-| 구분 | Cells | 시간 | 비용 (대략) | 측정 instance |
-|---|---:|---|---:|---|
-| Setup (T4 production 2 shape) | — | <1hr | ~$2 | m8a.8xl (1대, keygen 풀 실행 → `.pk`/`.r1cs` EBS 보존) |
-| Prove 1-batch × 2 shape × 3 instance | 6 | ~1hr (직렬 type-switch) | ~$2 | m7a.4xl, m8a.4xl, m8a.8xl (artifact 재사용) |
-| Prove 10K user × 2 shape × 1 instance | 2 | ~1hr | ~$3 | m8a.8xl (artifact 재사용, multi-batch) |
-| 오버헤드 (EBS, snapshot, 재시도) | — | — | ~$2 | — |
-| **합** | **8** | **~2-3hr** | **~$8-10** | |
-
-핵심 비용 절감 요인:
-- Setup 1회 → 6 prove cell 에서 keygen 중복 제거 (기존 plan 의 ~$15-20 절약)
-- Prove 단계는 `.pk` lazy reload (cmd/prover snarkParams 패턴, Phase 3c) 활용 → 인스턴스 가동 시간 ≈ prove 실측 시간 + 부팅 10분
-- 10K user 도 100 batch × ~30s = ~50min 이내 (single-instance, 1 cell ~1hr)
-
-### 1.7 Instance type-switch 전략
-
-`.pk` 24GB EBS 공유로 측정 instance 마다 keygen 재실행 불요:
-
-```
-launch m8a.8xl (us-east-1c, gp3 200GB EBS)
-  ↓ Setup: T4 production 2 shape (50_700 + 500_92) keygen → .pk/.vk/.r1cs 보존
-  ↓ Prove 10K user × 2 shape 측정 (2 cells, multi-batch)
-  ↓ Prove 1-batch × 2 shape 측정 (2 cells)
-  ↓ stop + type change → m8a.4xl
-Prove 1-batch × 2 shape 측정 (2 cells, .pk 재활용 from EBS)
-  ↓ stop + type change → m7a.4xl
-Prove 1-batch × 2 shape 측정 (2 cells, .pk 재활용)
-  ↓ stop + terminate (EBS DeleteOnTermination=true)
-```
-
-총 1대 인스턴스 가동 (type-switch 3회), 누적 wall-clock ~2-3hr.
-
-**Capacity 변동 대비**: 다른 AZ 에 새 EBS + 인스턴스 launch (production
-T4 측정에서 활용한 fallback).
+**Capacity 변동 대비**: 다른 AZ 에 새 EBS + 인스턴스 launch 가능
+(Phase 1 launch 에서 활용한 fallback — us-east-1a 선택).
 
 ---
 
@@ -599,38 +602,40 @@ size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 
 ### 4.1 R11-D Setup/Prove ablation — status
 
-**Phase 1 (dense): 완료 (2026-05-28, §2.6)**. m8a.8xl 의 4 dense cells
-(t1_700, t2_92, t1_10k, t2_10k) 측정 + Setup artifact 보존. 핵심 발견:
-prove RSS peak ~120 GiB → §1.3 memory budget 4× 빗나갔던 점 보정.
+**Phase 1 (dense): closed (2026-05-28, §2.6)**. m8a.8xl 의 4 dense cells
++ Setup artifact 보존. 핵심 발견: prove RSS peak ~120 GiB → §1.3 memory
+budget 4× 빗나갔던 점 보정.
 
-**Phase 2 (density ablation): 진행 예정**. 원래 plan 의 m8a.4xl ×
-m7a.4xl ablation 이 dense workload 메모리 한계로 좌초 — sparse cell
-(density=0.05, 0.1, 0.5) 로 instance ablation 재시도.
+**Phase 2 (density ablation): pending — 단일 m8a.8xl, 4 sparse cells**.
 
-§1.6 의 8 cells (원본 plan). 진행 시점은 R11 dev infra (R11-A/B/C, 이미 완료) 후.
+원래 plan 의 instance × shape 매트릭스 (3 instance × 2 shape) 가 dense
+workload 메모리 한계로 좌초 — 단순화하여 density 축만 추가:
 
-**구성**:
-- **Setup** (artifact 생성): m8a.8xl 1대, T4 production 2 shape (50_700,
-  500_92), <1hr → `.pk`/`.vk`/`.r1cs` EBS 보존
-- **Prove 1-batch** × 2 shape × {m7a.4xl, m8a.4xl, m8a.8xl} = **6 cells**
-  - Setup artifact 재사용 (cmd/prover lazy reload, instance type-switch
-    간 동일 EBS attach)
-- **Prove 10K user** × 2 shape × m8a.8xl = **2 cells**
-  - R11-A `cmd/gen-testdata` 로 10K user testdata 합성 (T4 production
-    cap=500, shape 50_700 + 500_92)
-  - R11-B `ZKPOR_SMOKE_USER_DATA` 로 smoke harness 에 주입
-  - R11-C `--json` 출력으로 multi-batch aggregate 자동 추출
+| Cell | Shape | Users | Asset count | Density | 기대 RSS |
+|---|---|---:|---:|---:|---:|
+| t1_700_d10 | 50_700 | 700 | 5 | ~10% | ~30 GiB |
+| t1_700_d50 | 50_700 | 700 | 25 | ~50% | ~65 GiB |
+| t2_92_d10 | 500_92 | 92 | 50 | ~10% | ~30 GiB |
+| t2_92_d50 | 500_92 | 92 | 250 | ~50% | ~65 GiB |
 
-**Insight 영역**:
-- m7a.4xl vs m8a.4xl: 세대 차이 (Zen4 → Zen5) — IPC + AVX-512
-- m8a.4xl vs m8a.8xl: 코어수 차이 — Amdahl curve
-- §2.4 의 production T4 m8a.12xl ~1.3× speedup 가설 (RAM bandwidth
-  bound) 검증
-- 10K real-batch vs 1-batch math derive 정확도 (per-batch invariance 검증)
-- Tier 전환 (50_700 → 500_92) PK reload 오버헤드 측정
+Phase 1 dense cells (density=100%, RSS ~120 GiB) 와 합치면 density 축
+세 점 (10/50/100) × 2 shape = 6 데이터 포인트 → linear scaling 검증.
 
-**실행 절차**: `docs/R11D_RUNBOOK.md` — EC2 launch, cell 순서,
-type-switch, fold-in 절차의 step-by-step 체크리스트.
+**실행 인프라**:
+- `scripts/ec2/r11d.sh <cell>` 가 모든 parameter (shape, users,
+  asset_count) 와 RSS sampler (2s 주기, peak/avg/min 자동 추출)
+  enforce. cell 추가 (sparse 4종) 완료 (`48d5b5e`).
+- Setup artifact 24 GB 가 m8a.8xl EBS 보존 → keygen 재실행 불요.
+- 단일 instance — type-switch infra 미사용. 비용 ~$1.5 / 시간 ~50분.
+
+**핵심 invariants 검증**:
+- per-batch prove time 이 density 와 거의 무관 (constraint count 동일,
+  변동 ≤10% 예상)
+- prove RSS 가 density 비례 linear scaling 가설 검증
+- 실제 거래소 워크로드 (density 5-30%) 의 RSS / 비용 추정 정확화
+
+**실행 절차**: `docs/R11D_RUNBOOK.md` — Phase 2 single-instance density
+ablation 절차.
 
 ### 4.2 R12 — Prove-path GPU 가속 (ICICLE)
 
