@@ -99,7 +99,7 @@ ensure_mysql() {
     log "mysql container already running"
   else
     log "starting mysql container"
-    docker compose -f deploy/docker-compose.yml up -d
+    docker compose -f scripts/deploy/docker-compose.yml up -d
   fi
   log "waiting for mysql healthcheck"
   for _ in $(seq 1 40); do

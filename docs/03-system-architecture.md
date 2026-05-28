@@ -70,7 +70,7 @@ flowchart TB
 
   subgraph Ops["🛠️ Ops support"]
     direction LR
-    Deploy["deploy/<br/>(docker-compose: MySQL fixture)"]
+    Deploy["scripts/deploy/<br/>(docker-compose: MySQL fixture)"]
     Scripts["scripts/<br/>(smoke.sh end-to-end)"]
   end
 

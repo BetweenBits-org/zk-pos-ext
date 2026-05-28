@@ -890,7 +890,7 @@ estimates/`) 의 multi-instance 시나리오 실측 + 운영 자동화.
   monitoring, autoscaling, dev/prod 운영 차이
 - 코어 (engine): `cmd/prover` 의 큐 polling 변경 (Redis BLPOP), 단일
   큐에 multiple workers 등록 — 이건 cmd/prover 작은 patch (수십 lines).
-  나머지 큰 일은 deploy/operations.
+  나머지 큰 일은 scripts/deploy/operations.
 
 **Entry blocker**:
 - R12 closure (GPU backend) — multi-instance 가 가장 가치 클 때 GPU 도
@@ -905,7 +905,7 @@ estimates/`) 의 multi-instance 시나리오 실측 + 운영 자동화.
   - 후: Redis BLPOP `zkpor:prover:queue` (multi-worker safe).
   - witness service 가 batch 생성 시 Redis push 추가.
   - DB-only fallback 유지 (dev 환경 무-Redis 모드).
-- **R13-B** — `deploy/` 의 multi-instance compose
+- **R13-B** — `scripts/deploy/` 의 multi-instance compose
   - Redis 컨테이너 추가 (mysql 같이).
   - prover 가 N 개 instance (worker scaling).
   - witness, verifier, userproof 도 multi-worker (per-stage 결정).

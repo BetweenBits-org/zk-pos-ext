@@ -11,7 +11,7 @@ log "stopping remote docker compose stack on $EC2_HOST"
 ec2_ssh bash <<EOF
 set -euo pipefail
 cd "$EC2_REMOTE_DIR/zkpor"
-docker compose -f deploy/docker-compose.yml down -v
+docker compose -f scripts/deploy/docker-compose.yml down -v
 EOF
 
 log "remote stack stopped"

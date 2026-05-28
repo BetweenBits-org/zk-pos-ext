@@ -87,14 +87,14 @@ da1799d docs(zkpor): R11-D Phase 2 fold-in — density plateau pattern
 | `zkpor/core/solvency/{t1,t2,t3,t4}/{spec,circuit,host}` | ✅ 4 model 본체 + host helpers + `*_runner.go` (witness/prover/verifier/userproof dispatch) |
 | `zkpor/cmd/{keygen,witness,prover,verifier,userproof}` | ✅ profile.toml-driven, 4 model dispatch |
 | `zkpor/cmd/gen-testdata` | ✅ R11-A — `--asset-capacity` + `--asset-count` + `--users` + `--seed`, sum invariant |
-| `zkpor/internal/testdata/` | ✅ R11-A — model-typed synthesis + uniform dist + BN254-safe ID |
+| `zkpor/cmd/gen-testdata/internal/testdata/` | ✅ R11-A — model-typed synthesis + uniform dist + BN254-safe ID |
 | `zkpor/profile/{t1,t2,t3,t4}_reference/` | ✅ profile.toml + standard CSV testdata/happy/ — sea/binance 명명 제거됨 (`sea_reference`→`t1_reference`, `binance`→`t4_reference`) |
 | `zkpor/profile/declarative/` | ✅ R5/R7/R8/R10 builders + Validate |
 | `zkpor/scripts/smoke.sh` | ✅ profile-driven + ZKPOR_SMOKE_USER_DATA env override |
 | `zkpor/scripts/extract_smoke_metrics.sh` | ✅ md 양식 + `--json` (multi-batch aggregate) |
 | `zkpor/scripts/ec2/{bootstrap,sync,fetch,smoke,r11d,switch_type}.sh` + `_lib.sh` | ✅ R11-D 측정 인프라 |
 | `zkpor/store/` | ✅ MySQL gorm — 3 모델 (witness/proof/userproof) |
-| `zkpor/deploy/docker-compose.yml` | ✅ smoke MySQL fixture |
+| `zkpor/scripts/deploy/docker-compose.yml` | ✅ smoke MySQL fixture |
 | `zkpor/docs/BENCHMARK.md` | ✅ benchmark single source of truth (R6.5/§2.4/§2.6 측정 fold-in) |
 | `zkpor/docs/R11D_RUNBOOK.md` | ✅ R11-D 절차 |
 | `circuit/`, `src/` (legacy) | ✅ untouched |

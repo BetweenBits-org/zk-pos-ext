@@ -4,8 +4,8 @@
 # witness DB resume or multi-instance scaling layer their own redis on
 # top — out of scope here.
 #
-#   docker compose -f zkpor/deploy/docker-compose.yml up -d
-#   docker compose -f zkpor/deploy/docker-compose.yml down -v
+#   docker compose -f zkpor/scripts/deploy/docker-compose.yml up -d
+#   docker compose -f zkpor/scripts/deploy/docker-compose.yml down -v
 #
 # The MySQL DSN service configs reference:
 #   zkpor:zkpor@123@tcp(127.0.0.1:3306)/zkpor?parseTime=true
