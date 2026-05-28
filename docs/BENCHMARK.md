@@ -93,7 +93,7 @@ for {
 → 3 instances × 3 shape (T4 mid 20_500 / Tier 1 50_700 / Tier 2 500_92)
 = **9 cells** 로 instance × shape matrix 완성.
 
-### 1.5 User count 는 math derive (실측 불요)
+### 1.5 User count: math derive + 10K real-batch sanity
 
 `cmd/prover` multi-batch lazy reload → per-batch prove time 은 batches
 수에 독립.
@@ -104,19 +104,38 @@ batches = ceil(users / users_per_batch)
 ```
 
 → **1-batch 실측 후 batches math 만 곱하면 N users prove time 추정**.
-R11-A testdata generator 완성 후 multi-batch sanity (GC/메모리 drift)
-만 1회 검증.
+
+다만 100% math derive 는 자의적이라, **10K user multi-batch 실측 1
+round** 를 ablation 안에 묶어 sanity check:
+
+| 측정 | 목적 |
+|---|---|
+| **1-batch × 3 instance × 3 shape (9 cells)** | per-batch isolation, instance + shape ablation |
+| **10K user × 3 instance × 1 shape (3 cells)** | multi-batch sanity (GC drift, memory growth, lookup-table rebuild overhead), 1-batch math derive 정확도 검증 |
+
+10K user shape 선택: **T4 mid (20_500)** — 10K / 500 = 20 batches,
+적당한 batch count, RAM gentle (25-30 GiB peak), 모든 instance 가용.
+R11-A testdata generator (`cmd/gen-testdata`) 출력 사용.
+
+10K 측정의 핵심 검증:
+- `per_batch_prove(batch=N) ≈ per_batch_prove(batch=1)` (linear 가정)
+- 누적 GC pause / 메모리 leak 없음 (peak RAM 안정)
+- Tier 전환 (multi-shape 시) 오버헤드 측정 (single-shape 10K 에선 N/A)
 
 ### 1.6 Minimum viable benchmark plan
 
-총 **11 cells, ~$15-20, ~3-4hr** 측정:
+총 **14 cells, ~$25-30, ~5-7hr** 측정:
 
 | 구분 | Cells | 비용 (대략) | 측정 instance |
 |---|---:|---:|---|
 | Setup OOM | 1 | ~$1 | m8a.4xl (T4 production setup attempt) |
 | Setup OK | 1 | ~$4 | m8a.8xl (T4 production setup full) |
-| Prove × 3 shapes × 3 instances | 9 | ~$10-15 | m7a.4xl, m8a.4xl, m8a.8xl |
-| **합** | **11** | **~$15-20** | |
+| Prove 1-batch × 3 shapes × 3 instances | 9 | ~$10-15 | m7a.4xl, m8a.4xl, m8a.8xl |
+| Prove 10K user × 1 shape × 3 instances | 3 | ~$10 | 동일 (T4 mid 20_500, R11-A testdata) |
+| **합** | **14** | **~$25-30** | |
+
+10K user 측정은 §1.5 의 sanity check — 1-batch math derive 의 linear
+scaling 가정과 GC/메모리 drift 부재를 검증.
 
 ### 1.7 Instance type-switch 전략
 
@@ -438,18 +457,23 @@ size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 
 ### 4.1 R11-D minimum viable plan (Setup/Prove ablation)
 
-§1.6 의 11 cells. 진행 시점은 R11 dev infra (R11-A/B/C, 이미 완료) 후.
+§1.6 의 14 cells. 진행 시점은 R11 dev infra (R11-A/B/C, 이미 완료) 후.
 
 **구성**:
 - Setup OOM (m8a.4xl, T4 production) — peak RAM lock
 - Setup OK (m8a.8xl, T4 production) — 통과 baseline
-- Prove × 3 shapes × {m7a.4xl, m8a.4xl, m8a.8xl}
+- **1-batch prove** × 3 shapes × {m7a.4xl, m8a.4xl, m8a.8xl} = 9 cells
+- **10K user prove** × T4 mid (20_500) × {m7a.4xl, m8a.4xl, m8a.8xl} = 3 cells
+  - R11-A `cmd/gen-testdata` 로 testdata 합성
+  - R11-B `ZKPOR_SMOKE_USER_DATA` 로 smoke harness 에 주입
+  - R11-C `--json` 출력으로 multi-batch aggregate 자동 추출
 
 **Insight 영역**:
 - m7a.4xl vs m8a.4xl: 세대 차이 (Zen4 → Zen5) — IPC + AVX-512
 - m8a.4xl vs m8a.8xl: 코어수 차이 — Amdahl curve
 - §2.4 의 production T4 m8a.12xl ~1.3× speedup 가설 (RAM bandwidth
   bound) 검증
+- 10K real-batch vs 1-batch math derive 정확도 (per-batch invariance 검증)
 
 ### 4.2 R12 — Prove-path GPU 가속 (ICICLE)
 
@@ -487,7 +511,7 @@ overhead ~1.1-1.3.
 
 | 순위 | 측정 | 비용 | 효과 |
 |---|---|---:|---|
-| 1 | **R11-D 11 cells** (§4.1) | ~$15-20 | Setup/Prove ablation matrix lock |
+| 1 | **R11-D 14 cells** (§4.1) | ~$25-30 | Setup/Prove ablation matrix + 10K multi-batch sanity |
 | 2 | **T1 production-scale** (cap=50, 50_1000, m8a.12xl) | ~$3-5 | Spot GTM segment 견적 정확화 |
 | 3 | **R12 PoC** (GPU L4 single point) | ~$2 | GPU column lock-in |
 | 4 | **R11-A 의 real-scale testdata** + multi-batch sanity | dev work | 1-batch math derive 정확도 검증 |
