@@ -27,6 +27,10 @@ cmd/verifier/config/config.json
 cmd/userproof/config/config.json
 cmd/verifier/config/user_config.json
 .artifacts/*.json
+.artifacts/testdata/
+
+# R11 — gen-testdata 출력 (실측용 큰 CSV — 수십 MB-GB)
+# .artifacts/testdata/<profile>_<N>/ 패턴.
 
 # Editor / IDE
 .idea/
