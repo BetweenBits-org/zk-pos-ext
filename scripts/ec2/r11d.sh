@@ -119,7 +119,11 @@ fi
 MEM_TSV="$REPORT_ROOT/run_${RUN_TS}.mem.tsv"
 SAMPLER_PID=""
 if [ "$CELL" != "setup" ]; then
+  # Subshell explicitly disables strict mode — pgrep returning no match
+  # on early iterations (prover not yet running) would otherwise kill
+  # the sampler via set -euo pipefail propagation.
   (
+    set +e +o pipefail
     echo "ts_utc pid rss_kb vsz_kb" > "$MEM_TSV"
     while true; do
       pid=$(pgrep -f "exe/prover" 2>/dev/null | head -1)
