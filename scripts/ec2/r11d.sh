@@ -59,13 +59,15 @@ case "$CELL" in
   t2_92)        SHAPE="500_92" ; USERS=92    ; ASSET_COUNT=500 ; DATA_LABEL="t2_92"       ;;
   t1_10k)       SHAPE="50_700" ; USERS=10000 ; ASSET_COUNT=50  ; DATA_LABEL="t1_10k"      ;;
   t2_10k)       SHAPE="500_92" ; USERS=10000 ; ASSET_COUNT=500 ; DATA_LABEL="t2_10k"      ;;
-  # Phase 2 density ablation (sparse cells, density 50% / 10%)
+  # Phase 2 density ablation (sparse cells, density 50% / 10% / 1-2%)
   t1_700_d50)   SHAPE="50_700" ; USERS=700   ; ASSET_COUNT=25  ; DATA_LABEL="t1_700_d50"  ;;
   t1_700_d10)   SHAPE="50_700" ; USERS=700   ; ASSET_COUNT=5   ; DATA_LABEL="t1_700_d10"  ;;
+  t1_700_d1)    SHAPE="50_700" ; USERS=700   ; ASSET_COUNT=1   ; DATA_LABEL="t1_700_d1"   ;;
   t2_92_d50)    SHAPE="500_92" ; USERS=92    ; ASSET_COUNT=250 ; DATA_LABEL="t2_92_d50"   ;;
   t2_92_d10)    SHAPE="500_92" ; USERS=92    ; ASSET_COUNT=50  ; DATA_LABEL="t2_92_d10"   ;;
+  t2_92_d1)     SHAPE="500_92" ; USERS=92    ; ASSET_COUNT=5   ; DATA_LABEL="t2_92_d1"    ;;
   *)
-    echo "unknown cell '$CELL' — expected setup | t1_700 | t2_92 | t1_10k | t2_10k | t{1_700,2_92}_d{10,50}" >&2
+    echo "unknown cell '$CELL' — expected setup | t1_700 | t2_92 | t1_10k | t2_10k | t{1_700,2_92}_d{1,10,50}" >&2
     exit 1
     ;;
 esac
