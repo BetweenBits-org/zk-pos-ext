@@ -3,6 +3,7 @@ package testdata
 import (
 	"fmt"
 
+	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
@@ -22,20 +23,60 @@ type Options struct {
 	// Useful for smoke runs at smaller capacity.
 	CapacityOverride int
 
-	// Distribution selects the asset balance distribution sampler:
-	// "uniform" (R11-A default), "weighted" (80/20), "power" (Pareto).
+	// Distribution selects the asset balance distribution sampler.
+	// R11-A supports "uniform" only; "weighted" / "power" are planned
+	// for follow-up commits.
 	Distribution string
 
-	// Seed is the RNG seed for reproducibility. 0 = time-based.
+	// Seed is the RNG seed for reproducibility. 0 = time-based
+	// (R11-A's uniform sampler is deterministic at fixed seed).
 	Seed int64
 }
 
 // GenerateScale dispatches to the model-typed synthesis under
 // t1.go / t2.go / t3.go / t4.go based on profile.Profile.Model.
 //
-// TODO(R11-A): not implemented. Skeleton only.
+// R11-A scope: uniform distribution only. Per-user invariants
+// (Σ collateral ≤ equity for T2/T3/T4, TotalEquity ≥ TotalDebt for
+// T1) hold trivially because debt = 0 and collateral ≤ equity by
+// construction.
 func GenerateScale(prof *declarative.Profile, opts Options) error {
-	_ = prof
-	_ = opts
-	return fmt.Errorf("internal/testdata: GenerateScale not implemented yet (R11-A skeleton)")
+	if opts.OutDir == "" {
+		return fmt.Errorf("Options.OutDir required")
+	}
+	if opts.Users <= 0 {
+		return fmt.Errorf("Options.Users must be > 0 (got %d)", opts.Users)
+	}
+	if opts.Distribution == "" {
+		opts.Distribution = "uniform"
+	}
+	if opts.Distribution != "uniform" {
+		return fmt.Errorf("distribution %q not implemented yet (R11-A supports uniform only)", opts.Distribution)
+	}
+
+	capacity := prof.Profile.AssetCapacity
+	if opts.CapacityOverride > 0 {
+		capacity = opts.CapacityOverride
+	}
+	if capacity <= 0 {
+		return fmt.Errorf("asset capacity must be > 0 (got %d)", capacity)
+	}
+
+	symbols := assetCatalog(prof.Catalog.Symbols, capacity)
+	if len(symbols) == 0 {
+		return fmt.Errorf("no asset symbols (profile.Catalog.Symbols empty + default fallback failed)")
+	}
+
+	switch corespec.SolvencyModelID(prof.Profile.Model) {
+	case "t1_simple_margin":
+		return generateT1(opts, symbols)
+	case "t2_static_haircut_margin":
+		return generateT2(opts, symbols)
+	case "t3_tiered_haircut_margin_1pool":
+		return generateT3(opts, symbols)
+	case "t4_tiered_haircut_margin_3pool":
+		return generateT4(opts, symbols)
+	default:
+		return fmt.Errorf("unsupported solvency model %q", prof.Profile.Model)
+	}
 }

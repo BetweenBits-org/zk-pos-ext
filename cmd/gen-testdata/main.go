@@ -11,9 +11,9 @@
 //   - account_id BN254 fr.Element reduced (canonicalAccountID parity)
 //   - per-asset sum equality automatic (Σ user.equity = cex.total_equity)
 //   - per-user invariants per model (Σ collateral ≤ equity etc.)
-//   - uniform distribution default; weighted / power-law as -dist flag
+//   - uniform distribution default; weighted / power-law as follow-up
 //
-// Usage (planned):
+// Usage:
 //
 //	gen-testdata \
 //	    -profile profile/t1_reference/t1_reference.toml \
@@ -30,13 +30,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
+
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/internal/testdata"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
 func main() {
 	profilePath := flag.String("profile", "", "path to the declarative profile.toml (required)")
 	users := flag.Int("users", 0, "target real account count (required; padding handled by witness builder)")
 	capacityOverride := flag.Int("asset-capacity", 0, "override profile.asset_capacity (0 = use toml value)")
-	distribution := flag.String("dist", "uniform", "asset distribution: uniform | weighted | power")
+	distribution := flag.String("dist", "uniform", "asset distribution: uniform (R11-A only); weighted/power planned")
 	out := flag.String("out", "", "output directory for generated CSVs (required)")
 	seed := flag.Int64("seed", 0, "RNG seed for reproducibility (0 = time-based)")
 	flag.Parse()
@@ -47,12 +51,31 @@ func main() {
 		os.Exit(2)
 	}
 
-	// TODO(R11-A): wire into internal/testdata.GenerateScale(...)
-	// once the synthesis package is implemented. Skeleton only
-	// confirms the CLI shape and entry point compiles.
-	_ = capacityOverride
-	_ = distribution
-	_ = seed
-	fmt.Fprintln(os.Stderr, "gen-testdata: not implemented yet (R11-A skeleton)")
-	os.Exit(1)
+	prof, err := declarative.Load(*profilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load profile: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *seed == 0 {
+		*seed = time.Now().UnixNano()
+	}
+
+	opts := testdata.Options{
+		OutDir:           *out,
+		Users:            *users,
+		CapacityOverride: *capacityOverride,
+		Distribution:     *distribution,
+		Seed:             *seed,
+	}
+
+	fmt.Printf("gen-testdata: profile=%s model=%s users=%d out=%s seed=%d\n",
+		*profilePath, prof.Profile.Model, *users, *out, *seed)
+
+	if err := testdata.GenerateScale(prof, opts); err != nil {
+		fmt.Fprintf(os.Stderr, "GenerateScale: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("gen-testdata: wrote standard-CSV testdata for %d users to %s\n", *users, *out)
 }

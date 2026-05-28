@@ -21,6 +21,9 @@
 # Env overrides (defaults are tiny smoke):
 #   ZKPOR_BATCH_SHAPE_OVERRIDE   default 5_10
 #   ZKPOR_SMOKE_ASSET_CAPACITY   default 5
+#   ZKPOR_SMOKE_USER_DATA        default <profile-dir>/testdata/happy/
+#                                set to .artifacts/testdata/<name>/ to
+#                                run against gen-testdata output (R11-B)
 #
 # Prerequisites:
 #   - Docker (for the MySQL fixture)
@@ -40,9 +43,20 @@ if [ ! -f "$PROFILE_PATH" ]; then
   exit 1
 fi
 
-# Derive the testdata dir + model from the profile.
+# Derive the testdata dir + model from the profile, with override:
+#   - ZKPOR_SMOKE_USER_DATA env (highest priority, R11-B addition)
+#   - default: <profile-dir>/testdata/happy/ (existing behaviour)
+#
+# R11-B contract: smoke can run against generator output
+# (.artifacts/testdata/<name>/) by exporting
+# ZKPOR_SMOKE_USER_DATA=.artifacts/testdata/t1_reference_100k before
+# invoking smoke.sh — no other change required.
 PROFILE_DIR="$(cd "$(dirname "$PROFILE_PATH")" && pwd)"
-USER_DATA_DIR="$PROFILE_DIR/testdata/happy"
+if [ -n "${ZKPOR_SMOKE_USER_DATA:-}" ]; then
+  USER_DATA_DIR="$(cd "$ZKPOR_SMOKE_USER_DATA" && pwd)"
+else
+  USER_DATA_DIR="$PROFILE_DIR/testdata/happy"
+fi
 if [ ! -d "$USER_DATA_DIR" ]; then
   echo "user-data-dir not found: $USER_DATA_DIR" >&2
   exit 1
