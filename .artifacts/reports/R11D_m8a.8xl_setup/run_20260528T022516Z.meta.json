@@ -1,0 +1,11 @@
+{
+  "cell": "setup",
+  "instance_tag": "m8a.8xl",
+  "shape_override": "50_700,500_92",
+  "users": 700,
+  "asset_count": 0,
+  "asset_capacity": 500,
+  "profile": "profile/t4_reference/t4_reference.toml",
+  "run_ts_utc": "20260528T022516Z",
+  "git_commit": "unknown"
+}

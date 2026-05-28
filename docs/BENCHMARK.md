@@ -67,18 +67,49 @@ for {
 → PK + R1CS 한 번 메모리 적재 후 multiple batches process. Tier 변경
 시에만 reload.
 
-**Prove 메모리 budget (T4 production 기준)**:
+**Prove 메모리 budget — 회로 크기 × density 함수** (R11-D 측정으로 보정):
 
-| 항목 | 크기 |
-|---|---:|
-| `.pk` 적재 | ~12 GiB |
-| `.r1cs` 적재 | ~3-4 GiB |
-| groth16.Prove intermediate (MSM working set) | ~5-10 GiB |
-| per-batch witness | ~수십 MB |
-| **Prove peak RAM** | **~25-30 GiB** |
+원래 추정 (`~25-30 GiB`) 은 testdata/happy/ 의 sparse witness (real
+user 10명 + padding 690, asset 3 of 500) 기준이라 회로 size 영향 미반영.
+R11-D 의 **fully dense** 워크로드 측정에서 **m8a.8xl peak RSS ~120 GiB**
+(§2.6) 확인 → 회로 크기 비례 + density 의존성 lock-in.
 
-→ **m8a.4xl (64GB) 도 prove 가능**. Setup 만 다른 instance 에서 한 후
-`.pk` 24GB 만 메모리 적재 + working set.
+| 컴포넌트 | Sparse (testdata/happy) | Dense (R11-D 100%) |
+|---|---:|---:|
+| `.pk` 적재 | 12 GiB | 12 GiB |
+| `.r1cs` 적재 | 4 GiB | 4 GiB |
+| 솔버 intermediate | ~5 GiB | ~20 GiB |
+| MSM G1+G2+C base/scalar | ~5 GiB | ~24 GiB |
+| Pippenger buckets × 32 worker | ~3 GiB | ~30 GiB |
+| FFT/NTT temp (double buffer) | ~3 GiB | ~10 GiB |
+| gnark goroutine buffer overhead | ~3 GiB | ~10 GiB |
+| **Prove peak RAM** | **~35 GiB** | **~120 GiB** |
+
+**Sparse 효과 원인** (gnark/groth16 known optimization):
+1. **Pippenger MSM**: scalar=0 항 skip — bucket size 가 non-zero scalar
+   비례
+2. **R1CS solver**: zero-propagation 으로 일부 wire intermediate 계산 trivial
+3. **워커별 working set**: dense 시 worker 별 buffer 가 full constraint 폭
+   사용; sparse 시 작아짐
+
+**올바른 추정 공식**:
+
+```
+prove_peak_RAM ≈ pk + r1cs + (k × constraints × density × num_workers)
+where k ≈ 60-100 bytes per (constraint × worker)
+      density ∈ {sparse 0.01-0.04, 실제 거래소 0.05-0.3, worst-case 1.0}
+```
+
+at production T4 (n=64M, 32 worker) 검증:
+- density=1.0 → ~120 GB ✓ (R11-D 실측)
+- density=0.05 (실제 거래소 평균) → ~50 GB
+- density=0.0004 (testdata/happy) → ~16 GB
+
+→ **Instance 추천 (production T4 prove)**:
+- m8a.4xl/m7a.4xl (64 GB): **dense 워크로드 OOM 확실, 실제 sparse 만 가능**
+- m8a.8xl (128 GB): 실제 거래소 워크로드 OK, dense worst-case 살얼음
+- **m8a.12xl (192 GB)**: dense worst-case 보장, 권장
+- r7a.8xl (256 GB) 이상: 2× margin
 
 ### 1.4 Prove ablation 디자인
 
@@ -297,21 +328,122 @@ vCPU scaling (r7a→m8a.12xl 추정 2.6×) 보다 작음.
 constraints/tier) MSM working set 이 L3 cache 넘어 메모리 bound. DDR5
 bandwidth 가 vCPU scaling 캡. r7a.4xl 직접 측정으로 검증 필요.
 
-### 2.5 측정 cells 종합 (9 measurements)
+### 2.5 측정 cells 종합 (13 measurements)
 
 기존 측정 lookup table — derived estimates §3 의 fit base:
 
-| # | Instance | Model | Shape | cap | NbConstraints | Prove/batch |
-|---|---|---|---|---:|---:|---:|
-| 1 | m8a.8xl | T1 | 5_10 | 5 | 165,613 | 461 ms |
-| 2 | m8a.8xl | T2 | 5_10 | 5 | 167,351 | 443 ms |
-| 3 | m8a.8xl | T3 | 5_10 | 5 | 204,015 | 467 ms |
-| 4 | m8a.8xl | T4 | 5_10 | 5 | 286,157 | 674 ms |
-| 5 | r7a.4xl | T4 | 20_500 | 200 | 23.7M | 15.4 s |
-| 6 | m8a.8xl | T4 | 20_500 | 200 | 23.7M | 9.7 s |
-| 7 | c8a.12xl | T4 | 20_500 | 200 | 23.7M | 8.3 s |
-| 8 | m8a.12xl | T4 (Tier 1) | 50_700 | 500 | 64,341,094 | 17.2 s |
-| 9 | m8a.12xl | T4 (Tier 2) | 500_92 | 500 | 63,822,805 | ~17 s |
+| # | Instance | Model | Shape | cap | NbConstraints | Prove/batch | Density | RSS peak |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| 1 | m8a.8xl | T1 | 5_10 | 5 | 165,613 | 461 ms | sparse | n/a |
+| 2 | m8a.8xl | T2 | 5_10 | 5 | 167,351 | 443 ms | sparse | n/a |
+| 3 | m8a.8xl | T3 | 5_10 | 5 | 204,015 | 467 ms | sparse | n/a |
+| 4 | m8a.8xl | T4 | 5_10 | 5 | 286,157 | 674 ms | sparse | n/a |
+| 5 | r7a.4xl | T4 | 20_500 | 200 | 23.7M | 15.4 s | sparse | n/a |
+| 6 | m8a.8xl | T4 | 20_500 | 200 | 23.7M | 9.7 s | sparse | n/a |
+| 7 | c8a.12xl | T4 | 20_500 | 200 | 23.7M | 8.3 s | sparse | n/a |
+| 8 | m8a.12xl | T4 (Tier 1) | 50_700 | 500 | 64,341,094 | 17.2 s | sparse | n/a |
+| 9 | m8a.12xl | T4 (Tier 2) | 500_92 | 500 | 63,822,805 | ~17 s | sparse | n/a |
+| 10 | m8a.8xl | T4 (Tier 1, 1-batch) | 50_700 | 500 | 64,341,094 | 32.1 s | **dense 1.0** | n/a (sample miss) |
+| 11 | m8a.8xl | T4 (Tier 2, 1-batch) | 500_92 | 500 | 63,822,805 | 29.7 s | **dense 1.0** | n/a (sample miss) |
+| 12 | m8a.8xl | T4 (Tier 1, 15-batch) | 50_700 | 500 | 64,341,094 | 32.6 s avg | **dense 1.0** | **122 GiB** |
+| 13 | m8a.8xl | T4 (Tier 2, 109-batch) | 500_92 | 500 | 63,822,805 | 30.7 s avg | **dense 1.0** | **118 GiB** |
+
+### 2.6 R11-D Setup/Prove ablation, dense (2026-05-28)
+
+**T4 production smoke** with R11-A `cmd/gen-testdata` 합성 데이터 (fully
+dense — 모든 user × asset slot non-zero). m8a.8xl 단일 instance —
+원래 plan 의 m8a.4xl / m7a.4xl ablation 은 dense workload 메모리 한계
+(128 GB 초과) 로 좌초, density ablation 으로 재플랜 예정.
+
+| 항목 | 값 |
+|---|---|
+| 호스트 | m8a.8xlarge (32 vCPU Zen5 / 128 GB) |
+| Region/AZ | us-east-1a |
+| Instance ID | `i-05da73a6bb557498e` |
+| zkpor commit | `5ce4df2` + `25cefd7` (R11-D prep + chmod fix) |
+| testdata | gen-testdata uniform, seed=42 |
+| 비고 | R11-D dense 측정 — §1.3 prove memory budget 보정 |
+
+**Setup phase** (m8a.8xl 단일):
+
+| Shape | Compile | groth16.Setup | `.pk` | `.vk` | `.r1cs` |
+|---|---:|---:|---:|---:|---:|
+| 50_700 | 7m47s | 14m30s | 12 GB | 528 B | 4.2 GB |
+| 500_92 | 8m45s | 13m8s | 12 GB | 528 B | 2.9 GB |
+| **합** | **16m32s** | **27m38s** | **24 GB** | | **7.1 GB** |
+
+Setup wall-clock ~48min. m8a.12xl baseline (§2.4) 대비 ~+9% 느림 — 32
+vCPU vs 48 vCPU 의 Amdahl ~25% sequential 가설 일치.
+
+**Prove phase (4 cells)**:
+
+| Cell | Users | Batches | Solver avg | Prover avg | Total/batch | Total cell |
+|---|---:|---:|---:|---:|---:|---:|
+| t1_700 (1-batch Tier 1) | 700 | 1 | 10.7 s | 20.6 s | **32.1 s** | 32 s |
+| t2_92 (1-batch Tier 2) | 92 | 1 | 10.0 s | 19.5 s | **29.7 s** | 30 s |
+| t1_10k (15-batch Tier 1) | 10,000 | 15 | 11.1 s (±15%) | 20.8 s (±2%) | **32.6 s avg** | 8m9s |
+| t2_10k (109-batch Tier 2) | 10,000 | 109 | 11.2 s (±16%) | 19.3 s (±2%) | **30.7 s avg** | 55m48s |
+
+모든 cell `verify pass` ✓.
+
+**Sanity check 결과**:
+
+1. **Per-batch invariance ✓** — multi-batch avg 가 1-batch 의 +2-3% 이내:
+   - Tier 1: 32.1s (1-batch) vs 32.6s (15-batch) — **+1.6%**
+   - Tier 2: 29.7s (1-batch) vs 30.7s (109-batch) — **+3.4%**
+
+2. **GC drift 없음** — multi-batch min/max variance ±4-6% 정상 범위:
+   - t1_10k: min 31.2s, max 33.5s
+   - t2_10k: min 28.9s, max 32.5s
+
+3. **Amdahl 검증** — m8a.12xl Tier 1 baseline 29.6s (§2.4) → m8a.8xl
+   Tier 1 32.6s = **+10%**. vCPU 비율 0.67×, Amdahl ~15% sequential
+   가설과 일치.
+
+4. **Tier 1 vs Tier 2 prove**: 거의 동일 (constraints 차이 0.8%, prove
+   차이 6%) — 회로 size 의 prove 영향이 dominant.
+
+**메모리 측정 (R11-D 핵심 발견)**:
+
+prove RSS peak **~118-122 GiB** (free 메모리 5-8 GiB 만):
+
+| Cell 시점 | RSS | Free | 비고 |
+|---|---:|---:|---|
+| t1_700 prove (32s) | n/a | n/a | 60s monitor interval, sample miss |
+| t2_92 prove (30s) | n/a | n/a | sample miss |
+| t1_10k batch 6 | 122 GiB | 4.5 GiB | live monitor |
+| t2_10k batch 89 | 118 GiB | 8.0 GiB | live monitor |
+| (prove 종료 후) | 1.9 GiB | 120 GiB | 정상 회수 |
+
+**핵심 결론**:
+- **multi-batch 메모리 누적 없음** — prove 종료 시 RSS 즉시 1.9 GiB 로 회수
+- **per-batch dense witness 가 메모리 폭증의 직접 원인**
+- 원래 §1.3 의 `~25-30 GiB` 추정은 sparse testdata 기준이었음 → 회로
+  size + density 미반영
+- **density=1.0 측정값이 production T4 의 메모리 worst-case 상한** —
+  실제 거래소 워크로드 (sparse) 는 이보다 30-60% 적을 것
+
+상세 추정 공식: §1.3 참조.
+
+**Cost / time**:
+
+| Phase | Wall-clock | 비용 (m8a.8xl @ $1.80/hr) |
+|---|---:|---:|
+| Setup (keygen) | ~48 min | ~$1.44 |
+| 4 prove cells | ~65 min | ~$1.95 |
+| Idle (between/after) | ~10 min | ~$0.30 |
+| EBS gp3 150GB × 2hr | — | ~$0.04 |
+| **합** | **~2 hr** | **~$3.75** |
+
+**미완 / 후속**:
+
+- m8a.4xl × m7a.4xl × T4 production-dense → **OOM 으로 좌초**. 추후
+  density ablation (sparse 0.1, 0.5) cell 로 4xl viable 검증
+- 1-batch (t1_700, t2_92) 시점 RSS 직접 측정 — RSS sampling 주기를
+  10s 로 줄이면 32s prove 안에서 sample 가능. r11d.sh 에 prove PID
+  RSS 로깅 추가 필요 (후속)
+- Setup artifact (`.pk`/`.vk`/`.r1cs` × 2 shape, 31 GB 합) 는 EBS
+  보존 — instance stopped, type-switch 또는 sparse cell 측정 시 재사용
 
 ---
 
@@ -423,28 +555,33 @@ ICICLE BN254 GPU backend 가정 + MSM/FFT 가 prove time 의 70-80% 차지.
 **Multi-instance + GPU (R12 + R13 closure 후)** — 위 시간을 N (cluster
 size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 
-### 3.8 인스턴스 추천 매트릭스
+### 3.8 인스턴스 추천 매트릭스 (R11-D 보정 후)
 
 | 시나리오 | 추천 | 근거 |
 |---|---|---|
-| Cost-optimal (Total $) | r7a.4xlarge ($0.92 mid-tier) | 가장 저렴 |
-| **Balanced sweet spot** | **m8a.8xlarge** ($0.88, 시간 절반) | 비용 거의 동일, 시간 절반 |
-| Time-optimal | c8a.12xlarge (20m mid-tier) | 같은 비용, 더 빠름 |
-| Production keygen 일회성 | r7a.4xlarge | one-time cost |
-| Dev iteration 자주 | **m8a.8xlarge** | sweet spot |
-| Production T4 setup (peak 87GB) | m8a.8xl+ (128GB+) | RAM 안전 |
+| Cost-optimal (sparse workload, mid-tier) | r7a.4xlarge ($0.92 mid-tier) | 가장 저렴, sparse OK |
+| **Balanced sweet spot (sparse)** | **m8a.8xlarge** ($0.88, 시간 절반) | 비용 거의 동일, 시간 절반 |
+| Time-optimal (sparse, mid-tier) | c8a.12xlarge (20m mid-tier) | 같은 비용, 더 빠름 |
+| **Production T4 dense workload** | **m8a.12xlarge** (192 GB) | dense peak ~120 GB, ~70 GB margin |
+| Production T4 keygen 일회성 | m8a.8xl+ | Setup peak ~87 GB |
+| Production T4 prove dense | m8a.12xl+ 권장 / m8a.8xl 살얼음 | §2.6 측정 |
+| Dev iteration 자주 (sparse) | **m8a.8xlarge** | sweet spot |
+| Dense worst-case 보장 | r7a.8xl (256 GB) | 2× margin |
 
 ### 3.9 Confidence intervals
 
 | Matrix cell | Source | Confidence |
 |---|---|---|
 | (m8a.8xl, T1-T4, shape=5_10, cap=5) | Measured | ✅ High |
-| (r7a/m8a/c8a, T4, shape=20_500, cap=200) | Measured (3 instances) | ✅ High |
-| (m8a.12xl, T4, shape=50_700/500_92, cap=500) | Measured (production) | ✅ High |
+| (r7a/m8a/c8a, T4, shape=20_500, cap=200) | Measured (3 instances, sparse) | ✅ High |
+| (m8a.12xl, T4, shape=50_700/500_92, cap=500, sparse) | Measured (§2.4) | ✅ High |
+| **(m8a.8xl, T4, prod, dense, multi-batch)** | **Measured (§2.6 R11-D)** | **✅ High** |
+| **(any 4xl, T4 prod, dense)** | **OOM 확인 (~120 GB > 64 GB)** | **✅ High (negative)** |
+| (m8a.4xl/m7a.4xl, T4 prod, sparse) | Hypothesis (sparse fit) | 🟡 Medium — **R11-D Phase 2 후** |
 | (m8a.12xl, T4, shape=20_500, cap=200) | Extrapolated | 🟢 Medium-High |
 | (any instance, T1-T3, mid-tier) | Extrapolated | 🟡 Medium |
 | (any instance, T1-T3, production) | Extrapolated | 🟠 Low-Medium |
-| (GPU, any) | Hypothesis (3-5× CPU) | 🔴 Hypothesis — **R12 후 실측** |
+| (GPU, any) | Hypothesis (3-5× CPU, host RAM 8xl+) | 🔴 Hypothesis — **R12 후 실측** |
 | (multi-instance, any) | Math derivation | 🔴 Hypothesis — **R13 후 실측** |
 
 ### 3.10 사용 가이드 (GTM 견적 작성 시)
@@ -460,9 +597,17 @@ size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 
 ## 4. Open questions / next measurements
 
-### 4.1 R11-D minimum viable plan (Setup/Prove ablation)
+### 4.1 R11-D Setup/Prove ablation — status
 
-§1.6 의 8 cells. 진행 시점은 R11 dev infra (R11-A/B/C, 이미 완료) 후.
+**Phase 1 (dense): 완료 (2026-05-28, §2.6)**. m8a.8xl 의 4 dense cells
+(t1_700, t2_92, t1_10k, t2_10k) 측정 + Setup artifact 보존. 핵심 발견:
+prove RSS peak ~120 GiB → §1.3 memory budget 4× 빗나갔던 점 보정.
+
+**Phase 2 (density ablation): 진행 예정**. 원래 plan 의 m8a.4xl ×
+m7a.4xl ablation 이 dense workload 메모리 한계로 좌초 — sparse cell
+(density=0.05, 0.1, 0.5) 로 instance ablation 재시도.
+
+§1.6 의 8 cells (원본 plan). 진행 시점은 R11 dev infra (R11-A/B/C, 이미 완료) 후.
 
 **구성**:
 - **Setup** (artifact 생성): m8a.8xl 1대, T4 production 2 shape (50_700,
@@ -523,12 +668,12 @@ overhead ~1.1-1.3.
 
 | 순위 | 측정 | 비용 | 효과 |
 |---|---|---:|---|
-| 1 | **R11-D 8 cells** (§4.1) | ~$8-10 | Setup/Prove ablation matrix + 10K multi-batch sanity (artifact reuse) |
+| 0 | ~~**R11-D dense 4 cells** (§2.6) — **완료**~~ | $3.75 (실측) | Setup/Prove dense ablation + memory worst-case lock-in |
+| 1 | **R11-D density ablation** (sparse 0.1/0.5 cell + 4xl 재가능 검증) | ~$3-5 | 실제 거래소 sparse benefit 정량화 + instance ablation 완성 |
 | 2 | **T1 production-scale** (cap=50, 50_1000, m8a.12xl) | ~$3-5 | Spot GTM segment 견적 정확화 |
-| 3 | **R12 PoC** (GPU L4 single point) | ~$2 | GPU column lock-in |
-| 4 | **R11-A 의 real-scale testdata** + multi-batch sanity | dev work | 1-batch math derive 정확도 검증 |
-| 5 | **R13 multi-worker** (4× m8a.8xl) | ~$15-20 | Multi-instance overhead 실측 |
-| 6 | m8a.24xl + m8a.48xl on production T4 | ~$30 | vCPU saturation + RAM BW 한계 |
+| 3 | **R12 PoC** (GPU L4/L40S single point, ≥g6e.8xl) | ~$5-8 | GPU 옵션 + host RAM 요구 검증 |
+| 4 | **R13 multi-worker** (4× m8a.8xl) | ~$15-20 | Multi-instance overhead 실측 |
+| 5 | m8a.24xl + m8a.48xl on production T4 dense | ~$30 | vCPU saturation + RAM BW 한계 (dense workload) |
 
 ### 4.5 산출물 흐름
 

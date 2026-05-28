@@ -1,0 +1,11 @@
+{
+  "cell": "t2_92",
+  "instance_tag": "m8a.8xl",
+  "shape_override": "500_92",
+  "users": 92,
+  "asset_count": 500,
+  "asset_capacity": 500,
+  "profile": "profile/t4_reference/t4_reference.toml",
+  "run_ts_utc": "20260528T032214Z",
+  "git_commit": "unknown"
+}
