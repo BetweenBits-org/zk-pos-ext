@@ -46,6 +46,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Local git worktrees (development/staging branches checked out side-by-side
+# under .worktree/ — each subdir has its own .git pointer file, never tracked).
+.worktree/
+
 # Local config / secrets (per-developer overrides, never commit)
 .env
 .env.*
