@@ -1,19 +1,26 @@
 package testdata
 
-// assetCatalog returns the symbol list for a profile, falling back to
-// a tiny default when profile.Catalog.Symbols is empty (Binance-style
-// production profile leaves it empty intentionally — the committed
-// order comes from cex_assets.csv at snapshot time).
+import "fmt"
+
+// assetCatalog returns a symbol list of exactly `target` entries.
+// Profile catalog is the primary source; defaultSymbols fills in when
+// the profile leaves Catalog.Symbols empty (Binance-style production
+// profile). If neither covers `target`, synthetic "asset_N" symbols
+// extend the tail.
 //
-// numAssets caps the catalog to at most `capacity` (real slots) so the
-// generator emits ≤ capacity per-asset rows. Reserved padding to the
-// full capacity is the snapshot parser's job (already implemented).
-func assetCatalog(symbols []string, capacity int) []string {
+// R11-A measurement use case: target controls the per-user non-empty
+// asset count, which in turn drives tier routing (e.g., target=50 →
+// Tier 1 50_700, target=500 → Tier 2 500_92). Reserved padding to
+// asset_capacity is still the snapshot parser's job.
+func assetCatalog(symbols []string, target int) []string {
 	if len(symbols) == 0 {
 		symbols = defaultSymbols
 	}
-	if len(symbols) > capacity {
-		symbols = symbols[:capacity]
+	if len(symbols) > target {
+		symbols = symbols[:target]
+	}
+	for len(symbols) < target {
+		symbols = append(symbols, fmt.Sprintf("asset_%d", len(symbols)))
 	}
 	return symbols
 }

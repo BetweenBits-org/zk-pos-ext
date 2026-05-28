@@ -484,6 +484,9 @@ size) 으로 나눔 + GPU 적용 시 추가 3-5×.
 - 10K real-batch vs 1-batch math derive 정확도 (per-batch invariance 검증)
 - Tier 전환 (50_700 → 500_92) PK reload 오버헤드 측정
 
+**실행 절차**: `docs/R11D_RUNBOOK.md` — EC2 launch, cell 순서,
+type-switch, fold-in 절차의 step-by-step 체크리스트.
+
 ### 4.2 R12 — Prove-path GPU 가속 (ICICLE)
 
 **Hypothesis**: 3-5× prove speedup, $0.88 → ~$0.45 mid-tier 1회 비용.

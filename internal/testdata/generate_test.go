@@ -143,6 +143,75 @@ func TestGenerateScale_AllModelsParseable(t *testing.T) {
 	}
 }
 
+// TestGenerateScale_AssetCountSubsetOfCapacity verifies the R11-D
+// tier-isolation contract: AssetCount can be smaller than the circuit's
+// asset_capacity, and the resulting accounts.csv emits exactly that
+// many non-empty rows per user (synthetic asset_N symbols extend a
+// short profile catalog).
+//
+// This is the key invariant for R11-D Tier 1 isolation (capacity=500,
+// asset_count=50) and Tier 2 isolation (capacity=500, asset_count=500).
+func TestGenerateScale_AssetCountSubsetOfCapacity(t *testing.T) {
+	cases := []struct {
+		name       string
+		capacity   int
+		assetCount int
+		wantCEX    int // expected real rows in cex_assets.csv (also = per-user accounts rows)
+	}{
+		{name: "tier1_50_of_500", capacity: 500, assetCount: 50, wantCEX: 50},
+		{name: "tier2_500_of_500", capacity: 500, assetCount: 500, wantCEX: 500},
+		{name: "default_eq_capacity", capacity: 10, assetCount: 0, wantCEX: 10},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			prof := loadProfile(t, "t4_reference")
+			if err := testdata.GenerateScale(prof, testdata.Options{
+				OutDir:           dir,
+				Users:            3,
+				CapacityOverride: c.capacity,
+				AssetCount:       c.assetCount,
+				Distribution:     "uniform",
+				Seed:             42,
+			}); err != nil {
+				t.Fatalf("GenerateScale: %v", err)
+			}
+			// cex_assets.csv: header + wantCEX rows
+			data, err := os.ReadFile(filepath.Join(dir, "cex_assets.csv"))
+			if err != nil {
+				t.Fatalf("read cex_assets.csv: %v", err)
+			}
+			lines := 0
+			for _, b := range data {
+				if b == '\n' {
+					lines++
+				}
+			}
+			if lines != c.wantCEX+1 { // +1 for header
+				t.Fatalf("cex_assets.csv lines = %d, want %d (= %d + header)", lines, c.wantCEX+1, c.wantCEX)
+			}
+		})
+	}
+}
+
+// TestGenerateScale_AssetCountExceedsCapacityRejected guards the
+// invariant: per-user non-empty count cannot exceed the circuit's
+// slot dimension.
+func TestGenerateScale_AssetCountExceedsCapacityRejected(t *testing.T) {
+	prof := loadProfile(t, "t4_reference")
+	err := testdata.GenerateScale(prof, testdata.Options{
+		OutDir:           t.TempDir(),
+		Users:            1,
+		CapacityOverride: 50,
+		AssetCount:       100,
+		Distribution:     "uniform",
+		Seed:             42,
+	})
+	if err == nil {
+		t.Fatalf("expected error for AssetCount > capacity, got nil")
+	}
+}
+
 // assertStreamCount adapts to each model's snapshot.SnapshotSource
 // interface; the per-model channel returns model-typed AccountInfo but
 // we only need a count + InvalidCount sanity check here.

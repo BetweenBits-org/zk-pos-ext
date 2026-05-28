@@ -196,6 +196,17 @@ i-0f4b93a48a192dbac --region us-east-1` (stop 은 EBS 만 과금, terminate
 - public IP 는 stop/start 마다 바뀜. `.env` + `known_hosts` 같이 갱신
   (위 stop/start 절차 참고).
 
+## R11-D 측정용 helper
+
+- `scripts/ec2/r11d.sh <cell>` — per-cell wrapper (gen-testdata + smoke
+  + metrics extract). cell name: `setup` / `t1_700` / `t2_92` /
+  `t1_10k` / `t2_10k`. 출력: `.artifacts/reports/R11D_<tag>_<cell>/`.
+- `scripts/ec2/switch_type.sh <new-type>` — instance type-switch 자동화
+  (stop → modify → start → .env 갱신). EC2_INSTANCE_ID + AWS_REGION 를
+  .env 에 추가 필요.
+
+step-by-step 절차: `docs/R11D_RUNBOOK.md`.
+
 ## 알려진 fix
 
 - `commit d59654e` — smoke.sh `ensure_keys()` 의 boolean 표현 +

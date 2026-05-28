@@ -23,6 +23,15 @@ type Options struct {
 	// Useful for smoke runs at smaller capacity.
 	CapacityOverride int
 
+	// AssetCount overrides the per-user non-empty asset count when > 0.
+	// Decoupled from CapacityOverride to enable tier-isolated R11-D
+	// measurements: profile.asset_capacity stays at production dim
+	// (e.g., 500 = .pk circuit slots), but AssetCount=50 forces every
+	// user to land in Tier 1 (50_700) and AssetCount=500 forces Tier 2
+	// (500_92). Synthetic "asset_N" symbols extend a short profile
+	// catalog when AssetCount exceeds its length.
+	AssetCount int
+
 	// Distribution selects the asset balance distribution sampler.
 	// R11-A supports "uniform" only; "weighted" / "power" are planned
 	// for follow-up commits.
@@ -62,7 +71,14 @@ func GenerateScale(prof *declarative.Profile, opts Options) error {
 		return fmt.Errorf("asset capacity must be > 0 (got %d)", capacity)
 	}
 
-	symbols := assetCatalog(prof.Catalog.Symbols, capacity)
+	target := opts.AssetCount
+	if target <= 0 {
+		target = capacity
+	}
+	if target > capacity {
+		return fmt.Errorf("Options.AssetCount=%d exceeds asset_capacity=%d (circuit cannot fit more non-empty slots than its capacity)", target, capacity)
+	}
+	symbols := assetCatalog(prof.Catalog.Symbols, target)
 	if len(symbols) == 0 {
 		return fmt.Errorf("no asset symbols (profile.Catalog.Symbols empty + default fallback failed)")
 	}

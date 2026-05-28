@@ -40,6 +40,7 @@ func main() {
 	profilePath := flag.String("profile", "", "path to the declarative profile.toml (required)")
 	users := flag.Int("users", 0, "target real account count (required; padding handled by witness builder)")
 	capacityOverride := flag.Int("asset-capacity", 0, "override profile.asset_capacity (0 = use toml value)")
+	assetCount := flag.Int("asset-count", 0, "per-user non-empty asset count (0 = same as asset-capacity); R11-D tier isolation: 50 → Tier 1, 500 → Tier 2")
 	distribution := flag.String("dist", "uniform", "asset distribution: uniform (R11-A only); weighted/power planned")
 	out := flag.String("out", "", "output directory for generated CSVs (required)")
 	seed := flag.Int64("seed", 0, "RNG seed for reproducibility (0 = time-based)")
@@ -65,12 +66,13 @@ func main() {
 		OutDir:           *out,
 		Users:            *users,
 		CapacityOverride: *capacityOverride,
+		AssetCount:       *assetCount,
 		Distribution:     *distribution,
 		Seed:             *seed,
 	}
 
-	fmt.Printf("gen-testdata: profile=%s model=%s users=%d out=%s seed=%d\n",
-		*profilePath, prof.Profile.Model, *users, *out, *seed)
+	fmt.Printf("gen-testdata: profile=%s model=%s users=%d cap=%d asset_count=%d out=%s seed=%d\n",
+		*profilePath, prof.Profile.Model, *users, *capacityOverride, *assetCount, *out, *seed)
 
 	if err := testdata.GenerateScale(prof, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "GenerateScale: %v\n", err)
