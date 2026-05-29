@@ -5,20 +5,25 @@
 
 ## Current State
 
-Latest commits (`zkpor/.git/`, branch `main`):
+Origin: `https://github.com/BetweenBits-org/zk-pos-ext.git` (zkpor/.git/).
+브랜치 layout: `main` 은 stable, `development` 워크트리 (`.worktree/development/`)
+에서 in-progress 슬라이스 진행. main 으로 fast-forward merge 후 push.
+
+Latest commits (branch `development`, base 는 main bc82eac):
 
 ```text
-7f2c926 docs(zkpor): R11-D Phase 2b — d1 cells + d10 rerun → binary step pattern
-da1799d docs(zkpor): R11-D Phase 2 fold-in — density plateau pattern
-13234b7 feat(zkpor): r11d.sh — add d1 cells (extreme sparse, density ~1-2%)
-2dc4bbd fix(zkpor): r11d.sh RSS sampler — disable strict mode in subshell
-2a6773c docs(zkpor): R11-D Phase 2 plan — single m8a.8xl × density ablation
-48d5b5e feat(zkpor): r11d.sh — RSS sampler + Phase 2 density cells
-0f40bcd docs(zkpor): HANDOFF rewrite — 1181 → 172 lines, R11-D Phase 1 closure
-0b4735a docs(zkpor): R11-D dense phase results — prove memory budget 4× correction
-25cefd7 fix(zkpor): chmod +x R11-D scripts so rsync→EC2 preserves exec bit
-5ce4df2 feat(zkpor): R11-D prep — gen-testdata tier control + ec2 helpers + runbook
-[... 그 위 Phase 4 fix layers + Phase 3d/3e refactors + profile rename + R10]
+bc82eac chore(zkpor): gitignore .worktree/
+44ffc3a docs(zkpor): archive smoke benchmark reports (R11-D + Phase 4)
+701f773 docs(zkpor): add top-level README — project intro
+2dfeac1 refactor(zkpor): relocate deploy/ → scripts/deploy/
+351fca3 refactor(zkpor): tighten testdata visibility to cmd/gen-testdata
+f0ea1a6 refactor(zkpor): extract keygen into pkg/keygen library
+a93df11 refactor(zkpor): extract userproof into pkg/userproof library
+9647c24 refactor(zkpor): extract witness into pkg/witness library
+de1c4b1 refactor(zkpor): extract prover into pkg/prover library
+3115d58 refactor(zkpor): extract verifier into pkg/verifier library
+14404ca docs(zkpor): HANDOFF — R11-D closed (12 cells / $5), R12 GPU as next slice
+[... 그 위 R11-D Phase 1/2/2b + Phase 4 fix layers + Phase 3d/3e]
 ```
 
 **Phase progression**:
@@ -37,7 +42,11 @@ da1799d docs(zkpor): R11-D Phase 2 fold-in — density plateau pattern
 | **R11-D Phase 1 (dense Setup/Prove ablation, m8a.8xl)** | **✅ closed (2026-05-28)** | docs/BENCHMARK.md §2.6 |
 | **R11-D Phase 2 (density ablation, sparse cells d10/d50)** | **✅ closed (2026-05-28)** | BENCHMARK §2.7 — plateau pattern |
 | **R11-D Phase 2b (d1 cells + d10 rerun, 2s RSS sampler)** | **✅ closed (2026-05-28)** | BENCHMARK §2.7 — binary step lock-in |
-| **R12 (GPU PoC, ICICLE)** | ⏳ **다음 진입점** | host RAM 요구 8xl+ — g6e.8xl 후보 |
+| **R12-A (library extraction — 5 services → pkg/\*)** | **✅ closed (2026-05-28)** | verifier/prover/witness/userproof/keygen 모두 pkg/\* + cmd thin shim. `Options` + `Run(opts)` 통일 |
+| **R12-B (panic → error migration)** | ⏳ **다음 진입점 (development 워크트리)** | 5 pkg/\* 의 library contract 정리. cmd shim 만 exit code 변환 |
+| R12-C (context.Context 지원, cancellable Run) | deferred | R12-B closure 후 |
+| R12-D (DB engine 다중화, MySQL only 해제) | deferred | 별도 슬라이스, R13 와 결합 가능 |
+| R12 GPU PoC (ICICLE) | deferred | host RAM 요구 8xl+ — 측정 가치 큼, 별도 트랙 |
 | R13 (multi-instance prover) | deferred | R12 closure 후 |
 
 **EC2 자산** (region us-east-1, instance `i-05da73a6bb557498e`, **stopped**):
@@ -48,24 +57,14 @@ da1799d docs(zkpor): R11-D Phase 2 fold-in — density plateau pattern
 - 재시작 → 즉시 prove cell 재실행 가능 (keygen 재실행 불요)
 - R12 진입 시 GPU 인스턴스 (g6e.8xl 후보) 로 EBS reattach 가능
 
-**R11-D 종합 핵심 발견** (Phase 1 + 2 + 2b, 12 cells, ~$5):
+**R11-D 종합 핵심 발견** (12 cells, ~$5) — 자세한 수치는
+`docs/BENCHMARK.md §1.3` (budget) + `§2.6` (Phase 1 dense) +
+`§2.7` (Phase 2/2b density), raw report `.artifacts/reports/`.
 
-- T4 production prove RSS = **거의 binary step function**:
-  - density 1% ~ 50%: **~62-66 GiB plateau** (sparse — 실제 거래소 영역)
-  - density 100%: **~118-122 GiB step** (full-dense worst-case)
-  - 가설 (`floor + slope × density`) 의 linear scaling 완전 무너짐
-- prove **wall-clock 은 density 무관** (±0.5%) — constraint-bound only
-- multi-batch 메모리 누적 없음 (prove 종료 시 정상 회수)
-- m8a.4xl (64 GB) **boundary — sparse 에서도 peak 65.6 GiB 가 한계 초과**.
-  OOM 확률 높음, 직접 측정 미시행
-- **운영 권장**: m8a.8xl (128 GB) 가 density ≤50% 안전, m8a.12xl
-  (192 GB) 는 density ≥70% 필수
-- 원래 §1.3 prove memory budget (`~25-30 GiB`) → `~60-65 GiB
-  (sparse) / ~120 GiB (dense)` 로 보정
-
-자세한 측정 결과: `docs/BENCHMARK.md §1.3` (budget 공식) + `§2.6`
-(Phase 1 dense) + `§2.7` (Phase 2 + 2b 통합). 12 cell raw report 는
-`.artifacts/reports/R11D_m8a.8xl_*/` audit trail.
+- T4 prove RSS = **거의 binary step**: sparse (≤50%) ~62-66 GiB plateau,
+  dense (100%) ~118-122 GiB step. linear scaling 가설 무너짐.
+- prove wall-clock 은 density 무관, constraint-bound only.
+- 운영 권장: m8a.8xl 이 density ≤50% 안전, m8a.12xl 이 ≥70% 필수.
 
 ## Source Priority
 
@@ -85,9 +84,10 @@ da1799d docs(zkpor): R11-D Phase 2 fold-in — density plateau pattern
 | `zkpor/core/spec/`, `zkpor/core/circuit/`, `zkpor/core/host/`, `zkpor/core/tree/` | ✅ engine universal layer — 변경 적음 |
 | `zkpor/core/snapshot/{schema,csv,mapping}` + `{t1,t2,t3,t4}_*` | ✅ R9 closed — 4 model standard CSV connectors |
 | `zkpor/core/solvency/{t1,t2,t3,t4}/{spec,circuit,host}` | ✅ 4 model 본체 + host helpers + `*_runner.go` (witness/prover/verifier/userproof dispatch) |
-| `zkpor/cmd/{keygen,witness,prover,verifier,userproof}` | ✅ profile.toml-driven, 4 model dispatch |
+| `zkpor/pkg/{keygen,witness,prover,verifier,userproof}` | ✅ R12-A — engine library surface. `Options` struct + `Run(opts)` 단일 진입점. panic semantics (R12-B 에서 error 로 마이그) |
+| `zkpor/cmd/{keygen,witness,prover,verifier,userproof}` | ✅ thin shim (각 25-56 lines) — flag parse 후 pkg/<service>.Run 호출 |
 | `zkpor/cmd/gen-testdata` | ✅ R11-A — `--asset-capacity` + `--asset-count` + `--users` + `--seed`, sum invariant |
-| `zkpor/cmd/gen-testdata/internal/testdata/` | ✅ R11-A — model-typed synthesis + uniform dist + BN254-safe ID |
+| `zkpor/cmd/gen-testdata/internal/testdata/` | ✅ R11-A — model-typed synthesis (R12-A 에서 cmd/gen-testdata 안으로 visibility 축소) |
 | `zkpor/profile/{t1,t2,t3,t4}_reference/` | ✅ profile.toml + standard CSV testdata/happy/ — sea/binance 명명 제거됨 (`sea_reference`→`t1_reference`, `binance`→`t4_reference`) |
 | `zkpor/profile/declarative/` | ✅ R5/R7/R8/R10 builders + Validate |
 | `zkpor/scripts/smoke.sh` | ✅ profile-driven + ZKPOR_SMOKE_USER_DATA env override |
@@ -107,8 +107,9 @@ da1799d docs(zkpor): R11-D Phase 2 fold-in — density plateau pattern
   편집 금지 (sum invariant + BN254 reduce-safe ID 보장).
 - EC2 측정 sequence 는 `scripts/ec2/r11d.sh <cell>` 통해. cell 정의가
   shape ↔ asset_count 페어링을 강제하므로 invariant 위반 방지.
-- 분기 `main` 만 사용. Phase / R-stage 단위 commit (atomic, 자체적
-  build green + smoke pass).
+- 슬라이스 작업은 `development` 워크트리 (`.worktree/development/`) 에서.
+  closure 시 main 으로 fast-forward merge + push. Phase / R-stage 단위
+  commit (atomic, 자체적 build green + smoke pass).
 - 결과 reports (`.artifacts/reports/R11D_*`) 는 commit 가능 (raw log
   audit trail 가치 > 저장 비용).
 
@@ -117,70 +118,53 @@ da1799d docs(zkpor): R11-D Phase 2 fold-in — density plateau pattern
 다음 agent 의 진입 순서:
 
 1. `zkpor/AGENTS.md`, `zkpor/PRODUCTION_ROADMAP.md`, **본 문서** 읽기.
-2. `git -C zkpor log --oneline -10` 으로 최근 commit 확인.
-3. `docs/BENCHMARK.md §2.6` + `§2.7` + `§1.3` 로 R11-D 종합 발견 흡수
-   (binary step pattern, density-independent prove time).
-4. 다음 슬라이스 — **R12 GPU PoC** (아래 §Next Slice).
+2. `cd .worktree/development && git log --oneline -10` 으로 최근 commit 확인.
+3. R12-A 결과 흡수: 5개 엔진 서비스가 `pkg/<service>` 라이브러리 + 얇은
+   `cmd/<service>` shim 으로 정리됨. API 형태는 `Options` struct + `Run(opts)`.
+4. 다음 슬라이스 — **R12-B panic → error 마이그레이션** (아래 §Next Slice).
 
-### Next Slice: R12 GPU PoC (ICICLE)
+### Next Slice: R12-B — panic → error migration
 
-목표: bnb-chain/gnark v0.10.1 fork 의 `backend.WithIcicleAcceleration()`
-PoC + GPU 가속 prove time / 비용 효율 측정.
+목표: 5개 `pkg/<service>` 라이브러리의 v0 panic semantics 를 returned
+error 로 마이그. in-process client 가 `recover()` 없이 호출 가능한
+contract 확립. cmd shim 의 exit-code interface 는 유지 (smoke 호환).
 
-R11-D 발견의 R12 영향:
-- CPU prove RSS = sparse ~65 GiB / dense ~120 GiB → GPU 인스턴스도
-  **host RAM ≥128 GB 필수**. g6.4xl/g6e.4xl (64 GB host) **부적합**
-- 권장 entry instance: **g6.8xl (128 GB host + L4 24 GB VRAM)** 또는
-  **g6e.8xl (128 GB + L40S 48 GB)**
-- VRAM 24 GB 는 chunked MSM 으로 64M constraints 가능 (혹은 L40S 48 GB
-  면 single-pass)
+작업 분해 (서비스당 1 commit, 총 5, 단순 → 복잡 순):
 
-준비 작업 (코드 + 인프라):
+1. **verifier** — batch + user + hash 모드 panic 사이트 정리.
+2. **keygen** — DB 없음, file IO + groth16.Setup.
+3. **userproof** — witness 와 유사, dump 분기 포함.
+4. **witness** — snapshot connector blank-import 영향 없음.
+5. **prover** — 가장 복잡. lazy snark-params 캐시 + tier retry + 폴
+   루프 + idempotency probe. error 반환 시 루프 종료 시점 결정.
 
-1. **ICICLE 호환성 PoC** — 로컬에서 `backend.WithIcicleAcceleration()`
-   호출 가능한지 검증. gnark fork 의 ICICLE wrapper 확인. CUDA 12+
-   필요.
-2. **`scripts/ec2/bootstrap.sh` GPU 확장** — NVIDIA driver + CUDA
-   toolkit 설치 단계 추가. AL2023 deep learning AMI 가 더 쉬울 수도
-   (gpu-ready, ami-id 별도 확인).
-3. **r11d.sh GPU cell 정의** (별도 분기 또는 새 wrapper):
-   - `t1_700_gpu` — Tier 1 dense on GPU, prove time 비교
-   - `t2_92_gpu` — Tier 2 dense
-   - 비용/시간 추정: prove ~10s/batch (CPU 32s 의 3×) 가설
-4. **BENCHMARK §3.5 / §3.6 GPU 추정 갱신** — host RAM 요구 반영, g6e.8xl
-   비용 ~$3.2/hr 기준 재계산
+패턴: `Run(opts) error` 시그니처. panic → `fmt.Errorf("…: %w", err)`.
+shim 이 error 받아 `os.Exit(1)` + stderr. 한 서비스 안에서 panic/error
+혼재 금지 — commit 단위로 완전 변환. 종료 조건: `pkg/*` 의 모든 exported
+함수가 error 반환, build/vet/smoke 모두 green.
 
-측정 실행:
+### Deferred slices
 
-5. Instance launch — g6e.8xl 또는 g6.12xl (Tesla L4 + AL2023 GPU AMI)
-6. T4 production keygen 새로 실행 (CPU keygen, GPU 없이 — keygen 은
-   GPU 대상 아님). 또는 기존 EBS 의 .pk 재사용 (region 같으면 attach)
-7. dense + sparse cells GPU 측정 (8 cells, ~$5-7)
-8. fold-in to BENCHMARK §2.8 (R12 measurement)
-
-**EBS 재사용 옵션** — `i-05da73a6bb557498e` 의 EBS 를 GPU 인스턴스에
-attach 하면 keygen 재실행 불요. detach + attach 절차 새 instance launch
-시 가능 (단, AZ 동일 필요).
-
-예상 비용 / 시간: ~$5-8, 2-3hr.
-
-### R11-D 완전 종료 이후 — 선택적 후속
-
-R11-D 자체는 closed 이나 다음 cheap measurements 가 정확도 보강 가치:
-
-- **d70 / d80 cells** — plateau (≤50%) → step (100%) transition zone
-  ($0.30, 30min)
-- **m8a.4xl 직접 OOM/OK 측정** — Phase 2b inference 검증 ($0.10)
-- **avg vs peak gap 분석** — `.artifacts/reports/R11D_*/run_*.mem.tsv`
-  의 시간 패턴 (post-hoc, 무비용)
+- **R12-C — context.Context 지원**: `Run(ctx, opts) error`. 폴 루프
+  cancellation, snapshot stream 중단, DB 연산 timeout 전달. R12-B
+  closure 후 자연스러운 후속.
+- **R12-D — DB engine 다중화**: 현재 `store.Open` 이 MySQL only
+  (`gorm.io/driver/mysql` 직접 호출). Postgres/SQLite 지원하려면
+  driver-selection switch + per-driver error translation 필요.
+- **R12 GPU PoC (ICICLE)**: bnb-chain/gnark v0.10.1 fork 의
+  `backend.WithIcicleAcceleration()`. host RAM ≥128 GB (R11-D 발견),
+  g6.8xl / g6e.8xl 후보. CPU 측정 audit trail 유지된 채 별도 트랙.
+- **R11-D 잔여 cheap measurements** — d70/d80 transition zone
+  ($0.30), m8a.4xl 직접 OOM 검증 ($0.10), avg vs peak gap 분석.
 
 ## Required Commands
 
-- `git -C zkpor status` + `git -C zkpor log --oneline -10`
-- `cd zkmerkle-proof-of-solvency && go test github.com/binance/zkmerkle-proof-of-solvency/zkpor/...`
-- `cd zkmerkle-proof-of-solvency && go build ./...`
+- 작업 워크트리: `cd .worktree/development` (또는 `cd zkpor` for main)
+- `git status` + `git log --oneline -10`
+- `cd zkmerkle-proof-of-solvency && go test ./zkpor/...`
+- `cd zkmerkle-proof-of-solvency && go build ./zkpor/...`
 - Smoke 검증: `./scripts/smoke.sh profile/<X>_reference/<X>_reference.toml`
-- EC2 측정: `./scripts/ec2/sync.sh` → `INSTANCE_TAG=<tag> ./scripts/ec2/r11d.sh <cell>` → `./scripts/ec2/fetch.sh`
+- EC2 측정 (R12 GPU PoC 진입 시): `./scripts/ec2/sync.sh` → `INSTANCE_TAG=<tag> ./scripts/ec2/r11d.sh <cell>` → `./scripts/ec2/fetch.sh`
 
 ## Commit Discipline
 
