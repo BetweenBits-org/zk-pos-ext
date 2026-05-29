@@ -9,17 +9,16 @@ Origin: `https://github.com/BetweenBits-org/zk-pos-ext.git` (zkpor/.git/).
 브랜치 layout: `main` 은 stable, `development` 워크트리 (`.worktree/development/`)
 에서 in-progress 슬라이스 진행. main 으로 fast-forward merge 후 push.
 
-Latest commits (branch `development`, base 는 main bc82eac):
+Latest commits (branch `development`; R12-C closure ff-merged into main):
 
 ```text
+docs(zkpor): HANDOFF — R12-C closed, R12-D as next slice (this commit)
+c7c28cd refactor(zkpor): verifier+keygen — Run*(ctx, ...) (R12-C/3 closure)
+e9d3edb refactor(zkpor): witness+userproof — Run(ctx, opts) (R12-C/2)
+7f070ff refactor(zkpor): prover — Run(ctx, opts) graceful shutdown (R12-C/1)
+6537f5f docs(zkpor): HANDOFF — R12-B closed, R12-C as next slice
 ec9dfa9 refactor(zkpor): userproof+witness+prover — panic → error (R12-B closure)
-af0007a refactor(zkpor): keygen — panic → error (R12-B/2)
-0a2df38 refactor(zkpor): verifier — panic → error (R12-B/1)
-1c4b363 docs(zkpor): HANDOFF — R12-A closed, R12-B as next slice
-bc82eac chore(zkpor): gitignore .worktree/
-44ffc3a docs(zkpor): archive smoke benchmark reports (R11-D + Phase 4)
-701f773 docs(zkpor): add top-level README — project intro
-[... 그 위 R12-A 5개 pkg/* 추출 + R11-D Phase 1/2/2b]
+[... 그 위 R12-B/1·2 + R12-A 5개 pkg/* 추출 + R11-D Phase 1/2/2b]
 ```
 
 **Phase progression**:
@@ -40,8 +39,8 @@ bc82eac chore(zkpor): gitignore .worktree/
 | **R11-D Phase 2b (d1 cells + d10 rerun, 2s RSS sampler)** | **✅ closed (2026-05-28)** | BENCHMARK §2.7 — binary step lock-in |
 | **R12-A (library extraction — 5 services → pkg/\*)** | **✅ closed (2026-05-28)** | verifier/prover/witness/userproof/keygen 모두 pkg/\* + cmd thin shim. `Options` + `Run(opts)` 통일 |
 | **R12-B (panic → error migration)** | **✅ closed (2026-05-29)** | 5 pkg/\* 모두 `Run(opts) error`. in-process 호출 가능 (no recover). 3 commit (B/1 verifier, B/2 keygen, B/3 user+wit+prover closure) |
-| **R12-C (context.Context 지원, cancellable Run)** | ⏳ **다음 진입점 (development 워크트리)** | `Run(ctx, opts) error`. prover 폴 루프 cancellation, snapshot stream 중단, DB 연산 timeout 전달 |
-| R12-D (DB engine 다중화, MySQL only 해제) | deferred | 별도 슬라이스, R13 와 결합 가능 |
+| **R12-C (context.Context 지원, cancellable Run)** | **✅ closed (2026-05-29)** | 5 pkg/\* 모두 `Run(ctx, ...)`. prover 폴 루프 batch-granular cancel, witness/userproof snapshot stream 중단, verifier worker pool ctx 조기종료, keygen shape-granular. cmd shim `signal.NotifyContext`. 3 commit (C/1 prover, C/2 wit+user, C/3 verifier+keygen) |
+| **R12-D (DB engine 다중화, MySQL only 해제)** | ⏳ **다음 진입점 (development 워크트리)** | `store.Open` driver-selection switch + per-driver error translation. Postgres/SQLite 후보 |
 | R12 GPU PoC (ICICLE) | deferred | host RAM 요구 8xl+ — 측정 가치 큼, 별도 트랙 |
 | R13 (multi-instance prover) | deferred | R12 closure 후 |
 
@@ -80,8 +79,8 @@ bc82eac chore(zkpor): gitignore .worktree/
 | `zkpor/core/spec/`, `zkpor/core/circuit/`, `zkpor/core/host/`, `zkpor/core/tree/` | ✅ engine universal layer — 변경 적음 |
 | `zkpor/core/snapshot/{schema,csv,mapping}` + `{t1,t2,t3,t4}_*` | ✅ R9 closed — 4 model standard CSV connectors |
 | `zkpor/core/solvency/{t1,t2,t3,t4}/{spec,circuit,host}` | ✅ 4 model 본체 + host helpers + `*_runner.go` (witness/prover/verifier/userproof dispatch) |
-| `zkpor/pkg/{keygen,witness,prover,verifier,userproof}` | ✅ R12-A + R12-B — engine library surface. `Options` struct + `Run(opts) error` 단일 진입점. in-process callable, no recover() needed |
-| `zkpor/cmd/{keygen,witness,prover,verifier,userproof}` | ✅ thin shim (각 25-56 lines) — flag parse 후 pkg/<service>.Run 호출 |
+| `zkpor/pkg/{keygen,witness,prover,verifier,userproof}` | ✅ R12-A/B/C — engine library surface. `Options` struct + `Run(ctx, opts) error` (verifier: `RunBatch/RunUser(ctx, opts)`, `RunHash` ctx-free). in-process callable, no recover(), cancellable |
+| `zkpor/cmd/{keygen,witness,prover,verifier,userproof}` | ✅ thin shim — flag parse + `signal.NotifyContext` (SIGINT/SIGTERM → ctx) 후 pkg/<service>.Run 호출. prover 는 context.Canceled → exit 0 (daemon graceful), 나머지 one-shot 은 모든 error → exit 1 |
 | `zkpor/cmd/gen-testdata` | ✅ R11-A — `--asset-capacity` + `--asset-count` + `--users` + `--seed`, sum invariant |
 | `zkpor/cmd/gen-testdata/internal/testdata/` | ✅ R11-A — model-typed synthesis (R12-A 에서 cmd/gen-testdata 안으로 visibility 축소) |
 | `zkpor/profile/{t1,t2,t3,t4}_reference/` | ✅ profile.toml + standard CSV testdata/happy/ — sea/binance 명명 제거됨 (`sea_reference`→`t1_reference`, `binance`→`t4_reference`) |
@@ -115,40 +114,37 @@ bc82eac chore(zkpor): gitignore .worktree/
 
 1. `zkpor/AGENTS.md`, `zkpor/PRODUCTION_ROADMAP.md`, **본 문서** 읽기.
 2. `cd .worktree/development && git log --oneline -10` 으로 최근 commit 확인.
-3. R12-B 결과 흡수: 5개 pkg/<service> 모두 `Run(opts) error`. panic 잔재
-   없음. cmd shim 이 error → stderr + `os.Exit(1)` 변환. ProfilePath /
-   KeysDir 검증도 라이브러리 일관 처리 (os.Exit(2) 경로 제거).
-4. 다음 슬라이스 — **R12-C context.Context 지원** (아래 §Next Slice).
+3. R12-C 결과 흡수: 5개 pkg/<service> 모두 `Run(ctx, ...)`. prover 폴
+   루프는 batch-granular cancel (in-flight `groth16.Prove` 는 끝까지
+   돌고, 다음 claim 전에 `ctx.Err()` 관측 → 종료). witness/userproof 는
+   snapshot stream (AccountStream/CexAssets 가 이미 ctx 준수) 흐름.
+   verifier batch 는 worker pool 이 proof 사이마다 ctx 관측 → 조기 종료.
+   keygen 은 shape 사이마다 관측. cmd shim 은 `signal.NotifyContext` 로
+   SIGINT/SIGTERM 연결, prover 만 `context.Canceled` → exit 0.
+4. 다음 슬라이스 — **R12-D DB engine 다중화** (아래 §Next Slice).
 
-### Next Slice: R12-C — context.Context 지원
+### Next Slice: R12-D — DB engine 다중화 (MySQL only 해제)
 
-목표: 5개 `pkg/<service>` 의 `Run(opts) error` → `Run(ctx, opts) error`
-로 확장. long-running 엔진 (특히 prover 폴 루프) 의 graceful shutdown +
-DB/IO timeout 전달.
+목표: `store.Open` 의 MySQL-전용 가정 제거. 현재 `gorm.io/driver/mysql`
+을 직접 호출하므로 Postgres/SQLite 배포가 불가.
 
-작업 단위 후보 (서비스 특성별로 슬라이스 크기 결정):
+작업 단위 후보:
 
-1. **prover** — 가장 가치 큼. 폴 루프 안에서 `ctx.Done()` select +
-   `time.Sleep` → `time.After`. proveOne 내부 groth16.Prove 는 cancel
-   대응 불가하므로 batch 단위 cancellation 정도가 현실적.
-2. **witness / userproof** — snapshot stream 진행 중 ctx 체크. runner
-   함수 시그니처에 ctx 추가 (already takes ctx via dispatchInput → 큰
-   변경 없음).
-3. **verifier batch** — 워커 풀 첫 error 외에 ctx cancel 도 종료 사유로
-   추가.
-4. **keygen** — groth16.Setup 자체가 cancel 불가. ctx 는 wrapping 만 추가.
+1. **driver-selection switch** — config 에 driver 필드 추가 (mysql /
+   postgres / sqlite). `store.Open` 이 DSN + driver 로 분기.
+2. **per-driver error translation** — duplicate-key / not-found 등
+   sentinel error 가 driver 마다 다름. `store.ErrNotFound` 매핑 유지.
+3. **gorm dialector 의존성** — `gorm.io/driver/postgres`,
+   `gorm.io/driver/sqlite` go.mod 추가. SQLite 는 in-process 테스트
+   (실 MySQL 없이 store 단위 테스트) 가능성도 검토.
+4. **smoke fixture** — 현재 docker-compose MySQL 고정. driver matrix
+   smoke 는 별도 (cheap: SQLite in-memory 로 store round-trip).
 
-cmd shim: `signal.NotifyContext(context.Background(), os.Interrupt,
-syscall.SIGTERM)` 패턴으로 SIGINT/SIGTERM → ctx.Cancel 연결.
-
-종료 조건: 모든 `Run` 이 ctx 받고, prover SIGINT 가 5초 안에 clean
-exit. build/vet/test green.
+종료 조건: `store.Open` 이 ≥2 driver 지원, 기존 MySQL 경로 무회귀,
+build/vet/test green. R13 (multi-instance prover) 와 결합 가능.
 
 ### Deferred slices
 
-- **R12-D — DB engine 다중화**: 현재 `store.Open` 이 MySQL only
-  (`gorm.io/driver/mysql` 직접 호출). Postgres/SQLite 지원하려면
-  driver-selection switch + per-driver error translation 필요.
 - **R12 GPU PoC (ICICLE)**: bnb-chain/gnark v0.10.1 fork 의
   `backend.WithIcicleAcceleration()`. host RAM ≥128 GB (R11-D 발견),
   g6.8xl / g6e.8xl 후보. CPU 측정 audit trail 유지된 채 별도 트랙.
