@@ -12,18 +12,14 @@ Origin: `https://github.com/BetweenBits-org/zk-pos-ext.git` (zkpor/.git/).
 Latest commits (branch `development`, base 는 main bc82eac):
 
 ```text
+ec9dfa9 refactor(zkpor): userproof+witness+prover — panic → error (R12-B closure)
+af0007a refactor(zkpor): keygen — panic → error (R12-B/2)
+0a2df38 refactor(zkpor): verifier — panic → error (R12-B/1)
+1c4b363 docs(zkpor): HANDOFF — R12-A closed, R12-B as next slice
 bc82eac chore(zkpor): gitignore .worktree/
 44ffc3a docs(zkpor): archive smoke benchmark reports (R11-D + Phase 4)
 701f773 docs(zkpor): add top-level README — project intro
-2dfeac1 refactor(zkpor): relocate deploy/ → scripts/deploy/
-351fca3 refactor(zkpor): tighten testdata visibility to cmd/gen-testdata
-f0ea1a6 refactor(zkpor): extract keygen into pkg/keygen library
-a93df11 refactor(zkpor): extract userproof into pkg/userproof library
-9647c24 refactor(zkpor): extract witness into pkg/witness library
-de1c4b1 refactor(zkpor): extract prover into pkg/prover library
-3115d58 refactor(zkpor): extract verifier into pkg/verifier library
-14404ca docs(zkpor): HANDOFF — R11-D closed (12 cells / $5), R12 GPU as next slice
-[... 그 위 R11-D Phase 1/2/2b + Phase 4 fix layers + Phase 3d/3e]
+[... 그 위 R12-A 5개 pkg/* 추출 + R11-D Phase 1/2/2b]
 ```
 
 **Phase progression**:
@@ -43,8 +39,8 @@ de1c4b1 refactor(zkpor): extract prover into pkg/prover library
 | **R11-D Phase 2 (density ablation, sparse cells d10/d50)** | **✅ closed (2026-05-28)** | BENCHMARK §2.7 — plateau pattern |
 | **R11-D Phase 2b (d1 cells + d10 rerun, 2s RSS sampler)** | **✅ closed (2026-05-28)** | BENCHMARK §2.7 — binary step lock-in |
 | **R12-A (library extraction — 5 services → pkg/\*)** | **✅ closed (2026-05-28)** | verifier/prover/witness/userproof/keygen 모두 pkg/\* + cmd thin shim. `Options` + `Run(opts)` 통일 |
-| **R12-B (panic → error migration)** | ⏳ **다음 진입점 (development 워크트리)** | 5 pkg/\* 의 library contract 정리. cmd shim 만 exit code 변환 |
-| R12-C (context.Context 지원, cancellable Run) | deferred | R12-B closure 후 |
+| **R12-B (panic → error migration)** | **✅ closed (2026-05-29)** | 5 pkg/\* 모두 `Run(opts) error`. in-process 호출 가능 (no recover). 3 commit (B/1 verifier, B/2 keygen, B/3 user+wit+prover closure) |
+| **R12-C (context.Context 지원, cancellable Run)** | ⏳ **다음 진입점 (development 워크트리)** | `Run(ctx, opts) error`. prover 폴 루프 cancellation, snapshot stream 중단, DB 연산 timeout 전달 |
 | R12-D (DB engine 다중화, MySQL only 해제) | deferred | 별도 슬라이스, R13 와 결합 가능 |
 | R12 GPU PoC (ICICLE) | deferred | host RAM 요구 8xl+ — 측정 가치 큼, 별도 트랙 |
 | R13 (multi-instance prover) | deferred | R12 closure 후 |
@@ -84,7 +80,7 @@ de1c4b1 refactor(zkpor): extract prover into pkg/prover library
 | `zkpor/core/spec/`, `zkpor/core/circuit/`, `zkpor/core/host/`, `zkpor/core/tree/` | ✅ engine universal layer — 변경 적음 |
 | `zkpor/core/snapshot/{schema,csv,mapping}` + `{t1,t2,t3,t4}_*` | ✅ R9 closed — 4 model standard CSV connectors |
 | `zkpor/core/solvency/{t1,t2,t3,t4}/{spec,circuit,host}` | ✅ 4 model 본체 + host helpers + `*_runner.go` (witness/prover/verifier/userproof dispatch) |
-| `zkpor/pkg/{keygen,witness,prover,verifier,userproof}` | ✅ R12-A — engine library surface. `Options` struct + `Run(opts)` 단일 진입점. panic semantics (R12-B 에서 error 로 마이그) |
+| `zkpor/pkg/{keygen,witness,prover,verifier,userproof}` | ✅ R12-A + R12-B — engine library surface. `Options` struct + `Run(opts) error` 단일 진입점. in-process callable, no recover() needed |
 | `zkpor/cmd/{keygen,witness,prover,verifier,userproof}` | ✅ thin shim (각 25-56 lines) — flag parse 후 pkg/<service>.Run 호출 |
 | `zkpor/cmd/gen-testdata` | ✅ R11-A — `--asset-capacity` + `--asset-count` + `--users` + `--seed`, sum invariant |
 | `zkpor/cmd/gen-testdata/internal/testdata/` | ✅ R11-A — model-typed synthesis (R12-A 에서 cmd/gen-testdata 안으로 visibility 축소) |
@@ -119,35 +115,37 @@ de1c4b1 refactor(zkpor): extract prover into pkg/prover library
 
 1. `zkpor/AGENTS.md`, `zkpor/PRODUCTION_ROADMAP.md`, **본 문서** 읽기.
 2. `cd .worktree/development && git log --oneline -10` 으로 최근 commit 확인.
-3. R12-A 결과 흡수: 5개 엔진 서비스가 `pkg/<service>` 라이브러리 + 얇은
-   `cmd/<service>` shim 으로 정리됨. API 형태는 `Options` struct + `Run(opts)`.
-4. 다음 슬라이스 — **R12-B panic → error 마이그레이션** (아래 §Next Slice).
+3. R12-B 결과 흡수: 5개 pkg/<service> 모두 `Run(opts) error`. panic 잔재
+   없음. cmd shim 이 error → stderr + `os.Exit(1)` 변환. ProfilePath /
+   KeysDir 검증도 라이브러리 일관 처리 (os.Exit(2) 경로 제거).
+4. 다음 슬라이스 — **R12-C context.Context 지원** (아래 §Next Slice).
 
-### Next Slice: R12-B — panic → error migration
+### Next Slice: R12-C — context.Context 지원
 
-목표: 5개 `pkg/<service>` 라이브러리의 v0 panic semantics 를 returned
-error 로 마이그. in-process client 가 `recover()` 없이 호출 가능한
-contract 확립. cmd shim 의 exit-code interface 는 유지 (smoke 호환).
+목표: 5개 `pkg/<service>` 의 `Run(opts) error` → `Run(ctx, opts) error`
+로 확장. long-running 엔진 (특히 prover 폴 루프) 의 graceful shutdown +
+DB/IO timeout 전달.
 
-작업 분해 (서비스당 1 commit, 총 5, 단순 → 복잡 순):
+작업 단위 후보 (서비스 특성별로 슬라이스 크기 결정):
 
-1. **verifier** — batch + user + hash 모드 panic 사이트 정리.
-2. **keygen** — DB 없음, file IO + groth16.Setup.
-3. **userproof** — witness 와 유사, dump 분기 포함.
-4. **witness** — snapshot connector blank-import 영향 없음.
-5. **prover** — 가장 복잡. lazy snark-params 캐시 + tier retry + 폴
-   루프 + idempotency probe. error 반환 시 루프 종료 시점 결정.
+1. **prover** — 가장 가치 큼. 폴 루프 안에서 `ctx.Done()` select +
+   `time.Sleep` → `time.After`. proveOne 내부 groth16.Prove 는 cancel
+   대응 불가하므로 batch 단위 cancellation 정도가 현실적.
+2. **witness / userproof** — snapshot stream 진행 중 ctx 체크. runner
+   함수 시그니처에 ctx 추가 (already takes ctx via dispatchInput → 큰
+   변경 없음).
+3. **verifier batch** — 워커 풀 첫 error 외에 ctx cancel 도 종료 사유로
+   추가.
+4. **keygen** — groth16.Setup 자체가 cancel 불가. ctx 는 wrapping 만 추가.
 
-패턴: `Run(opts) error` 시그니처. panic → `fmt.Errorf("…: %w", err)`.
-shim 이 error 받아 `os.Exit(1)` + stderr. 한 서비스 안에서 panic/error
-혼재 금지 — commit 단위로 완전 변환. 종료 조건: `pkg/*` 의 모든 exported
-함수가 error 반환, build/vet/smoke 모두 green.
+cmd shim: `signal.NotifyContext(context.Background(), os.Interrupt,
+syscall.SIGTERM)` 패턴으로 SIGINT/SIGTERM → ctx.Cancel 연결.
+
+종료 조건: 모든 `Run` 이 ctx 받고, prover SIGINT 가 5초 안에 clean
+exit. build/vet/test green.
 
 ### Deferred slices
 
-- **R12-C — context.Context 지원**: `Run(ctx, opts) error`. 폴 루프
-  cancellation, snapshot stream 중단, DB 연산 timeout 전달. R12-B
-  closure 후 자연스러운 후속.
 - **R12-D — DB engine 다중화**: 현재 `store.Open` 이 MySQL only
   (`gorm.io/driver/mysql` 직접 호출). Postgres/SQLite 지원하려면
   driver-selection switch + per-driver error translation 필요.
