@@ -17,12 +17,20 @@
 //
 // R12-B/2: pkg/keygen returns errors. This shim is the only layer that
 // converts them into exit codes — stderr + os.Exit(1) on failure.
+//
+// R12-C: SIGINT/SIGTERM are wired into Run's context via
+// signal.NotifyContext so a multi-shape setup can be stopped between
+// shapes. Keygen is a one-shot job — any error (including
+// context.Canceled) exits 1.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/keygen"
 )
@@ -34,7 +42,10 @@ func main() {
 		"override profile.asset_capacity (smoke harness only; 0 = use profile.toml value)")
 	flag.Parse()
 
-	if err := keygen.Run(keygen.Options{
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := keygen.Run(ctx, keygen.Options{
 		ProfilePath:      *profilePath,
 		OutDir:           *out,
 		CapacityOverride: *capacityOverride,

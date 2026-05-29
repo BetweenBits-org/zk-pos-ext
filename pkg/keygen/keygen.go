@@ -25,9 +25,16 @@
 // R12-B contract: Run returns error; in-process callers can drive
 // keygen without recover() and propagate the error up. The cmd/keygen
 // shim is the only layer that converts errors into exit codes.
+//
+// R12-C contract: Run takes a context.Context. groth16.Setup itself is
+// not cancellable, so cancellation is shape-granular — Run observes ctx
+// before compiling each shape and returns ctx.Err() between shapes. The
+// in-flight Setup runs to completion. Keygen is a one-shot job, so
+// cmd/keygen treats any error (including context.Canceled) as exit 1.
 package keygen
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,8 +67,9 @@ type Options struct {
 
 // Run walks every BatchShape declared by the profile and writes one
 // .pk / .vk / .r1cs triple per shape. Returns an error describing the
-// first compile/setup/write failure encountered; nil on success.
-func Run(opts Options) error {
+// first compile/setup/write failure encountered; nil on success. A
+// cancelled ctx stops the walk between shapes and returns ctx.Err().
+func Run(ctx context.Context, opts Options) error {
 	if opts.ProfilePath == "" {
 		return fmt.Errorf("keygen: ProfilePath is required (path to profile.toml)")
 	}
@@ -97,6 +105,12 @@ func Run(opts Options) error {
 	}
 
 	for _, s := range shapes {
+		// Shape-granular cancellation: a SIGINT received during the
+		// previous (non-cancellable) Setup stops the walk here rather
+		// than starting another multi-minute compile+setup.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		stem := s.StandardKeyName(model, prof.Constraint.Module)
 		if err := keygenShape(model, s, capacity, filepath.Join(outDir, stem)); err != nil {
 			return err

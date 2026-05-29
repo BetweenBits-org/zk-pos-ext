@@ -10,6 +10,7 @@ package verifier
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"runtime"
@@ -26,8 +27,10 @@ import (
 // account-tree-roots and cex-commitments and checked against the
 // embedded batch commitment before the proof is verified. Returns the
 // first error encountered across workers (deterministic ordering not
-// guaranteed; the first arriving error wins).
-func verifyAllProofs(proofs []corehost.ProofRow, r *resolved) error {
+// guaranteed; the first arriving error wins). A cancelled ctx is a
+// termination cause: each worker observes it between proofs and records
+// ctx.Err(), so the pool unwinds without verifying the remaining rows.
+func verifyAllProofs(ctx context.Context, proofs []corehost.ProofRow, r *resolved) error {
 	workersNum := max(16, runtime.NumCPU())
 	averageProofCount := (len(proofs) + workersNum - 1) / workersNum
 
@@ -52,7 +55,7 @@ func verifyAllProofs(proofs []corehost.ProofRow, r *resolved) error {
 				return
 			}
 			endIndex := min((index+1)*averageProofCount, len(proofs))
-			if err := verifyProofRange(proofs[startIndex:endIndex], r); err != nil {
+			if err := verifyProofRange(ctx, proofs[startIndex:endIndex], r); err != nil {
 				recordErr(err)
 			}
 		}(w)
@@ -65,12 +68,16 @@ func verifyAllProofs(proofs []corehost.ProofRow, r *resolved) error {
 // verifying key is (re)loaded only when the asset-count tier changes,
 // matching the prover's tier-grouped ordering. The public witness is
 // constructed via the model-specific runner so the verify circuit
-// shape matches the .vk.
-func verifyProofRange(rows []corehost.ProofRow, r *resolved) error {
+// shape matches the .vk. A cancelled ctx aborts the range between
+// proofs, returning ctx.Err().
+func verifyProofRange(ctx context.Context, rows []corehost.ProofRow, r *resolved) error {
 	var vk groth16.VerifyingKey
 	currentAssetCountsTier := -1
 
 	for j := range rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		row := rows[j]
 		batchNumber := int(row.BatchNumber)
 

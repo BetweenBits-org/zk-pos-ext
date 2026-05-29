@@ -17,9 +17,19 @@
 // callers can drive the verifier without recover() and propagate the
 // error up. The cmd/verifier shim is the only layer that converts
 // errors into exit codes.
+//
+// R12-C contract: RunBatch and RunUser take a context.Context. RunBatch
+// threads it into the proof worker pool, so a cancellation aborts the
+// in-flight verification (the first worker to observe ctx records its
+// error and the pool unwinds). RunUser checks ctx at entry — user-mode
+// inclusion is a single fast recompute, not worth threading deeper.
+// RunHash is a pure, instant Poseidon helper and keeps its ctx-free
+// signature. Verification is a one-shot job, so cmd/verifier treats any
+// error (including context.Canceled) as exit 1.
 package verifier
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -89,8 +99,9 @@ const emptyAccountTreeRootHex = "08696bfcb563a2ee4dde9e1dbd34f68d3f4643df6e3709c
 // commitment must equal the commitment of the published totals.
 //
 // Returns an error describing the first verification failure
-// encountered; nil on success.
-func RunBatch(opts Options) error {
+// encountered; nil on success. A cancelled ctx aborts the proof worker
+// pool and surfaces as a (wrapped) context error.
+func RunBatch(ctx context.Context, opts Options) error {
 	r, err := resolveFromProfile(opts)
 	if err != nil {
 		return err
@@ -136,7 +147,7 @@ func RunBatch(opts Options) error {
 	prevAccountTreeRoots[1] = emptyAccountTreeRoot
 	prevCexAssetListCommitments[1] = emptyCexAssetListCommitment
 
-	if err := verifyAllProofs(proofs, r); err != nil {
+	if err := verifyAllProofs(ctx, proofs, r); err != nil {
 		return fmt.Errorf("verifier: verify proofs: %w", err)
 	}
 
@@ -147,8 +158,12 @@ func RunBatch(opts Options) error {
 }
 
 // RunUser dispatches to the model's user-inclusion runner. Returns an
-// error on failure.
-func RunUser(opts Options) error {
+// error on failure. ctx is checked at entry; user-mode inclusion is a
+// single fast recompute, so it is not threaded deeper.
+func RunUser(ctx context.Context, opts Options) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r, err := resolveFromProfile(opts)
 	if err != nil {
 		return err

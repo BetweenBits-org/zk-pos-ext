@@ -13,12 +13,21 @@
 //
 // R12-B/1: pkg/verifier returns errors. This shim is the only layer
 // that converts them into exit codes — stderr + os.Exit(1) on failure.
+//
+// R12-C: SIGINT/SIGTERM are wired into a context via
+// signal.NotifyContext and passed to RunBatch/RunUser so a long batch
+// verification can be aborted. RunHash is instant and ctx-free.
+// Verification is a one-shot job — any error (including
+// context.Canceled) exits 1.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/verifier"
 )
@@ -39,6 +48,9 @@ func main() {
 		UserConfigPath:   "config/user_config.json",
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	var err error
 	switch {
 	case *hashFlag:
@@ -49,9 +61,9 @@ func main() {
 		}
 		err = verifier.RunHash(args[0], args[1])
 	case *userFlag:
-		err = verifier.RunUser(opts)
+		err = verifier.RunUser(ctx, opts)
 	default:
-		err = verifier.RunBatch(opts)
+		err = verifier.RunBatch(ctx, opts)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
