@@ -8,13 +8,14 @@
 //	    [-user-data-dir DIR] [-snapshot-id ID] \
 //	    [-asset-capacity N] [-dump-final-cex PATH]
 //
-// R12-A library extraction: the previous 184-line main.go body moved
-// to zkpor/pkg/witness. config/ holds only the runtime JSON file now;
-// the Go schema moved alongside the library.
+// R12-B/3: pkg/witness returns errors. This shim is the only layer
+// that converts them into exit codes — stderr + os.Exit(1) on failure.
 package main
 
 import (
 	"flag"
+	"fmt"
+	"os"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/witness"
 )
@@ -27,12 +28,15 @@ func main() {
 	dumpFinalCex := flag.String("dump-final-cex", "", "if set, write the post-batch CexAssetsInfo slice as JSON to this path (smoke harness convenience)")
 	flag.Parse()
 
-	witness.Run(witness.Options{
+	if err := witness.Run(witness.Options{
 		ProfilePath:      *profilePath,
 		ConfigPath:       "config/config.json",
 		UserDataDir:      *userDataDir,
 		SnapshotID:       *snapshotID,
 		CapacityOverride: *capacityOverride,
 		DumpFinalCex:     *dumpFinalCex,
-	})
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

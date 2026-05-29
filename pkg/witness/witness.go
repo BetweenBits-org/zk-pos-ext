@@ -15,10 +15,10 @@
 // tree rollback). G6 (ValueScale invariant) closure happens inside
 // declarative.BuildPricing.
 //
-// R12-A library extraction: previously this code lived in
-// cmd/witness/main.go as package main. The orchestration body moved
-// here unchanged (Conservative slice). cmd/witness is now a thin shim
-// that parses flags and calls Run.
+// R12-B contract: Run returns error; in-process callers can drive
+// witness without recover() and propagate the error up. The
+// cmd/witness shim is the only layer that converts errors into exit
+// codes.
 //
 // The four standard snapshot connectors are blank-imported below so
 // in-process callers of Run automatically have every model's
@@ -79,34 +79,36 @@ type Options struct {
 }
 
 // Run builds and writes one full snapshot's worth of batch witness
-// rows, then returns. Panics on any wiring or runner failure (v0
-// reference behaviour).
-func Run(opts Options) {
+// rows, then returns. Returns an error describing the first wiring or
+// runner failure encountered; nil on success.
+func Run(opts Options) error {
 	if opts.ProfilePath == "" {
-		fmt.Fprintln(os.Stderr, "ProfilePath is required (path to profile.toml)")
-		os.Exit(2)
+		return fmt.Errorf("witness: ProfilePath is required (path to profile.toml)")
 	}
 	configPath := opts.ConfigPath
 	if configPath == "" {
 		configPath = "config/config.json"
 	}
 
-	cfg := loadConfig(configPath)
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
 	prof, err := declarative.Load(opts.ProfilePath)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("witness: load profile %q: %w", opts.ProfilePath, err)
 	}
 
 	// G6 closure: BuildPricing rejects invariant violations at build time.
 	pricing, err := declarative.BuildPricing(prof.Pricing)
 	if err != nil {
-		panic(fmt.Sprintf("BuildPricing: %v", err))
+		return fmt.Errorf("witness: BuildPricing: %w", err)
 	}
 
 	model := corespec.SolvencyModelID(prof.Profile.Model)
 	shapeProvider, err := declarative.BuildBatchShapeProvider(model, prof.BatchShapes)
 	if err != nil {
-		panic(fmt.Sprintf("BuildBatchShapeProvider: %v", err))
+		return fmt.Errorf("witness: BuildBatchShapeProvider: %w", err)
 	}
 	assetCountTiers := tiersFromShapes(shapeProvider.Shapes())
 
@@ -125,16 +127,16 @@ func Run(opts Options) {
 
 	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("witness: open account tree: %w", err)
 	}
 
 	db, err := store.Open(cfg.MysqlDataSource)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("witness: open mysql: %w", err)
 	}
 	witnessStore := store.NewWitnessStore(db, cfg.DbSuffix)
 	if err := witnessStore.CreateTable(); err != nil {
-		panic(err.Error())
+		return fmt.Errorf("witness: create witness table: %w", err)
 	}
 
 	ctx := context.Background()
@@ -154,21 +156,22 @@ func Run(opts Options) {
 		dumpFinalCex:    opts.DumpFinalCex,
 	}
 	if err := dispatchRunWitness(deps); err != nil {
-		panic(err.Error())
+		return fmt.Errorf("witness: run: %w", err)
 	}
+	return nil
 }
 
 // loadConfig reads and parses the on-disk JSON config.
-func loadConfig(path string) *wconfig.Config {
+func loadConfig(path string) (*wconfig.Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		panic(err.Error())
+		return nil, fmt.Errorf("witness: read config %q: %w", path, err)
 	}
 	cfg := &wconfig.Config{}
 	if err := json.Unmarshal(raw, cfg); err != nil {
-		panic(err.Error())
+		return nil, fmt.Errorf("witness: parse config %q: %w", path, err)
 	}
-	return cfg
+	return cfg, nil
 }
 
 // tiersFromShapes flattens the deployment's BatchShape set to the

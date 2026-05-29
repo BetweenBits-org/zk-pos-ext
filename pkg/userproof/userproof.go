@@ -17,10 +17,10 @@
 // padding rules = same tree leaves = same root, so per-user proofs
 // verify against the same root the witness/prover published.
 //
-// R12-A library extraction: previously this code lived in
-// cmd/userproof/main.go as package main. The orchestration body moved
-// here unchanged (Conservative slice). cmd/userproof is now a thin
-// shim that parses flags and calls Run.
+// R12-B contract: Run returns error; in-process callers can drive
+// userproof without recover() and propagate the error up. The
+// cmd/userproof shim is the only layer that converts errors into exit
+// codes.
 //
 // The four standard snapshot connectors are blank-imported below so
 // in-process callers of Run automatically have every model's
@@ -79,34 +79,36 @@ type Options struct {
 }
 
 // Run reads the snapshot, rebuilds the SMT, writes one UserProof row
-// per real account, then returns. Panics on any wiring or runner
-// failure (v0 reference behaviour).
-func Run(opts Options) {
+// per real account, then returns. Returns an error describing the
+// first wiring or runner failure encountered; nil on success.
+func Run(opts Options) error {
 	if opts.ProfilePath == "" {
-		fmt.Fprintln(os.Stderr, "ProfilePath is required (path to profile.toml)")
-		os.Exit(2)
+		return fmt.Errorf("userproof: ProfilePath is required (path to profile.toml)")
 	}
 	configPath := opts.ConfigPath
 	if configPath == "" {
 		configPath = "config/config.json"
 	}
 
-	cfg := loadConfig(configPath)
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
 	prof, err := declarative.Load(opts.ProfilePath)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("userproof: load profile %q: %w", opts.ProfilePath, err)
 	}
 
 	// G6 closure: BuildPricing carries the ValueScale invariant assert.
 	pricing, err := declarative.BuildPricing(prof.Pricing)
 	if err != nil {
-		panic(fmt.Sprintf("BuildPricing: %v", err))
+		return fmt.Errorf("userproof: BuildPricing: %w", err)
 	}
 
 	model := corespec.SolvencyModelID(prof.Profile.Model)
 	shapeProvider, err := declarative.BuildBatchShapeProvider(model, prof.BatchShapes)
 	if err != nil {
-		panic(fmt.Sprintf("BuildBatchShapeProvider: %v", err))
+		return fmt.Errorf("userproof: BuildBatchShapeProvider: %w", err)
 	}
 	assetCountTiers := tiersFromShapes(shapeProvider.Shapes())
 
@@ -125,16 +127,16 @@ func Run(opts Options) {
 
 	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("userproof: open account tree: %w", err)
 	}
 
 	db, err := store.Open(cfg.MysqlDataSource)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("userproof: open mysql: %w", err)
 	}
 	userProofStore := store.NewUserProofStore(db, cfg.DbSuffix)
 	if err := userProofStore.CreateTable(); err != nil {
-		panic(err.Error())
+		return fmt.Errorf("userproof: create userproof table: %w", err)
 	}
 
 	ctx := context.Background()
@@ -153,34 +155,35 @@ func Run(opts Options) {
 		assetCountTiers: assetCountTiers,
 	}
 	if err := dispatchRunUserProof(deps); err != nil {
-		panic(err.Error())
+		return fmt.Errorf("userproof: run: %w", err)
 	}
 
 	if opts.DumpUserIndex >= 0 {
 		if opts.DumpUserPath == "" {
-			panic("DumpUserIndex requires DumpUserPath")
+			return fmt.Errorf("userproof: DumpUserIndex requires DumpUserPath")
 		}
 		row, err := userProofStore.GetByIndex(uint32(opts.DumpUserIndex))
 		if err != nil {
-			panic(fmt.Sprintf("read userproof index %d: %v", opts.DumpUserIndex, err))
+			return fmt.Errorf("userproof: read userproof index %d: %w", opts.DumpUserIndex, err)
 		}
 		if err := os.WriteFile(opts.DumpUserPath, []byte(row.Config), 0o644); err != nil {
-			panic(fmt.Sprintf("write %q: %v", opts.DumpUserPath, err))
+			return fmt.Errorf("userproof: write %q: %w", opts.DumpUserPath, err)
 		}
 		fmt.Printf("user_config[%d] written to %s\n", opts.DumpUserIndex, opts.DumpUserPath)
 	}
+	return nil
 }
 
-func loadConfig(path string) *uconfig.Config {
+func loadConfig(path string) (*uconfig.Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		panic(err.Error())
+		return nil, fmt.Errorf("userproof: read config %q: %w", path, err)
 	}
 	cfg := &uconfig.Config{}
 	if err := json.Unmarshal(raw, cfg); err != nil {
-		panic(err.Error())
+		return nil, fmt.Errorf("userproof: parse config %q: %w", path, err)
 	}
-	return cfg
+	return cfg, nil
 }
 
 // tiersFromShapes flattens the deployment's BatchShape set into the

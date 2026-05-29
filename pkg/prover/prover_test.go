@@ -30,7 +30,10 @@ func TestLoadConfig_RoundTrip(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	got := loadConfig(path)
+	got, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
 	if got.MysqlDataSource != src.MysqlDataSource || got.DbSuffix != src.DbSuffix {
 		t.Fatalf("scalar mismatch: got=%+v want=%+v", got, src)
 	}

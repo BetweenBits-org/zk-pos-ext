@@ -9,13 +9,14 @@
 //	    [-asset-capacity N] \
 //	    [-dump-user-index N -dump-user-path PATH]
 //
-// R12-A library extraction: the previous 198-line main.go body moved
-// to zkpor/pkg/userproof. config/ holds only the runtime JSON file
-// now; the Go schema moved alongside the library.
+// R12-B/3: pkg/userproof returns errors. This shim is the only layer
+// that converts them into exit codes — stderr + os.Exit(1) on failure.
 package main
 
 import (
 	"flag"
+	"fmt"
+	"os"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/userproof"
 )
@@ -29,7 +30,7 @@ func main() {
 	dumpUserPath := flag.String("dump-user-path", "", "destination path for -dump-user-index dump")
 	flag.Parse()
 
-	userproof.Run(userproof.Options{
+	if err := userproof.Run(userproof.Options{
 		ProfilePath:      *profilePath,
 		ConfigPath:       "config/config.json",
 		UserDataDir:      *userDataDir,
@@ -37,5 +38,8 @@ func main() {
 		CapacityOverride: *capacityOverride,
 		DumpUserIndex:    *dumpUserIndex,
 		DumpUserPath:     *dumpUserPath,
-	})
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

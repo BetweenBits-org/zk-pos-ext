@@ -16,10 +16,12 @@
 // called inside Run at startup. Witness solving requires the prover's
 // hint registration to match the .r1cs's reference.
 //
-// R12-A library extraction: previously this code lived in
-// cmd/prover/main.go as package main. The orchestration body moved
-// here unchanged (Conservative slice). cmd/prover is now a thin shim
-// that parses flags and calls Run.
+// R12-B contract: Run returns error; in-process callers can drive the
+// prover poll loop without recover() and propagate the error up. The
+// cmd/prover shim is the only layer that converts errors into exit
+// codes. ErrNotFound on the queue is a clean shutdown — Run returns
+// nil. Transient claim errors continue to sleep+retry (no error escape,
+// by design). A proveOne failure is fatal and propagates.
 package prover
 
 import (
@@ -74,34 +76,36 @@ type snarkParams struct {
 }
 
 // Run starts the prover poll loop. It blocks until the witness queue
-// is empty (clean exit) or a fatal error fires a panic. Library
-// callers wishing to stop a long-running engine should kill the
-// process; cancellation via context is a future-slice change.
+// is empty (clean exit, returns nil) or a fatal error escapes (returns
+// an error). Library callers wishing to stop a long-running engine
+// should kill the process; cancellation via context is a future-slice
+// change.
 //
 // Run registers the IntegerDivision hint at startup. The registration
 // is idempotent — repeated Run calls in the same process are safe.
-func Run(opts Options) {
+func Run(opts Options) error {
 	if opts.ProfilePath == "" {
-		fmt.Fprintln(os.Stderr, "ProfilePath is required (path to profile.toml)")
-		os.Exit(2)
+		return fmt.Errorf("prover: ProfilePath is required (path to profile.toml)")
 	}
 	if opts.KeysDir == "" {
-		fmt.Fprintln(os.Stderr, "KeysDir is required (path to keygen .artifacts/)")
-		os.Exit(2)
+		return fmt.Errorf("prover: KeysDir is required (path to keygen .artifacts/)")
 	}
 	configPath := opts.ConfigPath
 	if configPath == "" {
 		configPath = "config/config.json"
 	}
 
-	cfg := loadConfig(configPath)
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
 	prof, err := declarative.Load(opts.ProfilePath)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("prover: load profile %q: %w", opts.ProfilePath, err)
 	}
 	plan, err := buildResolved(prof, opts.KeysDir)
 	if err != nil {
-		panic(fmt.Sprintf("resolve snark params plan: %v", err))
+		return fmt.Errorf("prover: resolve snark params plan: %w", err)
 	}
 
 	// G1 carryover — the zkpor circuit's IntegerDivision hint must be
@@ -111,12 +115,12 @@ func Run(opts Options) {
 
 	db, err := store.Open(cfg.MysqlDataSource)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("prover: open mysql: %w", err)
 	}
 	witnessStore := store.NewWitnessStore(db, cfg.DbSuffix)
 	proofStore := store.NewProofStore(db, cfg.DbSuffix)
 	if err := proofStore.CreateTable(); err != nil {
-		panic(err.Error())
+		return fmt.Errorf("prover: create proof table: %w", err)
 	}
 
 	var params snarkParams
@@ -124,7 +128,7 @@ func Run(opts Options) {
 		row, err := witnessStore.ClaimOldestByStatus(store.StatusPublished, store.StatusReceived)
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Println("no published witness rows in queue, prover quitting")
-			return
+			return nil
 		}
 		if err != nil {
 			fmt.Println("claim witness failed:", err.Error())
@@ -132,8 +136,7 @@ func Run(opts Options) {
 			continue
 		}
 		if err := proveOne(row, &params, plan, witnessStore, proofStore); err != nil {
-			fmt.Println("prove batch", row.Height, "failed:", err.Error())
-			return
+			return fmt.Errorf("prover: prove batch %d: %w", row.Height, err)
 		}
 	}
 }
@@ -159,14 +162,14 @@ func buildResolved(prof *declarative.Profile, keysDir string) (*resolved, error)
 }
 
 // loadConfig reads and parses the on-disk JSON config.
-func loadConfig(path string) *pconfig.Config {
+func loadConfig(path string) (*pconfig.Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		panic(err.Error())
+		return nil, fmt.Errorf("prover: read config %q: %w", path, err)
 	}
 	cfg := &pconfig.Config{}
 	if err := json.Unmarshal(raw, cfg); err != nil {
-		panic(err.Error())
+		return nil, fmt.Errorf("prover: parse config %q: %w", path, err)
 	}
-	return cfg
+	return cfg, nil
 }
