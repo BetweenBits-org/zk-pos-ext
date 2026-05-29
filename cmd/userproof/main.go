@@ -11,12 +11,21 @@
 //
 // R12-B/3: pkg/userproof returns errors. This shim is the only layer
 // that converts them into exit codes — stderr + os.Exit(1) on failure.
+//
+// R12-C: SIGINT/SIGTERM are wired into Run's context via
+// signal.NotifyContext so a long snapshot build can be aborted.
+// Userproof is a one-shot job, so an interrupted run is an
+// incomplete-output failure — any error (including context.Canceled)
+// exits 1.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/userproof"
 )
@@ -30,7 +39,10 @@ func main() {
 	dumpUserPath := flag.String("dump-user-path", "", "destination path for -dump-user-index dump")
 	flag.Parse()
 
-	if err := userproof.Run(userproof.Options{
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := userproof.Run(ctx, userproof.Options{
 		ProfilePath:      *profilePath,
 		ConfigPath:       "config/config.json",
 		UserDataDir:      *userDataDir,

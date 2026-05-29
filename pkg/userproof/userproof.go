@@ -22,6 +22,13 @@
 // cmd/userproof shim is the only layer that converts errors into exit
 // codes.
 //
+// R12-C contract: Run takes a context.Context, threaded into the
+// snapshot stream (AccountStream already honours ctx by closing its
+// producer on cancellation). Userproof is a one-shot batch job — a
+// cancelled run leaves the userproof table partially populated, so
+// cmd/userproof treats any error (including context.Canceled) as a
+// failure (exit 1), unlike the prover daemon.
+//
 // The four standard snapshot connectors are blank-imported below so
 // in-process callers of Run automatically have every model's
 // source_type registered; G17/G18 panic semantics on unknown
@@ -80,8 +87,10 @@ type Options struct {
 
 // Run reads the snapshot, rebuilds the SMT, writes one UserProof row
 // per real account, then returns. Returns an error describing the
-// first wiring or runner failure encountered; nil on success.
-func Run(opts Options) error {
+// first wiring or runner failure encountered; nil on success. A
+// cancelled ctx aborts the snapshot stream and surfaces as a (wrapped)
+// context error.
+func Run(ctx context.Context, opts Options) error {
 	if opts.ProfilePath == "" {
 		return fmt.Errorf("userproof: ProfilePath is required (path to profile.toml)")
 	}
@@ -138,8 +147,6 @@ func Run(opts Options) error {
 	if err := userProofStore.CreateTable(); err != nil {
 		return fmt.Errorf("userproof: create userproof table: %w", err)
 	}
-
-	ctx := context.Background()
 
 	deps := dispatchInput{
 		model:           model,
