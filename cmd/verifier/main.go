@@ -11,9 +11,8 @@
 //	                         config/user_config.json
 //	verifier -hash A B       print Poseidon(A, B) for two base64 inputs
 //
-// R12-A library extraction: the previous 530-line main.go body moved
-// to zkpor/pkg/verifier. config/ holds only the runtime JSON files
-// now; the Go schema moved alongside the library.
+// R12-B/1: pkg/verifier returns errors. This shim is the only layer
+// that converts them into exit codes — stderr + os.Exit(1) on failure.
 package main
 
 import (
@@ -40,6 +39,7 @@ func main() {
 		UserConfigPath:   "config/user_config.json",
 	}
 
+	var err error
 	switch {
 	case *hashFlag:
 		args := flag.Args()
@@ -47,10 +47,14 @@ func main() {
 			fmt.Fprintln(os.Stderr, "invalid hash command, it needs two arguments")
 			os.Exit(2)
 		}
-		verifier.RunHash(args[0], args[1])
+		err = verifier.RunHash(args[0], args[1])
 	case *userFlag:
-		verifier.RunUser(opts)
+		err = verifier.RunUser(opts)
 	default:
-		verifier.RunBatch(opts)
+		err = verifier.RunBatch(opts)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }

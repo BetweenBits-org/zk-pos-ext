@@ -96,12 +96,33 @@ func TestDecodeBatchMetadata(t *testing.T) {
 		},
 	}
 
-	roots, commits := decodeBatchMetadata(row)
+	roots, commits, err := decodeBatchMetadata(row)
+	if err != nil {
+		t.Fatalf("decodeBatchMetadata: %v", err)
+	}
 	if string(roots[0]) != string(rootBefore) || string(roots[1]) != string(rootAfter) {
 		t.Fatalf("account tree roots mismatch: got %q,%q", roots[0], roots[1])
 	}
 	if string(commits[0]) != string(commitBefore) || string(commits[1]) != string(commitAfter) {
 		t.Fatalf("cex commitments mismatch: got %q,%q", commits[0], commits[1])
+	}
+}
+
+// TestDecodeBatchMetadataRejectsBadBase64 ensures a corrupted row
+// surfaces a decode error rather than silently producing empty bytes.
+func TestDecodeBatchMetadataRejectsBadBase64(t *testing.T) {
+	row := corehost.ProofRow{
+		AccountTreeRoots: []string{"!not-base64!", "AAAA"},
+	}
+	if _, _, err := decodeBatchMetadata(row); err == nil {
+		t.Fatal("expected error for bad account tree root base64")
+	}
+	row = corehost.ProofRow{
+		AccountTreeRoots:   []string{"AAAA", "AAAA"},
+		CexAssetCommitment: []string{"!not-base64!", "AAAA"},
+	}
+	if _, _, err := decodeBatchMetadata(row); err == nil {
+		t.Fatal("expected error for bad cex commitment base64")
 	}
 }
 

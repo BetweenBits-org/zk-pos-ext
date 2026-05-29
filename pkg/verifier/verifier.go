@@ -13,12 +13,10 @@
 // The library is dispatched on profile.Model (T1..T4); the per-model
 // runners live in core/solvency/<model>/host/verifier_runner.go.
 //
-// R12-A library extraction: this code previously lived in
-// cmd/verifier/main.go as package main. The orchestration body moved
-// here unchanged (Conservative slice). cmd/verifier is now a thin shim
-// that parses flags and calls into this package. Failure semantics
-// remain panic-on-error for this slice; a future slice migrates to
-// returned errors.
+// R12-B contract: every exported entry point returns error. In-process
+// callers can drive the verifier without recover() and propagate the
+// error up. The cmd/verifier shim is the only layer that converts
+// errors into exit codes.
 package verifier
 
 import (
@@ -90,14 +88,15 @@ const emptyAccountTreeRootHex = "08696bfcb563a2ee4dde9e1dbd34f68d3f4643df6e3709c
 // must start from the empty account-tree root, and the final CEX
 // commitment must equal the commitment of the published totals.
 //
-// Panics on any verification failure; v0 reference behaviour.
-func RunBatch(opts Options) {
+// Returns an error describing the first verification failure
+// encountered; nil on success.
+func RunBatch(opts Options) error {
 	r, err := resolveFromProfile(opts)
 	if err != nil {
-		panic(err.Error())
+		return err
 	}
 	if opts.KeysDir == "" {
-		panic("KeysDir is required (path to keygen .artifacts/)")
+		return fmt.Errorf("verifier: KeysDir is required (path to keygen .artifacts/)")
 	}
 	configPath := opts.ConfigPath
 	if configPath == "" {
@@ -105,31 +104,31 @@ func RunBatch(opts Options) {
 	}
 	content, err := os.ReadFile(configPath)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("verifier: read config %q: %w", configPath, err)
 	}
 	verifierConfig := &vconfig.Config{}
 	if err := json.Unmarshal(content, verifierConfig); err != nil {
-		panic(err.Error())
+		return fmt.Errorf("verifier: parse config %q: %w", configPath, err)
 	}
 
 	proofs, err := loadProofs(verifierConfig)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("verifier: load proofs: %w", err)
 	}
 
 	emptyAccountTreeRoot, err := hex.DecodeString(emptyAccountTreeRootHex)
 	if err != nil {
-		panic("wrong empty account tree root")
+		return fmt.Errorf("verifier: decode empty account tree root: %w", err)
 	}
 
 	if r.plan.AssetCapacity <= 0 {
-		panic("verifier: profile.asset_capacity must be > 0")
+		return fmt.Errorf("verifier: profile.asset_capacity must be > 0")
 	}
 	emptyCexAssetListCommitment, expectFinalCexAssetsInfoComm, err := dispatchBuildCexCommitments(
 		r.model, verifierConfig.CexAssetsInfo, r.plan.AssetCapacity,
 	)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("verifier: build cex commitments: %w", err)
 	}
 
 	prevCexAssetListCommitments := make([][]byte, 2)
@@ -137,46 +136,51 @@ func RunBatch(opts Options) {
 	prevAccountTreeRoots[1] = emptyAccountTreeRoot
 	prevCexAssetListCommitments[1] = emptyCexAssetListCommitment
 
-	if !verifyAllProofs(proofs, r) {
-		os.Exit(1)
+	if err := verifyAllProofs(proofs, r); err != nil {
+		return fmt.Errorf("verifier: verify proofs: %w", err)
 	}
 
-	chainCheck(proofs, prevAccountTreeRoots, prevCexAssetListCommitments, expectFinalCexAssetsInfoComm)
+	if err := chainCheck(proofs, prevAccountTreeRoots, prevCexAssetListCommitments, expectFinalCexAssetsInfoComm); err != nil {
+		return fmt.Errorf("verifier: chain check: %w", err)
+	}
+	return nil
 }
 
-// RunUser dispatches to the model's user-inclusion runner. Panics on
-// failure; v0 reference behaviour.
-func RunUser(opts Options) {
+// RunUser dispatches to the model's user-inclusion runner. Returns an
+// error on failure.
+func RunUser(opts Options) error {
 	r, err := resolveFromProfile(opts)
 	if err != nil {
-		panic(err.Error())
+		return err
 	}
 	userConfigPath := opts.UserConfigPath
 	if userConfigPath == "" {
 		userConfigPath = "config/user_config.json"
 	}
 	if err := dispatchVerifyUserInclusion(r.model, r.plan, userConfigPath); err != nil {
-		panic(err.Error())
+		return fmt.Errorf("verifier: verify user inclusion: %w", err)
 	}
+	return nil
 }
 
 // RunHash prints Poseidon(arg0, arg1) for two base64-encoded inputs.
-// Model-blind. Panics on bad input.
-func RunHash(arg0, arg1 string) {
+// Model-blind. Returns an error if either argument is not valid base64.
+func RunHash(arg0, arg1 string) error {
 	hasher := poseidon.NewPoseidon()
 	p0, err := base64.StdEncoding.DecodeString(arg0)
 	if err != nil {
-		panic("invalid hash command, the first argument is not base64 encoded")
+		return fmt.Errorf("verifier: hash arg0 is not base64-encoded: %w", err)
 	}
 	p1, err := base64.StdEncoding.DecodeString(arg1)
 	if err != nil {
-		panic("invalid hash command, the second argument is not base64 encoded")
+		return fmt.Errorf("verifier: hash arg1 is not base64-encoded: %w", err)
 	}
 	hasher.Write(p0)
 	hasher.Write(p1)
 	res := hasher.Sum(nil)
 	fmt.Printf("hash result base64 encode: %s\n", base64.StdEncoding.EncodeToString(res))
 	fmt.Printf("hash result hex encode: %x\n", res)
+	return nil
 }
 
 // resolveFromProfile loads profile.toml + derives the (model, capacity,
@@ -184,7 +188,7 @@ func RunHash(arg0, arg1 string) {
 // supersedes profile.asset_capacity when > 0.
 func resolveFromProfile(opts Options) (*resolved, error) {
 	if opts.ProfilePath == "" {
-		return nil, fmt.Errorf("ProfilePath is required (path to profile.toml)")
+		return nil, fmt.Errorf("verifier: ProfilePath is required (path to profile.toml)")
 	}
 	prof, err := declarative.Load(opts.ProfilePath)
 	if err != nil {

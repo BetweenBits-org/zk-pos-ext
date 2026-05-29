@@ -112,23 +112,25 @@ func convertStoredProof(row store.Proof) (corehost.ProofRow, error) {
 }
 
 // decodeBatchMetadata base64-decodes the account-tree-roots and
-// cex-asset-commitment pairs of one proof row.
-func decodeBatchMetadata(p corehost.ProofRow) (roots [][]byte, commits [][]byte) {
+// cex-asset-commitment pairs of one proof row. Returns an error
+// describing the first decode failure encountered; callers propagate
+// it with the batch context.
+func decodeBatchMetadata(p corehost.ProofRow) (roots [][]byte, commits [][]byte, err error) {
 	roots = make([][]byte, 2)
 	commits = make([][]byte, 2)
 	for i := 0; i < len(p.AccountTreeRoots) && i < 2; i++ {
-		v, err := base64.StdEncoding.DecodeString(p.AccountTreeRoots[i])
-		if err != nil {
-			panic("decode account tree root failed")
+		v, decErr := base64.StdEncoding.DecodeString(p.AccountTreeRoots[i])
+		if decErr != nil {
+			return nil, nil, fmt.Errorf("decode account tree root[%d]: %w", i, decErr)
 		}
 		roots[i] = v
 	}
 	for i := 0; i < len(p.CexAssetCommitment) && i < 2; i++ {
-		v, err := base64.StdEncoding.DecodeString(p.CexAssetCommitment[i])
-		if err != nil {
-			panic("decode cex asset commitment failed")
+		v, decErr := base64.StdEncoding.DecodeString(p.CexAssetCommitment[i])
+		if decErr != nil {
+			return nil, nil, fmt.Errorf("decode cex asset commitment[%d]: %w", i, decErr)
 		}
 		commits[i] = v
 	}
-	return roots, commits
+	return roots, commits, nil
 }
