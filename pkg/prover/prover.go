@@ -22,9 +22,19 @@
 // codes. ErrNotFound on the queue is a clean shutdown — Run returns
 // nil. Transient claim errors continue to sleep+retry (no error escape,
 // by design). A proveOne failure is fatal and propagates.
+//
+// R12-C contract: Run takes a context.Context for graceful shutdown.
+// The prover is a long-running daemon, so cancellation is the normal
+// way an operator stops it. Cancellation is batch-granular: the current
+// proveOne (whose groth16.Prove cannot be interrupted) runs to
+// completion, then the loop observes ctx before claiming the next batch
+// and returns ctx.Err(). The cmd/prover shim wires SIGINT/SIGTERM into
+// the context and treats context.Canceled as a clean shutdown (exit 0),
+// distinct from a fatal proveOne error (exit 1).
 package prover
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,14 +86,13 @@ type snarkParams struct {
 }
 
 // Run starts the prover poll loop. It blocks until the witness queue
-// is empty (clean exit, returns nil) or a fatal error escapes (returns
-// an error). Library callers wishing to stop a long-running engine
-// should kill the process; cancellation via context is a future-slice
-// change.
+// is empty (clean exit, returns nil), the context is cancelled (returns
+// ctx.Err() after the in-flight batch finishes), or a fatal error
+// escapes (returns that error).
 //
 // Run registers the IntegerDivision hint at startup. The registration
 // is idempotent — repeated Run calls in the same process are safe.
-func Run(opts Options) error {
+func Run(ctx context.Context, opts Options) error {
 	if opts.ProfilePath == "" {
 		return fmt.Errorf("prover: ProfilePath is required (path to profile.toml)")
 	}
@@ -125,6 +134,13 @@ func Run(opts Options) error {
 
 	var params snarkParams
 	for {
+		// Batch-granular cancellation: observe ctx before claiming the
+		// next batch so a SIGINT/SIGTERM received during the previous
+		// proveOne exits cleanly once that batch's proof is persisted.
+		if err := ctx.Err(); err != nil {
+			fmt.Println("prover: context cancelled, shutting down")
+			return err
+		}
 		row, err := witnessStore.ClaimOldestByStatus(store.StatusPublished, store.StatusReceived)
 		if errors.Is(err, store.ErrNotFound) {
 			fmt.Println("no published witness rows in queue, prover quitting")
@@ -132,7 +148,13 @@ func Run(opts Options) error {
 		}
 		if err != nil {
 			fmt.Println("claim witness failed:", err.Error())
-			time.Sleep(10 * time.Second)
+			// Cancellable backoff: a cancel during the retry wait exits
+			// immediately instead of blocking the full interval.
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(10 * time.Second):
+			}
 			continue
 		}
 		if err := proveOne(row, &params, plan, witnessStore, proofStore); err != nil {
