@@ -15,12 +15,14 @@
 //	      -asset-capacity 5 \
 //	      -out .artifacts/smoke
 //
-// R12-A library extraction: the previous 206-line main.go body moved
-// to zkpor/pkg/keygen.
+// R12-B/2: pkg/keygen returns errors. This shim is the only layer that
+// converts them into exit codes — stderr + os.Exit(1) on failure.
 package main
 
 import (
 	"flag"
+	"fmt"
+	"os"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/keygen"
 )
@@ -32,9 +34,12 @@ func main() {
 		"override profile.asset_capacity (smoke harness only; 0 = use profile.toml value)")
 	flag.Parse()
 
-	keygen.Run(keygen.Options{
+	if err := keygen.Run(keygen.Options{
 		ProfilePath:      *profilePath,
 		OutDir:           *out,
 		CapacityOverride: *capacityOverride,
-	})
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

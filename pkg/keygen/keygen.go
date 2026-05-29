@@ -22,10 +22,9 @@
 // connectors; those are registered only by services that read
 // canonical snapshot data.
 //
-// R12-A library extraction: previously this code lived in
-// cmd/keygen/main.go as package main. The orchestration body moved
-// here unchanged (Conservative slice). cmd/keygen is now a thin shim
-// that parses flags and calls Run.
+// R12-B contract: Run returns error; in-process callers can drive
+// keygen without recover() and propagate the error up. The cmd/keygen
+// shim is the only layer that converts errors into exit codes.
 package keygen
 
 import (
@@ -60,12 +59,11 @@ type Options struct {
 }
 
 // Run walks every BatchShape declared by the profile and writes one
-// .pk / .vk / .r1cs triple per shape. Panics on any compile/setup/write
-// failure (v0 reference behaviour).
-func Run(opts Options) {
+// .pk / .vk / .r1cs triple per shape. Returns an error describing the
+// first compile/setup/write failure encountered; nil on success.
+func Run(opts Options) error {
 	if opts.ProfilePath == "" {
-		fmt.Fprintln(os.Stderr, "ProfilePath is required (path to profile.toml)")
-		os.Exit(2)
+		return fmt.Errorf("keygen: ProfilePath is required (path to profile.toml)")
 	}
 	outDir := opts.OutDir
 	if outDir == "" {
@@ -74,15 +72,15 @@ func Run(opts Options) {
 
 	prof, err := declarative.Load(opts.ProfilePath)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("keygen: load profile %q: %w", opts.ProfilePath, err)
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		panic(fmt.Sprintf("create output dir %q: %v", outDir, err))
+		return fmt.Errorf("keygen: create output dir %q: %w", outDir, err)
 	}
 
 	shapes, err := declarative.BuildBatchShape(prof.BatchShapes)
 	if err != nil {
-		panic(fmt.Sprintf("BuildBatchShape: %v", err))
+		return fmt.Errorf("keygen: BuildBatchShape: %w", err)
 	}
 	model := corespec.SolvencyModelID(prof.Profile.Model)
 	capacity := prof.Profile.AssetCapacity
@@ -101,9 +99,10 @@ func Run(opts Options) {
 	for _, s := range shapes {
 		stem := s.StandardKeyName(model, prof.Constraint.Module)
 		if err := keygenShape(model, s, capacity, filepath.Join(outDir, stem)); err != nil {
-			panic(err.Error())
+			return err
 		}
 	}
+	return nil
 }
 
 // keygenShape compiles the model-appropriate circuit at the given
