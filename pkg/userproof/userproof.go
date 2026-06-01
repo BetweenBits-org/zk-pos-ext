@@ -17,6 +17,12 @@
 // padding rules = same tree leaves = same root, so per-user proofs
 // verify against the same root the witness/prover published.
 //
+// R12-E contract: Run no longer reads files, parses the profile/config,
+// or opens the store itself — those inputs arrive pre-built in Options.
+// cmd/userproof is the sole os/path + store wiring point. The one
+// remaining os call is the optional DumpUserPath WriteFile, a dual-use
+// output sink that legitimately belongs to the engine's smoke path.
+//
 // R12-B contract: Run returns error; in-process callers can drive
 // userproof without recover() and propagate the error up. The
 // cmd/userproof shim is the only layer that converts errors into exit
@@ -37,15 +43,15 @@ package userproof
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
 	uconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/userproof/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 
 	// Register all four model-specific standard CSV snapshot connectors.
 	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
@@ -54,18 +60,32 @@ import (
 	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
 )
 
-// Options bundles the inputs Run needs.
+// Options bundles the inputs Run needs. The cmd/userproof shim builds
+// every injected value (parses the profile + config, resolves the
+// snapshot directory into a vfs.Opener, and wires the user-proof store
+// adapter); the engine never touches os/path or store itself.
 type Options struct {
-	// ProfilePath points at the declarative profile.toml. Required.
-	ProfilePath string
+	// Profile is the parsed declarative profile.toml. Required.
+	Profile *declarative.Profile
 
-	// ConfigPath points at the userproof deployment config JSON
-	// (DB DSN + TreeDB driver/endpoint). Defaults to
-	// "config/config.json" when empty.
-	ConfigPath string
+	// Snapshot opens the customer snapshot inputs by name. The cmd
+	// shim resolves the data directory (UserDataDir override else
+	// profile.snapshot.user_data_dir) into this opener. Required.
+	Snapshot vfs.Opener
+
+	// Config is the parsed userproof deployment config (DB DSN + TreeDB
+	// driver/endpoint). Required.
+	Config *uconfig.Config
+
+	// UserProofs is the injected persistence port for the per-user
+	// inclusion-proof table. Required; the cmd shim provides the MySQL
+	// adapter and has already called EnsureSchema.
+	UserProofs corehost.UserProofStore
 
 	// UserDataDir overrides profile.snapshot.user_data_dir when
-	// non-empty. Smoke + per-snapshot ops.
+	// non-empty. The engine no longer uses this for IO (the cmd shim
+	// already baked the resolved directory into Snapshot); it is kept
+	// only as the snapshot connector's logical identifier passthrough.
 	UserDataDir string
 
 	// SnapshotID overrides profile.snapshot.snapshot_id when non-empty.
@@ -91,22 +111,20 @@ type Options struct {
 // cancelled ctx aborts the snapshot stream and surfaces as a (wrapped)
 // context error.
 func Run(ctx context.Context, opts Options) error {
-	if opts.ProfilePath == "" {
-		return fmt.Errorf("userproof: ProfilePath is required (path to profile.toml)")
+	if opts.Profile == nil {
+		return fmt.Errorf("userproof: Profile is required")
 	}
-	configPath := opts.ConfigPath
-	if configPath == "" {
-		configPath = "config/config.json"
+	if opts.Config == nil {
+		return fmt.Errorf("userproof: Config is required")
 	}
-
-	cfg, err := loadConfig(configPath)
-	if err != nil {
-		return err
+	if opts.Snapshot == nil {
+		return fmt.Errorf("userproof: Snapshot is required")
 	}
-	prof, err := declarative.Load(opts.ProfilePath)
-	if err != nil {
-		return fmt.Errorf("userproof: load profile %q: %w", opts.ProfilePath, err)
+	if opts.UserProofs == nil {
+		return fmt.Errorf("userproof: UserProofs is required")
 	}
+	cfg := opts.Config
+	prof := opts.Profile
 
 	// G6 closure: BuildPricing carries the ValueScale invariant assert.
 	pricing, err := declarative.BuildPricing(prof.Pricing)
@@ -125,10 +143,6 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.CapacityOverride > 0 {
 		capacity = opts.CapacityOverride
 	}
-	dataDir := prof.Snapshot.UserDataDir
-	if opts.UserDataDir != "" {
-		dataDir = opts.UserDataDir
-	}
 	snapID := prof.Snapshot.SnapshotID
 	if opts.SnapshotID != "" {
 		snapID = opts.SnapshotID
@@ -139,20 +153,13 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("userproof: open account tree: %w", err)
 	}
 
-	db, err := store.Open(cfg.MysqlDataSource)
-	if err != nil {
-		return fmt.Errorf("userproof: open mysql: %w", err)
-	}
-	userProofStore := store.NewUserProofStoreAdapter(store.NewUserProofStore(db, cfg.DbSuffix))
-	if err := userProofStore.EnsureSchema(); err != nil {
-		return fmt.Errorf("userproof: create userproof table: %w", err)
-	}
+	userProofStore := opts.UserProofs
 
 	deps := dispatchInput{
 		model:           model,
 		ctx:             ctx,
 		sourceType:      prof.Snapshot.SourceType,
-		dataDir:         dataDir,
+		snapshot:        opts.Snapshot,
 		snapID:          snapID,
 		capacity:        capacity,
 		pricing:         pricing,
@@ -179,18 +186,6 @@ func Run(ctx context.Context, opts Options) error {
 		fmt.Printf("user_config[%d] written to %s\n", opts.DumpUserIndex, opts.DumpUserPath)
 	}
 	return nil
-}
-
-func loadConfig(path string) (*uconfig.Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("userproof: read config %q: %w", path, err)
-	}
-	cfg := &uconfig.Config{}
-	if err := json.Unmarshal(raw, cfg); err != nil {
-		return nil, fmt.Errorf("userproof: parse config %q: %w", path, err)
-	}
-	return cfg, nil
 }
 
 // tiersFromShapes flattens the deployment's BatchShape set into the
