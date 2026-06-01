@@ -8,12 +8,12 @@ import (
 	"io"
 	"log"
 	"math/big"
-	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 	"sync/atomic"
 
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
 	snapshotcsv "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/csv"
 	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
 	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
@@ -28,25 +28,40 @@ import (
 const ConnectorID = "t1_standard_csv.v1"
 
 func init() {
-	t1host.RegisterSnapshot(ConnectorID, func(userDataDir, snapshotID string, assetCapacity int, _ corespec.PriceScaleProvider) t1spec.SnapshotSource {
+	t1host.RegisterSnapshot(ConnectorID, func(src vfs.Opener, snapshotID string, assetCapacity int, _ corespec.PriceScaleProvider) t1spec.SnapshotSource {
 		return NewSnapshotCSV(Config{
-			Dir:           userDataDir,
+			Source:        src,
 			SnapshotID:    snapshotID,
 			AssetCapacity: assetCapacity,
 		})
 	})
 }
 
-// Config constructs a T1 standard CSV SnapshotSource. The directory is
-// expected to contain canonical accounts.csv and cex_assets.csv files
+// Config constructs a T1 standard CSV SnapshotSource. The source is
+// expected to open canonical accounts.csv and cex_assets.csv inputs
 // matching StandardSchema. Mapping.Format may override CSV dialect
 // options; mapping column rules are intentionally applied before this
 // parser layer.
+//
+// Source is the snapshot input opener. When Source is nil, the parser
+// falls back to Dir, opening inputs as local files under that directory
+// — a convenience used mainly by tests; production callers inject
+// Source via the model host's NewSnapshot.
 type Config struct {
+	Source        vfs.Opener
 	Dir           string
 	SnapshotID    string
 	AssetCapacity int
 	Mapping       snapshotmapping.Config
+}
+
+// source returns the configured input opener, defaulting to a local
+// osvfs.Dir(Dir) opener when Source is unset.
+func (c Config) source() vfs.Opener {
+	if c.Source != nil {
+		return c.Source
+	}
+	return osvfs.Dir(c.Dir)
 }
 
 type snapshot struct {
@@ -123,7 +138,7 @@ func (s *snapshot) loadCexAssets(ctx context.Context) ([]t1spec.CexAssetInfo, er
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(filepath.Join(s.cfg.Dir, "cex_assets.csv"))
+	f, err := s.cfg.source().Open(ctx, "cex_assets.csv")
 	if err != nil {
 		return nil, fmt.Errorf("open cex_assets.csv: %w", err)
 	}
@@ -197,7 +212,7 @@ func (s *snapshot) loadAccounts(ctx context.Context, assets []t1spec.CexAssetInf
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(filepath.Join(s.cfg.Dir, "accounts.csv"))
+	f, err := s.cfg.source().Open(ctx, "accounts.csv")
 	if err != nil {
 		return nil, fmt.Errorf("open accounts.csv: %w", err)
 	}

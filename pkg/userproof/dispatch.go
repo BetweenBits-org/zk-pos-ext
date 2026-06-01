@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
 	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
 	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
 	t3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/host"
@@ -41,7 +42,7 @@ type dispatchInput struct {
 func dispatchRunUserProof(d dispatchInput) error {
 	switch d.model {
 	case "t1_simple_margin":
-		snapshot := t1host.NewSnapshot(d.sourceType, d.dataDir, d.snapID, d.capacity, d.pricing)
+		snapshot := t1host.NewSnapshot(d.sourceType, osvfs.Dir(d.dataDir), d.snapID, d.capacity, d.pricing)
 		_, _, err := t1host.RunUserProof(t1host.UserProofRunnerConfig{
 			Ctx:             d.ctx,
 			Snapshot:        snapshot,
@@ -52,7 +53,7 @@ func dispatchRunUserProof(d dispatchInput) error {
 		})
 		return err
 	case "t2_static_haircut_margin":
-		snapshot := t2host.NewSnapshot(d.sourceType, d.dataDir, d.snapID, d.capacity, d.pricing)
+		snapshot := t2host.NewSnapshot(d.sourceType, osvfs.Dir(d.dataDir), d.snapID, d.capacity, d.pricing)
 		_, _, err := t2host.RunUserProof(t2host.UserProofRunnerConfig{
 			Ctx:             d.ctx,
 			Snapshot:        snapshot,
@@ -63,7 +64,7 @@ func dispatchRunUserProof(d dispatchInput) error {
 		})
 		return err
 	case "t3_tiered_haircut_margin_1pool":
-		snapshot := t3host.NewSnapshot(d.sourceType, d.dataDir, d.snapID, d.capacity, d.pricing)
+		snapshot := t3host.NewSnapshot(d.sourceType, osvfs.Dir(d.dataDir), d.snapID, d.capacity, d.pricing)
 		_, _, err := t3host.RunUserProof(t3host.UserProofRunnerConfig{
 			Ctx:             d.ctx,
 			Snapshot:        snapshot,
@@ -74,7 +75,7 @@ func dispatchRunUserProof(d dispatchInput) error {
 		})
 		return err
 	case "t4_tiered_haircut_margin_3pool":
-		snapshot := t4host.NewSnapshot(d.sourceType, d.dataDir, d.snapID, d.capacity, d.pricing)
+		snapshot := t4host.NewSnapshot(d.sourceType, osvfs.Dir(d.dataDir), d.snapID, d.capacity, d.pricing)
 		_, _, err := t4host.RunUserProof(t4host.UserProofRunnerConfig{
 			Ctx:             d.ctx,
 			Snapshot:        snapshot,

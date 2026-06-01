@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
 	snapshotcsv "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/csv"
 	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
 	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
@@ -30,17 +30,32 @@ var (
 )
 
 func init() {
-	t3host.RegisterSnapshot(ConnectorID, func(userDataDir, snapshotID string, assetCapacity int, _ corespec.PriceScaleProvider) t3spec.SnapshotSource {
-		return NewSnapshotCSV(Config{Dir: userDataDir, SnapshotID: snapshotID, AssetCapacity: assetCapacity})
+	t3host.RegisterSnapshot(ConnectorID, func(src vfs.Opener, snapshotID string, assetCapacity int, _ corespec.PriceScaleProvider) t3spec.SnapshotSource {
+		return NewSnapshotCSV(Config{Source: src, SnapshotID: snapshotID, AssetCapacity: assetCapacity})
 	})
 }
 
 // Config constructs a T3 standard CSV SnapshotSource.
+//
+// Source is the snapshot input opener. When Source is nil, the parser
+// falls back to Dir, opening inputs as local files under that directory
+// — a convenience used mainly by tests; production callers inject
+// Source via the model host's NewSnapshot.
 type Config struct {
+	Source        vfs.Opener
 	Dir           string
 	SnapshotID    string
 	AssetCapacity int
 	Mapping       snapshotmapping.Config
+}
+
+// source returns the configured input opener, defaulting to a local
+// osvfs.Dir(Dir) opener when Source is unset.
+func (c Config) source() vfs.Opener {
+	if c.Source != nil {
+		return c.Source
+	}
+	return osvfs.Dir(c.Dir)
 }
 
 type snapshot struct {
@@ -113,7 +128,7 @@ func (s *snapshot) loadCexAssets(ctx context.Context) ([]t3spec.CexAssetInfo, er
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(filepath.Join(s.cfg.Dir, "cex_assets.csv"))
+	f, err := s.cfg.source().Open(ctx, "cex_assets.csv")
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +175,7 @@ func (s *snapshot) loadCexAssets(ctx context.Context) ([]t3spec.CexAssetInfo, er
 }
 
 func (s *snapshot) loadTierRatios(ctx context.Context, opts snapshotcsv.Options) (map[uint16][]t3spec.TierRatio, error) {
-	f, err := os.Open(filepath.Join(s.cfg.Dir, "tier_ratios.csv"))
+	f, err := s.cfg.source().Open(ctx, "tier_ratios.csv")
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +214,7 @@ func (s *snapshot) loadAccounts(ctx context.Context, assets []t3spec.CexAssetInf
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(filepath.Join(s.cfg.Dir, "accounts.csv"))
+	f, err := s.cfg.source().Open(ctx, "accounts.csv")
 	if err != nil {
 		return nil, err
 	}

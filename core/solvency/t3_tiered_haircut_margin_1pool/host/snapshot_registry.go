@@ -5,13 +5,16 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	t3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
 
 // SnapshotFactory constructs a t3_tiered_haircut_margin_1pool
-// SnapshotSource from the universal declarative profile arguments.
-type SnapshotFactory func(userDataDir, snapshotID string, assetCapacity int, pricing corespec.PriceScaleProvider) t3spec.SnapshotSource
+// SnapshotSource from the universal declarative profile arguments. src
+// is the snapshot input opener; the connector reads its CSVs through
+// src.Open(ctx, name).
+type SnapshotFactory func(src vfs.Opener, snapshotID string, assetCapacity int, pricing corespec.PriceScaleProvider) t3spec.SnapshotSource
 
 var (
 	snapshotRegistryMu sync.RWMutex
@@ -36,8 +39,9 @@ func RegisterSnapshot(connectorID string, factory SnapshotFactory) {
 }
 
 // NewSnapshot returns the T3 SnapshotSource registered under
-// connectorID. Panics when the connector is not linked into the binary.
-func NewSnapshot(connectorID, userDataDir, snapshotID string, assetCapacity int, pricing corespec.PriceScaleProvider) t3spec.SnapshotSource {
+// connectorID, reading its inputs through src. Panics when the
+// connector is not linked into the binary.
+func NewSnapshot(connectorID string, src vfs.Opener, snapshotID string, assetCapacity int, pricing corespec.PriceScaleProvider) t3spec.SnapshotSource {
 	snapshotRegistryMu.RLock()
 	factory, ok := snapshotRegistry[connectorID]
 	snapshotRegistryMu.RUnlock()
@@ -45,7 +49,7 @@ func NewSnapshot(connectorID, userDataDir, snapshotID string, assetCapacity int,
 		panic(fmt.Sprintf("t3_tiered_haircut_margin_1pool/host: snapshot connector %q is not registered (known: %v)",
 			connectorID, RegisteredSnapshotConnectors()))
 	}
-	return factory(userDataDir, snapshotID, assetCapacity, pricing)
+	return factory(src, snapshotID, assetCapacity, pricing)
 }
 
 // RegisteredSnapshotConnectors returns sorted T3 snapshot connector IDs.

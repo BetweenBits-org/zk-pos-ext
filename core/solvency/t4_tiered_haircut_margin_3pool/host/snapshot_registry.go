@@ -5,6 +5,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
@@ -13,7 +14,10 @@ import (
 // the universal arguments captured in the declarative profile.
 //
 // Arguments:
-//   - userDataDir, snapshotID: the profile's [snapshot] table.
+//   - src: the snapshot input opener (a vfs.Opener). The connector reads
+//     its CSVs through src.Open(ctx, name) instead of a local directory
+//     path, keeping the engine agnostic about where the snapshot lives.
+//   - snapshotID: the profile's [snapshot] table identifier.
 //   - assetCapacity: trusted-setup asset slot count (toml or override).
 //   - pricing: PriceScaleProvider built from [pricing] — the ETL uses
 //     it to scale raw float prices/balances into the uint64 values
@@ -28,7 +32,8 @@ import (
 // time via init() in the package that owns the canonical snapshot
 // implementation.
 type SnapshotFactory func(
-	userDataDir, snapshotID string,
+	src vfs.Opener,
+	snapshotID string,
 	assetCapacity int,
 	pricing corespec.PriceScaleProvider,
 ) t4spec.SnapshotSource
@@ -76,12 +81,14 @@ func RegisterSnapshot(connectorID string, factory SnapshotFactory) {
 }
 
 // NewSnapshot returns the T4 SnapshotSource built by the connector
-// registered under connectorID. Service startup calls this after
-// resolving the model from profile.toml.
+// registered under connectorID, reading its inputs through src. Service
+// startup calls this after resolving the model from profile.toml.
 //
 // Panics if connectorID is not registered (build-time omission).
 func NewSnapshot(
-	connectorID, userDataDir, snapshotID string,
+	connectorID string,
+	src vfs.Opener,
+	snapshotID string,
 	assetCapacity int,
 	pricing corespec.PriceScaleProvider,
 ) t4spec.SnapshotSource {
@@ -92,7 +99,7 @@ func NewSnapshot(
 		panic(fmt.Sprintf("t4_tiered_haircut_margin_3pool/host: snapshot connector %q is not registered (known: %v)",
 			connectorID, RegisteredSnapshotConnectors()))
 	}
-	return factory(userDataDir, snapshotID, assetCapacity, pricing)
+	return factory(src, snapshotID, assetCapacity, pricing)
 }
 
 // RegisteredSnapshotConnectors returns the sorted list of T4

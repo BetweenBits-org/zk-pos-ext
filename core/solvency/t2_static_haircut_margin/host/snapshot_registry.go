@@ -5,13 +5,15 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	t2spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
 
 // SnapshotFactory constructs a t2_static_haircut_margin SnapshotSource
-// from the universal declarative profile arguments.
-type SnapshotFactory func(userDataDir, snapshotID string, assetCapacity int, pricing corespec.PriceScaleProvider) t2spec.SnapshotSource
+// from the universal declarative profile arguments. src is the snapshot
+// input opener; the connector reads its CSVs through src.Open(ctx, name).
+type SnapshotFactory func(src vfs.Opener, snapshotID string, assetCapacity int, pricing corespec.PriceScaleProvider) t2spec.SnapshotSource
 
 var (
 	snapshotRegistryMu sync.RWMutex
@@ -36,8 +38,9 @@ func RegisterSnapshot(connectorID string, factory SnapshotFactory) {
 }
 
 // NewSnapshot returns the T2 SnapshotSource registered under
-// connectorID. Panics when the connector is not linked into the binary.
-func NewSnapshot(connectorID, userDataDir, snapshotID string, assetCapacity int, pricing corespec.PriceScaleProvider) t2spec.SnapshotSource {
+// connectorID, reading its inputs through src. Panics when the
+// connector is not linked into the binary.
+func NewSnapshot(connectorID string, src vfs.Opener, snapshotID string, assetCapacity int, pricing corespec.PriceScaleProvider) t2spec.SnapshotSource {
 	snapshotRegistryMu.RLock()
 	factory, ok := snapshotRegistry[connectorID]
 	snapshotRegistryMu.RUnlock()
@@ -45,7 +48,7 @@ func NewSnapshot(connectorID, userDataDir, snapshotID string, assetCapacity int,
 		panic(fmt.Sprintf("t2_static_haircut_margin/host: snapshot connector %q is not registered (known: %v)",
 			connectorID, RegisteredSnapshotConnectors()))
 	}
-	return factory(userDataDir, snapshotID, assetCapacity, pricing)
+	return factory(src, snapshotID, assetCapacity, pricing)
 }
 
 // RegisteredSnapshotConnectors returns sorted T2 snapshot connector IDs.

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	t1spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 )
@@ -14,8 +15,13 @@ import (
 // signature as t4_tiered_haircut_margin_3pool's factory — see that file for
 // argument semantics. Standard CSV connectors ignore pricing because
 // their inputs are already scaled canonical integers.
+//
+// src is the snapshot input opener (a vfs.Opener); the connector reads
+// its CSVs through src.Open(ctx, name) instead of a local directory
+// path, so the engine stays agnostic about where the snapshot lives.
 type SnapshotFactory func(
-	userDataDir, snapshotID string,
+	src vfs.Opener,
+	snapshotID string,
 	assetCapacity int,
 	pricing corespec.PriceScaleProvider,
 ) t1spec.SnapshotSource
@@ -49,9 +55,12 @@ func RegisterSnapshot(connectorID string, factory SnapshotFactory) {
 }
 
 // NewSnapshot returns the T1 SnapshotSource built by the connector
-// registered under connectorID. Panics if not registered.
+// registered under connectorID, reading its inputs through src. Panics
+// if not registered.
 func NewSnapshot(
-	connectorID, userDataDir, snapshotID string,
+	connectorID string,
+	src vfs.Opener,
+	snapshotID string,
 	assetCapacity int,
 	pricing corespec.PriceScaleProvider,
 ) t1spec.SnapshotSource {
@@ -62,7 +71,7 @@ func NewSnapshot(
 		panic(fmt.Sprintf("t1_simple_margin/host: snapshot connector %q is not registered (known: %v)",
 			connectorID, RegisteredSnapshotConnectors()))
 	}
-	return factory(userDataDir, snapshotID, assetCapacity, pricing)
+	return factory(src, snapshotID, assetCapacity, pricing)
 }
 
 // RegisteredSnapshotConnectors returns the sorted list of T1
