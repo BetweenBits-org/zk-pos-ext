@@ -8,6 +8,11 @@
 // the userproof engine without dragging in cmd/main wiring.
 package config
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // Config drives the userproof service.
 //
 //	MysqlDataSource    DSN for the user-proof table (gorm/MySQL).
@@ -28,4 +33,17 @@ type Config struct {
 			Addr string
 		}
 	}
+}
+
+// Parse unmarshals raw JSON config bytes into a *Config. It is the
+// injection seam that lets callers supply config as a value rather than
+// reading a path: the engine no longer needs to know where the bytes
+// came from (file, env, embedded fixture). Unknown JSON fields are
+// tolerated; see the Config doc for the slimmed R8 schema.
+func Parse(raw []byte) (*Config, error) {
+	cfg := &Config{}
+	if err := json.Unmarshal(raw, cfg); err != nil {
+		return nil, fmt.Errorf("userproof config: parse: %w", err)
+	}
+	return cfg, nil
 }
