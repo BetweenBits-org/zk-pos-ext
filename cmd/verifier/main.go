@@ -109,14 +109,17 @@ func run(ctx context.Context, hashMode, userMode bool, profilePath, keysDir, con
 			CapacityOverride: capacityOverride,
 			Config:           cfg,
 		}
-		// The proof-store port is only needed when reading from MySQL;
-		// the CSV path (cfg.ProofTable) needs no DB connection.
+		// Wire exactly one proof source: the MySQL store port when a DSN is
+		// configured, otherwise the legacy CSV wrapped as a vfs.ByteSource so
+		// the engine reads no path itself.
 		if cfg.MysqlDataSource != "" {
 			db, err := store.Open(cfg.MysqlDataSource)
 			if err != nil {
 				return fmt.Errorf("verifier: open mysql: %w", err)
 			}
 			opts.Proofs = store.NewProofStoreAdapter(store.NewProofStore(db, cfg.DbSuffix))
+		} else {
+			opts.ProofCSV = osvfs.File(cfg.ProofTable)
 		}
 		return verifier.RunBatch(ctx, opts)
 	}

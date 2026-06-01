@@ -1,8 +1,9 @@
 // Proof loading + on-wire decoding. Two ingestion paths share one
 // ProofRow seam:
 //
-//   - CSV file (legacy / smoke harness): cfg.ProofTable.
-//   - MySQL proof table (production): cfg.MysqlDataSource + cfg.DbSuffix.
+//   - CSV (legacy / smoke harness): an injected vfs.ByteSource — cmd/verifier
+//     wraps cfg.ProofTable via osvfs.File so the engine reads no path itself.
+//   - MySQL proof table (production): the injected corehost.ProofStore port.
 //
 // convertStoredProof keeps the two paths byte-equivalent at the
 // ProofRow boundary so verify.go does not need to know which source
@@ -11,41 +12,49 @@
 package verifier
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	vconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/verifier/config"
 	"github.com/gocarina/gocsv"
 )
 
 // loadProofs reads proof rows either from the injected ProofStore (when
 // cfg.MysqlDataSource is set — the store is wired by cmd/verifier) or
-// from the legacy CSV at cfg.ProofTable. In both cases the returned
-// slice is indexed by BatchNumber — i.e. result[i] is the proof for
-// batch i, assuming batch numbers are a dense 0..N-1 sequence as the
-// prover produces.
-func loadProofs(cfg *vconfig.Config, proofs corehost.ProofStore) ([]corehost.ProofRow, error) {
+// from the injected ProofCSV byte source (the legacy / smoke path; cmd
+// wraps cfg.ProofTable via osvfs.File). In both cases the returned slice
+// is indexed by BatchNumber — i.e. result[i] is the proof for batch i,
+// assuming batch numbers are a dense 0..N-1 sequence as the prover
+// produces. The engine selects the path from config but performs no IO
+// itself; both sources are injected.
+func loadProofs(ctx context.Context, cfg *vconfig.Config, proofs corehost.ProofStore, proofCSV vfs.ByteSource) ([]corehost.ProofRow, error) {
 	if cfg.MysqlDataSource != "" {
+		if proofs == nil {
+			return nil, fmt.Errorf("Proofs port is required when Config.MysqlDataSource is set")
+		}
 		return loadProofsFromStore(proofs, cfg.DbSuffix)
 	}
-	return loadProofsFromCSV(cfg.ProofTable)
+	if proofCSV == nil {
+		return nil, fmt.Errorf("ProofCSV source is required for the CSV proof path")
+	}
+	return loadProofsFromCSV(ctx, proofCSV)
 }
 
-// loadProofsFromCSV unmarshals the CSV at path and re-indexes the
-// resulting slice so result[i] is the proof for batch i.
-func loadProofsFromCSV(path string) ([]corehost.ProofRow, error) {
-	f, err := os.Open(path)
+// loadProofsFromCSV reads the proof CSV bytes from the injected source
+// and re-indexes the resulting slice so result[i] is the proof for
+// batch i.
+func loadProofsFromCSV(ctx context.Context, src vfs.ByteSource) ([]corehost.ProofRow, error) {
+	raw, err := src.ReadAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("open proof table %q: %w", path, err)
+		return nil, fmt.Errorf("read proof table: %w", err)
 	}
-	defer f.Close()
-
 	tmp := []*corehost.ProofRow{}
-	if err := gocsv.UnmarshalFile(f, &tmp); err != nil {
-		return nil, fmt.Errorf("parse proof table %q: %w", path, err)
+	if err := gocsv.UnmarshalBytes(raw, &tmp); err != nil {
+		return nil, fmt.Errorf("parse proof table: %w", err)
 	}
 	out := make([]corehost.ProofRow, len(tmp))
 	for i := range tmp {

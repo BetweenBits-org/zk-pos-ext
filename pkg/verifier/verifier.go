@@ -47,7 +47,8 @@ import (
 // injects them here, so the engine never touches os/path or store. The
 // fields not relevant to a given mode are ignored:
 //
-//   - RunBatch consumes Profile, Keys, CapacityOverride, Config, Proofs.
+//   - RunBatch consumes Profile, Keys, CapacityOverride, Config, and either
+//     Proofs (DB path) or ProofCSV (legacy CSV path).
 //   - RunUser  consumes Profile, Keys, CapacityOverride, UserConfig.
 //   - RunHash  consumes nothing (its two base64 args are passed directly).
 //
@@ -75,6 +76,11 @@ type Options struct {
 	// Proofs is the injected proof-store port. Used by RunBatch when
 	// Config.MysqlDataSource is set; cmd/verifier wires the MySQL adapter.
 	Proofs corehost.ProofStore
+
+	// ProofCSV reads the legacy / smoke proof CSV. Used by RunBatch when
+	// Config.MysqlDataSource is empty; cmd/verifier wraps cfg.ProofTable
+	// via osvfs.File so the engine reads no path itself.
+	ProofCSV vfs.ByteSource
 
 	// UserConfig reads the per-user inclusion-proof artifact the
 	// userproof service emitted. Required for RunUser; cmd/verifier wraps
@@ -117,7 +123,7 @@ func RunBatch(ctx context.Context, opts Options) error {
 	}
 	verifierConfig := opts.Config
 
-	proofs, err := loadProofs(verifierConfig, opts.Proofs)
+	proofs, err := loadProofs(ctx, verifierConfig, opts.Proofs, opts.ProofCSV)
 	if err != nil {
 		return fmt.Errorf("verifier: load proofs: %w", err)
 	}
