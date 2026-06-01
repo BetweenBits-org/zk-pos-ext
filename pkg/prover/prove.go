@@ -5,17 +5,23 @@
 // Idempotency is enforced before any decode work: a proof row already
 // at this height means a previous run produced it, so we just flip
 // the witness status instead of re-proving.
+//
+// R12-EF: the queue + proof channels are the injected corehost ports
+// (WitnessQueue / ProofStore) carrying gorm-free DTOs; absence is probed
+// with corehost.ErrNotFound and the witness status uses the corehost.*
+// constants.
 
 package prover
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 )
 
 // proveOne handles one claimed batch: decode → prove → verify →
@@ -24,11 +30,13 @@ import (
 // re-claim, see the proof already exists, just flip the witness
 // status to Finished without re-proving.
 func proveOne(
-	row *store.BatchWitness,
+	ctx context.Context,
+	row *corehost.BatchWitnessDTO,
 	params *snarkParams,
 	plan *resolved,
-	witnessStore *store.WitnessStore,
-	proofStore *store.ProofStore,
+	keys vfs.KeyOpener,
+	witnessStore corehost.WitnessQueue,
+	proofStore corehost.ProofStore,
 ) error {
 	encoded, err := base64.StdEncoding.DecodeString(row.WitnessData)
 	if err != nil {
@@ -43,8 +51,8 @@ func proveOne(
 	// reuse across batches.
 	if existing, err := proofStore.GetByBatchNumber(row.Height); err == nil {
 		fmt.Printf("proof of height %d already exists (tier %d), marking witness finished\n", row.Height, existing.AssetsCount)
-		return witnessStore.MarkStatus(row.Height, store.StatusFinished)
-	} else if !errors.Is(err, store.ErrNotFound) {
+		return witnessStore.MarkStatus(row.Height, corehost.StatusFinished)
+	} else if !errors.Is(err, corehost.ErrNotFound) {
 		return fmt.Errorf("idempotency probe: %w", err)
 	}
 
@@ -57,7 +65,7 @@ func proveOne(
 	// pre-load params optimistically (first tier) and let the runner
 	// fail-fast on tier mismatch. In practice the lazy cache flips
 	// only at tier boundaries; the cache hit covers same-tier runs.
-	result, err := dispatchDecodeAndProve(plan, params, encoded, row.Height)
+	result, err := dispatchDecodeAndProve(ctx, plan, params, keys, encoded, row.Height)
 	if err != nil {
 		return fmt.Errorf("prove/verify: %w", err)
 	}
@@ -71,10 +79,10 @@ func proveOne(
 // persistProof writes the proof row + flips the witness status.
 // Idempotency check is done by proveOne before this is called.
 func persistProof(
-	row *store.BatchWitness,
+	row *corehost.BatchWitnessDTO,
 	result *corehost.BatchProofResult,
-	witnessStore *store.WitnessStore,
-	proofStore *store.ProofStore,
+	witnessStore corehost.WitnessQueue,
+	proofStore corehost.ProofStore,
 ) error {
 	cexCommitments, err := json.Marshal([][]byte{
 		result.BeforeCEXAssetsCommitment,
@@ -91,7 +99,7 @@ func persistProof(
 		return fmt.Errorf("marshal account roots: %w", err)
 	}
 
-	if err := proofStore.Create(&store.Proof{
+	if err := proofStore.Create(&corehost.ProofDTO{
 		ProofInfo:               base64.StdEncoding.EncodeToString(result.ProofRaw),
 		BatchNumber:             row.Height,
 		CexAssetListCommitments: string(cexCommitments),
@@ -101,5 +109,5 @@ func persistProof(
 	}); err != nil {
 		return fmt.Errorf("create proof row: %w", err)
 	}
-	return witnessStore.MarkStatus(row.Height, store.StatusFinished)
+	return witnessStore.MarkStatus(row.Height, corehost.StatusFinished)
 }

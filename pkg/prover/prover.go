@@ -9,8 +9,9 @@
 // dispatch + persistence layer.
 //
 // R8-C/3 wiring foundation: AssetsCountTiers + ZkKeyName stems are
-// derived from the declarative profile.toml + the KeysDir option.
-// config.json keeps DB DSN only.
+// derived from the declarative profile.toml; the stems are logical
+// identifiers resolved against the injected vfs.KeyOpener (the cmd shim
+// wraps the keys directory). config.json keeps DB DSN only.
 //
 // G1 carryover: solver.RegisterHint(corecircuit.IntegerDivision) is
 // called inside Run at startup. Witness solving requires the prover's
@@ -31,43 +32,63 @@
 // and returns ctx.Err(). The cmd/prover shim wires SIGINT/SIGTERM into
 // the context and treats context.Canceled as a clean shutdown (exit 0),
 // distinct from a fatal proveOne error (exit 1).
+//
+// R12-EF contract: Run no longer reads files, parses the profile/config,
+// or opens the store itself — those inputs arrive pre-built in Options
+// (parsed *declarative.Profile, parsed *pconfig.Config, a vfs.KeyOpener
+// for the .pk/.vk/.r1cs artifacts, and the witness-queue + proof-store
+// ports). cmd/prover is the sole os/path + store wiring point.
 package prover
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/prover/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/constraint/solver"
 )
 
-// Options bundles the inputs Run needs to start a prover engine.
+// Options bundles the inputs Run needs to start a prover engine. The
+// cmd/prover shim builds every injected value (parses the profile +
+// config, wraps the keys directory in a vfs.KeyOpener, and wires the
+// witness-queue + proof-store adapters); the engine never touches
+// os/path or store itself.
 type Options struct {
-	// ProfilePath points at the declarative profile.toml. Required.
-	ProfilePath string
+	// Profile is the parsed declarative profile.toml. Required.
+	Profile *declarative.Profile
 
-	// KeysDir holds the .pk / .vk / .r1cs artifacts written by keygen.
+	// Keys opens the .pk / .vk / .r1cs artifacts written by keygen,
+	// addressed by logical stem + extension. The cmd shim wraps the
+	// keys directory into this opener. Required.
+	Keys vfs.KeyOpener
+
+	// Config is the parsed prover deployment config (DB DSN + DbSuffix).
 	// Required.
-	KeysDir string
+	Config *pconfig.Config
 
-	// ConfigPath points at the prover's deployment config JSON (DB DSN
-	// + DbSuffix). Defaults to "config/config.json" when empty.
-	ConfigPath string
+	// WitnessQueue is the injected persistence port for the
+	// witness↔prover artifact channel. Required.
+	WitnessQueue corehost.WitnessQueue
+
+	// Proofs is the injected persistence port for the prover→verifier
+	// proof channel. Required; the cmd shim provides the MySQL adapter
+	// and has already called EnsureSchema.
+	Proofs corehost.ProofStore
 }
 
 // resolved holds the derived (tier, stem) plan the prover walks
 // when loading snark params. Built once at startup from profile.toml.
+// The stems are LOGICAL identifiers (provider.KeyName output only); the
+// vfs.KeyOpener joins them against its directory at open time.
 type resolved struct {
 	model           corespec.SolvencyModelID
 	assetCountTiers []int
@@ -93,26 +114,23 @@ type snarkParams struct {
 // Run registers the IntegerDivision hint at startup. The registration
 // is idempotent — repeated Run calls in the same process are safe.
 func Run(ctx context.Context, opts Options) error {
-	if opts.ProfilePath == "" {
-		return fmt.Errorf("prover: ProfilePath is required (path to profile.toml)")
+	if opts.Profile == nil {
+		return fmt.Errorf("prover: Profile is required")
 	}
-	if opts.KeysDir == "" {
-		return fmt.Errorf("prover: KeysDir is required (path to keygen .artifacts/)")
+	if opts.Config == nil {
+		return fmt.Errorf("prover: Config is required")
 	}
-	configPath := opts.ConfigPath
-	if configPath == "" {
-		configPath = "config/config.json"
+	if opts.Keys == nil {
+		return fmt.Errorf("prover: Keys is required")
+	}
+	if opts.WitnessQueue == nil {
+		return fmt.Errorf("prover: WitnessQueue is required")
+	}
+	if opts.Proofs == nil {
+		return fmt.Errorf("prover: Proofs is required")
 	}
 
-	cfg, err := loadConfig(configPath)
-	if err != nil {
-		return err
-	}
-	prof, err := declarative.Load(opts.ProfilePath)
-	if err != nil {
-		return fmt.Errorf("prover: load profile %q: %w", opts.ProfilePath, err)
-	}
-	plan, err := buildResolved(prof, opts.KeysDir)
+	plan, err := buildResolved(opts.Profile)
 	if err != nil {
 		return fmt.Errorf("prover: resolve snark params plan: %w", err)
 	}
@@ -122,15 +140,8 @@ func Run(ctx context.Context, opts Options) error {
 	// witness, otherwise the solver can't resolve hint outputs.
 	solver.RegisterHint(corecircuit.IntegerDivision)
 
-	db, err := store.Open(cfg.MysqlDataSource)
-	if err != nil {
-		return fmt.Errorf("prover: open mysql: %w", err)
-	}
-	witnessStore := store.NewWitnessStore(db, cfg.DbSuffix)
-	proofStore := store.NewProofStore(db, cfg.DbSuffix)
-	if err := proofStore.CreateTable(); err != nil {
-		return fmt.Errorf("prover: create proof table: %w", err)
-	}
+	witnessStore := opts.WitnessQueue
+	proofStore := opts.Proofs
 
 	var params snarkParams
 	for {
@@ -141,8 +152,8 @@ func Run(ctx context.Context, opts Options) error {
 			fmt.Println("prover: context cancelled, shutting down")
 			return err
 		}
-		row, err := witnessStore.ClaimOldestByStatus(store.StatusPublished, store.StatusReceived)
-		if errors.Is(err, store.ErrNotFound) {
+		row, err := witnessStore.ClaimOldestByStatus(corehost.StatusPublished, corehost.StatusReceived)
+		if errors.Is(err, corehost.ErrNotFound) {
 			fmt.Println("no published witness rows in queue, prover quitting")
 			return nil
 		}
@@ -157,14 +168,17 @@ func Run(ctx context.Context, opts Options) error {
 			}
 			continue
 		}
-		if err := proveOne(row, &params, plan, witnessStore, proofStore); err != nil {
+		if err := proveOne(ctx, row, &params, plan, opts.Keys, witnessStore, proofStore); err != nil {
 			return fmt.Errorf("prover: prove batch %d: %w", row.Height, err)
 		}
 	}
 }
 
-// buildResolved derives the (tier, stem) plan from profile.toml.
-func buildResolved(prof *declarative.Profile, keysDir string) (*resolved, error) {
+// buildResolved derives the (tier, stem) plan from profile.toml. The
+// stems are LOGICAL identifiers (provider.KeyName only); the directory
+// join lives in the vfs.KeyOpener, so buildResolved no longer takes a
+// keys directory.
+func buildResolved(prof *declarative.Profile) (*resolved, error) {
 	provider, err := declarative.BuildBatchShapeProvider(
 		corespec.SolvencyModelID(prof.Profile.Model), prof.BatchShapes)
 	if err != nil {
@@ -178,20 +192,7 @@ func buildResolved(prof *declarative.Profile, keysDir string) (*resolved, error)
 	}
 	for i, s := range shapes {
 		out.assetCountTiers[i] = s.AssetCountTier
-		out.zkKeyStems[i] = filepath.Join(keysDir, provider.KeyName(s, prof.Constraint.Module))
+		out.zkKeyStems[i] = provider.KeyName(s, prof.Constraint.Module)
 	}
 	return out, nil
-}
-
-// loadConfig reads and parses the on-disk JSON config.
-func loadConfig(path string) (*pconfig.Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("prover: read config %q: %w", path, err)
-	}
-	cfg := &pconfig.Config{}
-	if err := json.Unmarshal(raw, cfg); err != nil {
-		return nil, fmt.Errorf("prover: parse config %q: %w", path, err)
-	}
-	return cfg, nil
 }

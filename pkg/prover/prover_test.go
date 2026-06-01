@@ -5,18 +5,19 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 
 	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/prover/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
 
-// TestLoadConfig_RoundTrip confirms the slim R8-C/3 config carries
-// the DB-connection fields cleanly. AssetsCountTiers + ZkKeyName are
-// no longer config concerns — they're derived from profile.toml in
-// buildResolved.
-func TestLoadConfig_RoundTrip(t *testing.T) {
+// TestConfigParse_RoundTrip confirms the slim R8-C/3 config carries the
+// DB-connection fields cleanly through pconfig.Parse. R12-EF moved the
+// file read into cmd/prover; the engine consumes a parsed *Config, so
+// the round-trip is exercised against Parse([]byte) directly (loadConfig
+// is deleted). AssetsCountTiers + ZkKeyName are no longer config
+// concerns — they're derived from profile.toml in buildResolved.
+func TestConfigParse_RoundTrip(t *testing.T) {
 	src := pconfig.Config{
 		MysqlDataSource: "user:pass@tcp(host)/db",
 		DbSuffix:        "_test",
@@ -25,14 +26,10 @@ func TestLoadConfig_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
 
-	got, err := loadConfig(path)
+	got, err := pconfig.Parse(raw)
 	if err != nil {
-		t.Fatalf("loadConfig: %v", err)
+		t.Fatalf("Parse: %v", err)
 	}
 	if got.MysqlDataSource != src.MysqlDataSource || got.DbSuffix != src.DbSuffix {
 		t.Fatalf("scalar mismatch: got=%+v want=%+v", got, src)
@@ -43,6 +40,11 @@ func TestLoadConfig_RoundTrip(t *testing.T) {
 // derivation the prover relies on for snark-param lookup. A mis-ordered
 // stem slice would silently load the wrong .vk; this test pins the
 // ascending-tier order and the StandardKeyName template.
+//
+// R12-EF: the stems are now LOGICAL identifiers (provider.KeyName only);
+// the directory join moved into the vfs.KeyOpener (covered by the osvfs
+// test). So buildResolved takes no keys directory and the want stems
+// carry no "/keys" prefix.
 func TestBuildResolved_DerivesTiersAndStems(t *testing.T) {
 	t.Setenv("ZKPOR_BATCH_SHAPE_OVERRIDE", "") // never inherit; we want toml shapes
 	os.Unsetenv("ZKPOR_BATCH_SHAPE_OVERRIDE")
@@ -61,14 +63,14 @@ func TestBuildResolved_DerivesTiersAndStems(t *testing.T) {
 		},
 		Pricing: declarative.Pricing{DefaultPriceScale: 1e8, DefaultBalanceScale: 1e8},
 	}
-	plan, err := buildResolved(prof, "/keys")
+	plan, err := buildResolved(prof)
 	if err != nil {
 		t.Fatalf("buildResolved: %v", err)
 	}
 	wantTiers := []int{50, 500} // ascending
 	wantStems := []string{
-		"/keys/zkpor.t4_tiered_haircut_margin_3pool.50_700",
-		"/keys/zkpor.t4_tiered_haircut_margin_3pool.500_92",
+		"zkpor.t4_tiered_haircut_margin_3pool.50_700",
+		"zkpor.t4_tiered_haircut_margin_3pool.500_92",
 	}
 	for i := range wantTiers {
 		if plan.assetCountTiers[i] != wantTiers[i] {

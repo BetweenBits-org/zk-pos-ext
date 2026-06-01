@@ -8,9 +8,11 @@
 package prover
 
 import (
+	"context"
 	"fmt"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
 	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
 	t3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/host"
@@ -33,12 +35,12 @@ import (
 // The lazy cache is correct as long as ascending tier order is
 // preserved by the witness builder + DB ordering. R8/R10 witness
 // runners both honor ascending tier order.
-func dispatchDecodeAndProve(plan *resolved, params *snarkParams, encoded []byte, batchNumber int64) (*corehost.BatchProofResult, error) {
+func dispatchDecodeAndProve(ctx context.Context, plan *resolved, params *snarkParams, keys vfs.KeyOpener, encoded []byte, batchNumber int64) (*corehost.BatchProofResult, error) {
 	// On first call params.r1cs is nil — load the smallest tier
 	// (assumed first by ascending order). Subsequent calls compare
 	// against the cached tier; mismatch triggers a reload.
 	if params.r1cs == nil {
-		if err := loadSnarkParams(params, plan, plan.assetCountTiers[0]); err != nil {
+		if err := loadSnarkParams(ctx, params, plan, keys, plan.assetCountTiers[0]); err != nil {
 			return nil, err
 		}
 	}
@@ -57,7 +59,7 @@ func dispatchDecodeAndProve(plan *resolved, params *snarkParams, encoded []byte,
 		if tier == params.tier {
 			continue
 		}
-		if err := loadSnarkParams(params, plan, tier); err != nil {
+		if err := loadSnarkParams(ctx, params, plan, keys, tier); err != nil {
 			return nil, err
 		}
 		result, retryErr := runDecodeAndProve(plan.model, encoded, params, plan.assetCountTiers, batchNumber)
