@@ -87,6 +87,50 @@ func TestLoadT1Reference(t *testing.T) {
 	}
 }
 
+// TestParseRoundTripT1Reference verifies Parse decodes raw reference
+// TOML bytes into the expected fields — the source-agnostic decode path
+// that Load wraps. Reads the bytes directly (no Load) so this exercises
+// Parse in isolation.
+func TestParseRoundTripT1Reference(t *testing.T) {
+	raw, err := os.ReadFile("../t1_reference/t1_reference.toml")
+	if err != nil {
+		t.Fatalf("read t1_reference.toml: %v", err)
+	}
+	p, err := declarative.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse t1_reference.toml: %v", err)
+	}
+	if p.Profile.Name != "t1_reference" {
+		t.Errorf("Name = %q, want t1_reference", p.Profile.Name)
+	}
+	if p.Profile.Model != "t1_simple_margin" {
+		t.Errorf("Model = %q, want t1_simple_margin", p.Profile.Model)
+	}
+	if p.Profile.AssetCapacity != 50 {
+		t.Errorf("AssetCapacity = %d, want 50", p.Profile.AssetCapacity)
+	}
+	if p.Identity.Scheme != "passthrough_hex_bn254_reduced.v0" {
+		t.Errorf("Identity.Scheme = %q", p.Identity.Scheme)
+	}
+}
+
+// TestParseRunsValidate proves Parse runs Validate (not just
+// toml.Unmarshal): a syntactically valid TOML document that fails a
+// cross-field invariant — here profile.name empty — must surface the
+// Validate error from Parse.
+func TestParseRunsValidate(t *testing.T) {
+	// Valid TOML, but profile.name is empty -> Validate must reject.
+	raw := []byte(`
+[profile]
+name = ""
+model = "t1_simple_margin"
+asset_capacity = 50
+`)
+	if _, err := declarative.Parse(raw); err == nil {
+		t.Fatal("Parse accepted TOML with empty profile.name (Validate not run)")
+	}
+}
+
 // TestLoadWithSnapshotMapping verifies the additive R9-C
 // [snapshot.format] and [[snapshot.files]] schema can be parsed and
 // validated without changing existing profile files.

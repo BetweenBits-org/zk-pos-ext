@@ -122,22 +122,32 @@ type CatalogConfig struct {
 	Symbols []string `toml:"symbols"`
 }
 
-// Load reads the file at path and unmarshals it into a Profile.
-// Returns a descriptive error if the file is missing, malformed, or
-// fails schema validation.
+// Parse decodes raw TOML bytes into a Profile and validates it. It is
+// the source-agnostic decode+validate boundary: callers that already
+// hold the profile bytes (from a file, an embedded asset, a config
+// store, etc.) use Parse directly, while Load is the thin file-reading
+// wrapper around it. Returns a descriptive error if the bytes are
+// malformed or fail schema validation.
+func Parse(raw []byte) (*Profile, error) {
+	p := &Profile{}
+	if err := toml.Unmarshal(raw, p); err != nil {
+		return nil, fmt.Errorf("declarative profile: parse: %w", err)
+	}
+	if err := p.Validate(); err != nil {
+		return nil, fmt.Errorf("declarative profile: %w", err)
+	}
+	return p, nil
+}
+
+// Load reads the file at path and unmarshals it into a Profile via
+// Parse. Returns a descriptive error if the file is missing, malformed,
+// or fails schema validation.
 func Load(path string) (*Profile, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("declarative profile: read %q: %w", path, err)
 	}
-	p := &Profile{}
-	if err := toml.Unmarshal(raw, p); err != nil {
-		return nil, fmt.Errorf("declarative profile: parse %q: %w", path, err)
-	}
-	if err := p.Validate(); err != nil {
-		return nil, fmt.Errorf("declarative profile %q: %w", path, err)
-	}
-	return p, nil
+	return Parse(raw)
 }
 
 // Validate enforces the cross-field invariants the schema's optional-
