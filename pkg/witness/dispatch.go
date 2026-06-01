@@ -9,12 +9,12 @@ import (
 	"context"
 	"fmt"
 
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
 	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
 	t3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/host"
 	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 )
 
@@ -29,7 +29,7 @@ type dispatchInput struct {
 	capacity        int
 	pricing         corespec.PriceScaleProvider
 	accountTree     bsmt.SparseMerkleTree
-	witnessStore    *store.WitnessStore
+	witnessStore    corehost.WitnessQueue
 	shapeProvider   corespec.BatchShapeProvider
 	assetCountTiers []int
 	dumpFinalCex    string

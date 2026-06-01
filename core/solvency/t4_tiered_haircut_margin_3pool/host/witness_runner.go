@@ -8,9 +8,9 @@ import (
 	"os"
 	"sort"
 
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
@@ -26,7 +26,7 @@ type WitnessRunnerConfig struct {
 	Ctx             context.Context
 	Snapshot        t4spec.SnapshotSource
 	AccountTree     bsmt.SparseMerkleTree
-	WitnessStore    *store.WitnessStore
+	WitnessStore    corehost.WitnessQueue
 	ShapeProvider   corespec.BatchShapeProvider
 	AssetCountTiers []int
 	// DumpFinalCex (optional) — when non-empty, after the last batch
@@ -117,7 +117,7 @@ func runBatches(
 	accountsByTier map[int][]t4spec.AccountInfo,
 	cexAssets []t4spec.CexAssetInfo,
 	accountTree bsmt.SparseMerkleTree,
-	witnessStore *store.WitnessStore,
+	witnessStore corehost.WitnessQueue,
 	assetCountTiers []int,
 	shapeProvider corespec.BatchShapeProvider,
 	totalAccounts int,
@@ -155,12 +155,12 @@ func runBatches(
 			if err != nil {
 				return err
 			}
-			row := store.BatchWitness{
+			row := corehost.BatchWitnessDTO{
 				Height:      height,
 				WitnessData: base64.StdEncoding.EncodeToString(encoded),
-				Status:      store.StatusPublished,
+				Status:      corehost.StatusPublished,
 			}
-			if err := witnessStore.Create([]store.BatchWitness{row}); err != nil {
+			if err := witnessStore.Create([]corehost.BatchWitnessDTO{row}); err != nil {
 				return err
 			}
 

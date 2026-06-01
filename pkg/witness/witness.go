@@ -142,8 +142,8 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("witness: open mysql: %w", err)
 	}
-	witnessStore := store.NewWitnessStore(db, cfg.DbSuffix)
-	if err := witnessStore.CreateTable(); err != nil {
+	wq := store.NewWitnessQueueAdapter(store.NewWitnessStore(db, cfg.DbSuffix))
+	if err := wq.EnsureSchema(); err != nil {
 		return fmt.Errorf("witness: create witness table: %w", err)
 	}
 
@@ -156,7 +156,7 @@ func Run(ctx context.Context, opts Options) error {
 		capacity:        capacity,
 		pricing:         pricing,
 		accountTree:     accountTree,
-		witnessStore:    witnessStore,
+		witnessStore:    wq,
 		shapeProvider:   shapeProvider,
 		assetCountTiers: assetCountTiers,
 		dumpFinalCex:    opts.DumpFinalCex,
