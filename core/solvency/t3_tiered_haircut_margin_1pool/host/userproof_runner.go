@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"sort"
 
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	t3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/spec"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 )
 
@@ -23,7 +23,7 @@ type UserProofRunnerConfig struct {
 	Ctx             context.Context
 	Snapshot        t3spec.SnapshotSource
 	AccountTree     bsmt.SparseMerkleTree
-	UserProofStore  *store.UserProofStore
+	UserProofStore  corehost.UserProofStore
 	ShapeProvider   corespec.BatchShapeProvider
 	AssetCountTiers []int
 }
@@ -104,9 +104,9 @@ func writeUserProofs(
 	realCount map[int]int,
 	assetCountTiers []int,
 	rootHex string,
-	userProofStore *store.UserProofStore,
+	userProofStore corehost.UserProofStore,
 ) (int, error) {
-	batch := make([]store.UserProof, 0, dbBatchSize)
+	batch := make([]corehost.UserProofDTO, 0, dbBatchSize)
 	written := 0
 
 	flush := func() error {
@@ -155,14 +155,14 @@ func BuildUserProofRow(
 	leaf []byte,
 	proof [][]byte,
 	rootHex string,
-) (store.UserProof, error) {
+) (corehost.UserProofDTO, error) {
 	proofJSON, err := json.Marshal(proof)
 	if err != nil {
-		return store.UserProof{}, fmt.Errorf("marshal proof: %w", err)
+		return corehost.UserProofDTO{}, fmt.Errorf("marshal proof: %w", err)
 	}
 	assetsJSON, err := json.Marshal(account.Assets)
 	if err != nil {
-		return store.UserProof{}, fmt.Errorf("marshal assets: %w", err)
+		return corehost.UserProofDTO{}, fmt.Errorf("marshal assets: %w", err)
 	}
 	userConfig := UserConfig{
 		AccountIndex:    account.AccountIndex,
@@ -176,10 +176,10 @@ func BuildUserProofRow(
 	}
 	configJSON, err := json.Marshal(userConfig)
 	if err != nil {
-		return store.UserProof{}, fmt.Errorf("marshal user config: %w", err)
+		return corehost.UserProofDTO{}, fmt.Errorf("marshal user config: %w", err)
 	}
 
-	return store.UserProof{
+	return corehost.UserProofDTO{
 		AccountIndex:    account.AccountIndex,
 		AccountId:       hex.EncodeToString(account.AccountID),
 		AccountLeafHash: hex.EncodeToString(leaf),

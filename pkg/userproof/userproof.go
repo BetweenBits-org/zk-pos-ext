@@ -143,8 +143,8 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("userproof: open mysql: %w", err)
 	}
-	userProofStore := store.NewUserProofStore(db, cfg.DbSuffix)
-	if err := userProofStore.CreateTable(); err != nil {
+	userProofStore := store.NewUserProofStoreAdapter(store.NewUserProofStore(db, cfg.DbSuffix))
+	if err := userProofStore.EnsureSchema(); err != nil {
 		return fmt.Errorf("userproof: create userproof table: %w", err)
 	}
 
