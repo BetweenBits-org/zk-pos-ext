@@ -34,6 +34,7 @@ import (
 	"syscall"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/userproof"
 	uconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/userproof/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
@@ -96,11 +97,18 @@ func run() error {
 		return fmt.Errorf("userproof: create userproof table: %w", err)
 	}
 
+	// Build the SMT backing from the deployment config's TreeDB block and
+	// inject the tree handle — the engine never holds a tree DSN (R12-G).
+	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
+	if err != nil {
+		return fmt.Errorf("userproof: open account tree: %w", err)
+	}
+
 	return userproof.Run(ctx, userproof.Options{
 		Profile:          prof,
 		Snapshot:         snap,
-		Config:           cfg,
 		UserProofs:       ups,
+		AccountTree:      accountTree,
 		UserDataDir:      *userDataDir,
 		SnapshotID:       *snapshotID,
 		CapacityOverride: *capacityOverride,

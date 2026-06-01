@@ -23,6 +23,11 @@
 // remaining os call is the optional DumpUserPath WriteFile, a dual-use
 // output sink that legitimately belongs to the engine's smoke path.
 //
+// R12-G contract: the depth-28 SMT backing (TreeDB) is injected — the
+// engine receives an already-built sparse Merkle tree (rebuilt fresh per
+// run) and holds no tree DSN; the cmd shim constructs it from the
+// deployment config's TreeDB block, keeping the engine backend-agnostic.
+//
 // R12-B contract: Run returns error; in-process callers can drive
 // userproof without recover() and propagate the error up. The
 // cmd/userproof shim is the only layer that converts errors into exit
@@ -49,9 +54,8 @@ import (
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
-	uconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/userproof/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	bsmt "github.com/bnb-chain/zkbnb-smt"
 
 	// Register all four model-specific standard CSV snapshot connectors.
 	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
@@ -73,14 +77,16 @@ type Options struct {
 	// profile.snapshot.user_data_dir) into this opener. Required.
 	Snapshot vfs.Opener
 
-	// Config is the parsed userproof deployment config (DB DSN + TreeDB
-	// driver/endpoint). Required.
-	Config *uconfig.Config
-
 	// UserProofs is the injected persistence port for the per-user
 	// inclusion-proof table. Required; the cmd shim provides the MySQL
 	// adapter and has already called EnsureSchema.
 	UserProofs corehost.UserProofStore
+
+	// AccountTree is the injected depth-28 sparse Merkle tree the engine
+	// rebuilds into to recompute per-user inclusion proofs. The cmd shim
+	// constructs it from the deployment config's TreeDB backing
+	// (memory/redis) so the engine holds no tree DSN. Required.
+	AccountTree bsmt.SparseMerkleTree
 
 	// UserDataDir overrides profile.snapshot.user_data_dir when
 	// non-empty. The engine no longer uses this for IO (the cmd shim
@@ -114,16 +120,15 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Profile == nil {
 		return fmt.Errorf("userproof: Profile is required")
 	}
-	if opts.Config == nil {
-		return fmt.Errorf("userproof: Config is required")
-	}
 	if opts.Snapshot == nil {
 		return fmt.Errorf("userproof: Snapshot is required")
 	}
 	if opts.UserProofs == nil {
 		return fmt.Errorf("userproof: UserProofs is required")
 	}
-	cfg := opts.Config
+	if opts.AccountTree == nil {
+		return fmt.Errorf("userproof: AccountTree is required")
+	}
 	prof := opts.Profile
 
 	// G6 closure: BuildPricing carries the ValueScale invariant assert.
@@ -148,10 +153,7 @@ func Run(ctx context.Context, opts Options) error {
 		snapID = opts.SnapshotID
 	}
 
-	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
-	if err != nil {
-		return fmt.Errorf("userproof: open account tree: %w", err)
-	}
+	accountTree := opts.AccountTree
 
 	userProofStore := opts.UserProofs
 

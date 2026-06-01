@@ -8,13 +8,18 @@
 // runBatches, buildBatch, safeAdd) is pulled into model-specific
 // runner packages at core/solvency/<model>/host/witness_runner.go.
 // This package is a thin wiring layer — it receives the parsed profile,
-// config, snapshot opener, and witness-queue port as injected Options
-// (the cmd shim builds them), derives shared dependencies, switches on
-// profile.Model, and delegates to the matching runner.
+// snapshot opener, witness-queue port, and account tree as injected
+// Options (the cmd shim builds them), derives shared dependencies,
+// switches on profile.Model, and delegates to the matching runner.
 //
 // R12-E contract: Run no longer reads files, parses the profile/config,
 // or opens the store itself — those inputs arrive pre-built in Options.
 // cmd/witness is the sole os/path + store wiring point.
+//
+// R12-G contract: the depth-28 SMT backing (TreeDB) is injected too —
+// the engine receives an already-built sparse Merkle tree and holds no
+// tree DSN; the cmd shim constructs it from the deployment config's
+// TreeDB block, keeping the engine agnostic to the tree backend.
 //
 // Sequential per-account hashing, fresh-start only (no DB resume, no
 // tree rollback). G6 (ValueScale invariant) closure happens inside
@@ -45,9 +50,8 @@ import (
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
-	wconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/witness/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	bsmt "github.com/bnb-chain/zkbnb-smt"
 
 	// Register all four model-specific standard CSV snapshot connectors.
 	// init() in each parser package adds the connector to its model's
@@ -72,14 +76,16 @@ type Options struct {
 	// profile.snapshot.user_data_dir) into this opener. Required.
 	Snapshot vfs.Opener
 
-	// Config is the parsed witness deployment config (DB DSN + TreeDB
-	// driver/endpoint). Required.
-	Config *wconfig.Config
-
 	// WitnessQueue is the injected persistence port for the
 	// witness↔prover artifact channel. Required; the cmd shim provides
 	// the MySQL adapter and has already called EnsureSchema.
 	WitnessQueue corehost.WitnessQueue
+
+	// AccountTree is the injected depth-28 sparse Merkle tree the witness
+	// builds into. The cmd shim constructs it from the deployment config's
+	// TreeDB backing (memory/redis) so the engine holds no tree DSN and
+	// stays agnostic to the tree backend. Required.
+	AccountTree bsmt.SparseMerkleTree
 
 	// UserDataDir overrides profile.snapshot.user_data_dir when
 	// non-empty. The engine no longer uses this for IO (the cmd shim
@@ -110,16 +116,15 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Profile == nil {
 		return fmt.Errorf("witness: Profile is required")
 	}
-	if opts.Config == nil {
-		return fmt.Errorf("witness: Config is required")
-	}
 	if opts.Snapshot == nil {
 		return fmt.Errorf("witness: Snapshot is required")
 	}
 	if opts.WitnessQueue == nil {
 		return fmt.Errorf("witness: WitnessQueue is required")
 	}
-	cfg := opts.Config
+	if opts.AccountTree == nil {
+		return fmt.Errorf("witness: AccountTree is required")
+	}
 	prof := opts.Profile
 
 	// G6 closure: BuildPricing rejects invariant violations at build time.
@@ -144,10 +149,7 @@ func Run(ctx context.Context, opts Options) error {
 		snapID = opts.SnapshotID
 	}
 
-	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
-	if err != nil {
-		return fmt.Errorf("witness: open account tree: %w", err)
-	}
+	accountTree := opts.AccountTree
 
 	deps := dispatchInput{
 		model:           model,

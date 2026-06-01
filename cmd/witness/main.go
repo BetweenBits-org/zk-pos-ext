@@ -33,6 +33,7 @@ import (
 	"syscall"
 
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/witness"
 	wconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/witness/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
@@ -94,11 +95,18 @@ func run() error {
 		return fmt.Errorf("witness: create witness table: %w", err)
 	}
 
+	// Build the SMT backing from the deployment config's TreeDB block and
+	// inject the tree handle — the engine never holds a tree DSN (R12-G).
+	accountTree, err := tree.NewAccountTree(cfg.TreeDB.Driver, cfg.TreeDB.Option.Addr)
+	if err != nil {
+		return fmt.Errorf("witness: open account tree: %w", err)
+	}
+
 	return witness.Run(ctx, witness.Options{
 		Profile:          prof,
 		Snapshot:         snap,
-		Config:           cfg,
 		WitnessQueue:     wq,
+		AccountTree:      accountTree,
 		UserDataDir:      *userDataDir,
 		SnapshotID:       *snapshotID,
 		CapacityOverride: *capacityOverride,
