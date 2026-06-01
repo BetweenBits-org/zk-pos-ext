@@ -31,16 +31,22 @@
 // before compiling each shape and returns ctx.Err() between shapes. The
 // in-flight Setup runs to completion. Keygen is a one-shot job, so
 // cmd/keygen treats any error (including context.Canceled) as exit 1.
+//
+// R12-EF contract: Run no longer reads the profile or creates the output
+// directory itself — the parsed *declarative.Profile and a vfs.KeySink
+// writer arrive pre-built in Options. The key-writing path streams each
+// artifact through opts.Keys.Create(stem, ext); cmd/keygen is the sole
+// os/path wiring point (declarative.Load + osvfs.KeyDirSink).
 package keygen
 
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io"
 	"runtime"
 	"time"
 
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 
@@ -50,14 +56,17 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
-// Options bundles the inputs Run needs.
+// Options bundles the inputs Run needs. The cmd/keygen shim builds every
+// injected value (parses the profile, wraps the output directory in a
+// vfs.KeySink); the engine never touches os/path itself.
 type Options struct {
-	// ProfilePath points at the declarative profile.toml. Required.
-	ProfilePath string
+	// Profile is the parsed declarative profile.toml. Required.
+	Profile *declarative.Profile
 
-	// OutDir is the destination directory for the .pk / .vk / .r1cs
-	// triples. Defaults to "." when empty. Created if missing.
-	OutDir string
+	// Keys creates the .pk / .vk / .r1cs artifacts, addressed by logical
+	// stem + extension. The cmd shim wraps the output directory into this
+	// sink. Required.
+	Keys vfs.KeySink
 
 	// CapacityOverride supersedes profile.asset_capacity when > 0.
 	// Smoke-harness use only — production callers should leave at 0
@@ -70,21 +79,13 @@ type Options struct {
 // first compile/setup/write failure encountered; nil on success. A
 // cancelled ctx stops the walk between shapes and returns ctx.Err().
 func Run(ctx context.Context, opts Options) error {
-	if opts.ProfilePath == "" {
-		return fmt.Errorf("keygen: ProfilePath is required (path to profile.toml)")
+	if opts.Profile == nil {
+		return fmt.Errorf("keygen: Profile is required")
 	}
-	outDir := opts.OutDir
-	if outDir == "" {
-		outDir = "."
+	if opts.Keys == nil {
+		return fmt.Errorf("keygen: Keys (vfs.KeySink) is required")
 	}
-
-	prof, err := declarative.Load(opts.ProfilePath)
-	if err != nil {
-		return fmt.Errorf("keygen: load profile %q: %w", opts.ProfilePath, err)
-	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return fmt.Errorf("keygen: create output dir %q: %w", outDir, err)
-	}
+	prof := opts.Profile
 
 	shapes, err := declarative.BuildBatchShape(prof.BatchShapes)
 	if err != nil {
@@ -111,8 +112,11 @@ func Run(ctx context.Context, opts Options) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		// stem is the LOGICAL key identifier (StandardKeyName output
+		// only); the vfs.KeySink joins it against its output directory at
+		// create time, so the engine never assembles a path.
 		stem := s.StandardKeyName(model, prof.Constraint.Module)
-		if err := keygenShape(model, s, capacity, filepath.Join(outDir, stem)); err != nil {
+		if err := keygenShape(model, s, capacity, stem, opts.Keys); err != nil {
 			return err
 		}
 	}
@@ -120,9 +124,9 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 // keygenShape compiles the model-appropriate circuit at the given
-// shape and asset capacity, then writes .pk / .vk / .r1cs to
-// "<stemPath>.<ext>".
-func keygenShape(model corespec.SolvencyModelID, s corespec.BatchShape, assetCapacity int, stemPath string) error {
+// shape and asset capacity, then writes .pk / .vk / .r1cs through the
+// vfs.KeySink at logical stem "<stem>.<ext>".
+func keygenShape(model corespec.SolvencyModelID, s corespec.BatchShape, assetCapacity int, stem string, keys vfs.KeySink) error {
 	circuit, err := newCircuit(model, s, assetCapacity)
 	if err != nil {
 		return err
@@ -136,18 +140,18 @@ func keygenShape(model corespec.SolvencyModelID, s corespec.BatchShape, assetCap
 		frontend.IgnoreUnconstrainedInputs(),
 	)
 	if err != nil {
-		return fmt.Errorf("compile %s: %w", stemPath, err)
+		return fmt.Errorf("compile %s: %w", stem, err)
 	}
 	fmt.Printf("%s: r1cs compiled in %s (%d constraints)\n",
-		stemPath, time.Since(compileStart), cs.GetNbConstraints())
+		stem, time.Since(compileStart), cs.GetNbConstraints())
 
 	setupStart := time.Now()
 	pk, vk, err := groth16.Setup(cs)
 	if err != nil {
-		return fmt.Errorf("setup %s: %w", stemPath, err)
+		return fmt.Errorf("setup %s: %w", stem, err)
 	}
 	runtime.GC()
-	fmt.Printf("%s: groth16.Setup done in %s\n", stemPath, time.Since(setupStart))
+	fmt.Printf("%s: groth16.Setup done in %s\n", stem, time.Since(setupStart))
 
 	// .pk uses WriteTo (compressed G1/G2 points) — same encoding as the
 	// legacy Binance keygen, halves on-disk size vs WriteRawTo (24GB →
@@ -155,31 +159,32 @@ func keygenShape(model corespec.SolvencyModelID, s corespec.BatchShape, assetCap
 	// at capacity=500). gnark's pk.UnsafeReadFrom auto-detects the
 	// encoding, so prover read path is unchanged. .vk + .r1cs use
 	// WriteTo for the same reason.
-	if err := writeTo(stemPath+".pk", func(f *os.File) (int64, error) { return pk.WriteTo(f) }); err != nil {
+	if err := writeTo(keys, stem, ".pk", func(w io.Writer) (int64, error) { return pk.WriteTo(w) }); err != nil {
 		return err
 	}
-	if err := writeTo(stemPath+".vk", func(f *os.File) (int64, error) { return vk.WriteTo(f) }); err != nil {
+	if err := writeTo(keys, stem, ".vk", func(w io.Writer) (int64, error) { return vk.WriteTo(w) }); err != nil {
 		return err
 	}
-	if err := writeTo(stemPath+".r1cs", func(f *os.File) (int64, error) { return cs.WriteTo(f) }); err != nil {
+	if err := writeTo(keys, stem, ".r1cs", func(w io.Writer) (int64, error) { return cs.WriteTo(w) }); err != nil {
 		return err
 	}
 	return nil
 }
 
-// writeTo opens path for writing and invokes serialize to stream the
-// artifact. Closes the file and reports bytes written on success.
-func writeTo(path string, serialize func(*os.File) (int64, error)) error {
-	f, err := os.Create(path)
+// writeTo creates the stem+ext key stream through the sink and invokes
+// serialize to stream the artifact into it. Closes the stream and
+// reports bytes written on success.
+func writeTo(keys vfs.KeySink, stem, ext string, serialize func(io.Writer) (int64, error)) error {
+	w, err := keys.Create(stem, ext)
 	if err != nil {
-		return fmt.Errorf("create %s: %w", path, err)
+		return fmt.Errorf("create %s%s: %w", stem, ext, err)
 	}
-	defer f.Close()
+	defer w.Close()
 
-	n, err := serialize(f)
+	n, err := serialize(w)
 	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+		return fmt.Errorf("write %s%s: %w", stem, ext, err)
 	}
-	fmt.Printf("%s: %d bytes\n", path, n)
+	fmt.Printf("%s%s: %d bytes\n", stem, ext, n)
 	return nil
 }
