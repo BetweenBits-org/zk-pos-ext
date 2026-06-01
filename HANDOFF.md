@@ -9,16 +9,21 @@ Origin: `https://github.com/BetweenBits-org/zk-pos-ext.git` (zkpor/.git/).
 브랜치 layout: `main` 은 stable, `development` 워크트리 (`.worktree/development/`)
 에서 in-progress 슬라이스 진행. main 으로 fast-forward merge 후 push.
 
-Latest commits (branch `development`; R12-C closure ff-merged into main):
+Latest commits (branch `r12ef-io-inversion`; R12-E + R12-F IO inversion):
 
 ```text
-docs(zkpor): HANDOFF — R12-C closed, R12-D as next slice (this commit)
-c7c28cd refactor(zkpor): verifier+keygen — Run*(ctx, ...) (R12-C/3 closure)
-e9d3edb refactor(zkpor): witness+userproof — Run(ctx, opts) (R12-C/2)
-7f070ff refactor(zkpor): prover — Run(ctx, opts) graceful shutdown (R12-C/1)
-6537f5f docs(zkpor): HANDOFF — R12-B closed, R12-C as next slice
-ec9dfa9 refactor(zkpor): userproof+witness+prover — panic → error (R12-B closure)
-[... 그 위 R12-B/1·2 + R12-A 5개 pkg/* 추출 + R11-D Phase 1/2/2b]
+docs(zkpor): R12-E/R12-F source-agnostic IO + persistence ports (this commit)
+a808d3e refactor(zkpor): keygen receives injected Profile + KeySink (R12-E/keygen)
+df69b93 refactor(zkpor): verifier engine receives injected ports (R12-EF/verifier)
+7474881 refactor(zkpor): prover engine receives injected ports (R12-EF/prover)
+f2cec0b refactor(zkpor): userproof engine receives injected Snapshot/store (R12-E)
+b570ea9 refactor(zkpor): witness engine receives injected Snapshot/queue (R12-E)
+fd1b3df refactor(zkpor): snapshot reads through vfs.Opener (R12-E/4)
+5a491cc feat(zkpor): store port adapter-wrappers (R12-F/1)
+b584f3b feat(zkpor): core/host persistence ports + DTOs (R12-F/0)
+843ed68 feat(zkpor): osvfs local filesystem adapter (R12-E/3)
+b08258c feat(zkpor): core/io/vfs opener ports (R12-E/2)
+[... 그 위 config.Parse/declarative.Parse seams + R12-A/B/C + R11-D]
 ```
 
 **Phase progression**:
@@ -40,7 +45,9 @@ ec9dfa9 refactor(zkpor): userproof+witness+prover — panic → error (R12-B clo
 | **R12-A (library extraction — 5 services → pkg/\*)** | **✅ closed (2026-05-28)** | verifier/prover/witness/userproof/keygen 모두 pkg/\* + cmd thin shim. `Options` + `Run(opts)` 통일 |
 | **R12-B (panic → error migration)** | **✅ closed (2026-05-29)** | 5 pkg/\* 모두 `Run(opts) error`. in-process 호출 가능 (no recover). 3 commit (B/1 verifier, B/2 keygen, B/3 user+wit+prover closure) |
 | **R12-C (context.Context 지원, cancellable Run)** | **✅ closed (2026-05-29)** | 5 pkg/\* 모두 `Run(ctx, ...)`. prover 폴 루프 batch-granular cancel, witness/userproof snapshot stream 중단, verifier worker pool ctx 조기종료, keygen shape-granular. cmd shim `signal.NotifyContext`. 3 commit (C/1 prover, C/2 wit+user, C/3 verifier+keygen) |
-| **R12-D (DB engine 다중화, MySQL only 해제)** | ⏳ **다음 진입점 (development 워크트리)** | `store.Open` driver-selection switch + per-driver error translation. Postgres/SQLite 후보 |
+| **R12-E (Source-Agnostic Engine Input)** | **✅ closed (2026-06-01, branch r12ef)** | 입력 구성을 engine `Run` 밖 cmd shim 으로 inversion. profile/config 은 parsed value, snapshot/keys 는 `vfs.Opener`/`KeyOpener`/`KeySink`/`ByteSource` port. `core/io/vfs` + `osvfs` 가 input-side os/filepath 유일 지점. logical stem (no `filepath.Join` in engine). lazy `verifier -hash`. on-wire bytes/명명/시그니처 보존. ROADMAP §R12-E |
+| **R12-F (Persistence Port Inversion)** | **✅ closed (2026-06-01, branch r12ef)** | `core/host` 가 3 port (`WitnessQueue`/`ProofStore`/`UserProofStore`) + gorm-free DTO + `ErrNotFound` sentinel 소유. `store` 는 MySQL adapter-wrapper. gorm.Model 은 store row 에만. R12-D 의 backing-agnostic 목표를 **port 로 흡수** — 단 postgres/sqlite gorm driver 는 **추가하지 않음** (MySQL 단일 adapter, Redis/S3/PG 는 port 의 미래 adapter). ROADMAP §R12-F |
+| **R12-D (DB engine 다중화, MySQL only 해제)** | ⏳ **R12-F 로 개념 흡수 (잔여 DB-mux 는 optional)** | backing-agnostic 은 R12-F port 가 제공. `store.Open` driver-switch + postgres/sqlite dialector 는 **미실시** (port 가 더 깨끗한 seam). 실제 2nd adapter 가 필요하면 별도 슬라이스. ROADMAP §Stage R12 의 `R12-D — GPU 측정 smoke` 와는 별개 라벨 (둘 다 intact) |
 | R12 GPU PoC (ICICLE) | deferred | host RAM 요구 8xl+ — 측정 가치 큼, 별도 트랙 |
 | R13 (multi-instance prover) | deferred | R12 closure 후 |
 
@@ -76,11 +83,12 @@ ec9dfa9 refactor(zkpor): userproof+witness+prover — panic → error (R12-B clo
 
 | 영역 | 상태 / 비고 |
 |---|---|
-| `zkpor/core/spec/`, `zkpor/core/circuit/`, `zkpor/core/host/`, `zkpor/core/tree/` | ✅ engine universal layer — 변경 적음 |
+| `zkpor/core/spec/`, `zkpor/core/circuit/`, `zkpor/core/host/`, `zkpor/core/tree/` | ✅ engine universal layer — 변경 적음. `core/host` 가 R12-F persistence ports (`WitnessQueue`/`ProofStore`/`UserProofStore` + gorm-free DTO + `ErrNotFound`) 추가 소유 |
+| `zkpor/core/io/vfs` + `zkpor/core/io/vfs/osvfs` | ✅ R12-E — input-side os/filepath 유일 지점. `vfs` ports (`Opener`/`KeyOpener`/`KeySink`/`ByteSource`), `osvfs` local adapter (`Dir`/`KeyDir`/`KeyDirSink`/`File`). S3/DB/in-mem backend 는 port 만 구현하면 꽂힘 |
 | `zkpor/core/snapshot/{schema,csv,mapping}` + `{t1,t2,t3,t4}_*` | ✅ R9 closed — 4 model standard CSV connectors |
 | `zkpor/core/solvency/{t1,t2,t3,t4}/{spec,circuit,host}` | ✅ 4 model 본체 + host helpers + `*_runner.go` (witness/prover/verifier/userproof dispatch) |
-| `zkpor/pkg/{keygen,witness,prover,verifier,userproof}` | ✅ R12-A/B/C — engine library surface. `Options` struct + `Run(ctx, opts) error` (verifier: `RunBatch/RunUser(ctx, opts)`, `RunHash` ctx-free). in-process callable, no recover(), cancellable |
-| `zkpor/cmd/{keygen,witness,prover,verifier,userproof}` | ✅ thin shim — flag parse + `signal.NotifyContext` (SIGINT/SIGTERM → ctx) 후 pkg/<service>.Run 호출. prover 는 context.Canceled → exit 0 (daemon graceful), 나머지 one-shot 은 모든 error → exit 1 |
+| `zkpor/pkg/{keygen,witness,prover,verifier,userproof}` | ✅ R12-A/B/C/E/F — engine library surface. `Options` 가 injected value/opener/port (profile/config value, `vfs` opener, `corehost` port) 받음. `Run(ctx, opts) error` (verifier: `RunBatch/RunUser(ctx, opts)`, `RunHash` ctx-free). engine `Run` 안에 os/filepath/store import 0. in-process callable, no recover(), cancellable |
+| `zkpor/cmd/{keygen,witness,prover,verifier,userproof}` | ✅ thin shim — flag parse + `signal.NotifyContext` + **입력 구성 (R12-E)**: `os.ReadFile`+`Parse` value, `osvfs.{Dir,KeyDir,KeyDirSink,File}` opener, `store.New*Adapter` port. verifier 는 `-hash` 빼고 lazy 구성. prover 는 context.Canceled → exit 0, 나머지 one-shot 은 error → exit 1 |
 | `zkpor/cmd/gen-testdata` | ✅ R11-A — `--asset-capacity` + `--asset-count` + `--users` + `--seed`, sum invariant |
 | `zkpor/cmd/gen-testdata/internal/testdata/` | ✅ R11-A — model-typed synthesis (R12-A 에서 cmd/gen-testdata 안으로 visibility 축소) |
 | `zkpor/profile/{t1,t2,t3,t4}_reference/` | ✅ profile.toml + standard CSV testdata/happy/ — sea/binance 명명 제거됨 (`sea_reference`→`t1_reference`, `binance`→`t4_reference`) |
@@ -88,7 +96,7 @@ ec9dfa9 refactor(zkpor): userproof+witness+prover — panic → error (R12-B clo
 | `zkpor/scripts/smoke.sh` | ✅ profile-driven + ZKPOR_SMOKE_USER_DATA env override |
 | `zkpor/scripts/extract_smoke_metrics.sh` | ✅ md 양식 + `--json` (multi-batch aggregate) |
 | `zkpor/scripts/ec2/{bootstrap,sync,fetch,smoke,r11d,switch_type}.sh` + `_lib.sh` | ✅ R11-D 측정 인프라 |
-| `zkpor/store/` | ✅ MySQL gorm — 3 모델 (witness/proof/userproof) |
+| `zkpor/store/` | ✅ MySQL gorm — 3 모델 (witness/proof/userproof) + R12-F adapter-wrappers (`New{WitnessQueue,ProofStore,UserProofStore}Adapter`) 가 `core/host` port 만족. gorm.Model 은 store row 에만 격리. **유일 출하 adapter** (postgres/sqlite driver 미추가) |
 | `zkpor/scripts/deploy/docker-compose.yml` | ✅ smoke MySQL fixture |
 | `zkpor/docs/BENCHMARK.md` | ✅ benchmark single source of truth (R6.5/§2.4/§2.6 측정 fold-in) |
 | `zkpor/docs/R11D_RUNBOOK.md` | ✅ R11-D 절차 |
@@ -113,35 +121,40 @@ ec9dfa9 refactor(zkpor): userproof+witness+prover — panic → error (R12-B clo
 다음 agent 의 진입 순서:
 
 1. `zkpor/AGENTS.md`, `zkpor/PRODUCTION_ROADMAP.md`, **본 문서** 읽기.
-2. `cd .worktree/development && git log --oneline -10` 으로 최근 commit 확인.
-3. R12-C 결과 흡수: 5개 pkg/<service> 모두 `Run(ctx, ...)`. prover 폴
-   루프는 batch-granular cancel (in-flight `groth16.Prove` 는 끝까지
-   돌고, 다음 claim 전에 `ctx.Err()` 관측 → 종료). witness/userproof 는
-   snapshot stream (AccountStream/CexAssets 가 이미 ctx 준수) 흐름.
-   verifier batch 는 worker pool 이 proof 사이마다 ctx 관측 → 조기 종료.
-   keygen 은 shape 사이마다 관측. cmd shim 은 `signal.NotifyContext` 로
-   SIGINT/SIGTERM 연결, prover 만 `context.Canceled` → exit 0.
-4. 다음 슬라이스 — **R12-D DB engine 다중화** (아래 §Next Slice).
+2. `git -C zkpor log --oneline -12` (branch `r12ef-io-inversion`) 으로
+   최근 commit 확인.
+3. R12-E/R12-F 결과 흡수: engine `Run` 은 입력을 직접 안 연다. cmd shim
+   이 profile/config 를 `Parse` value 로, snapshot/keys 를 `osvfs`
+   opener 로, store 를 `store.New*Adapter` port 로 구성해 `Options` 에
+   주입. `core/io/vfs` + `osvfs` 가 input-side os/filepath 유일 지점.
+   `core/host` 가 persistence port 3종 + gorm-free DTO + `ErrNotFound`
+   소유. key stem 은 bare logical (engine 이 dir join 안 함), `osvfs.
+   KeyDir` 가 `<dir>/<stem>.<ext>` 생성. verifier `-hash A B` 는 빈
+   profile 로도 성공 (lazy 구성). on-wire bytes/명명/시그니처 보존.
+4. 다음 슬라이스 — 아래 §Next Slice.
 
-### Next Slice: R12-D — DB engine 다중화 (MySQL only 해제)
+### Next Slice: r12ef 검증 + (optional) port 의 첫 2nd adapter
 
-목표: `store.Open` 의 MySQL-전용 가정 제거. 현재 `gorm.io/driver/mysql`
-을 직접 호출하므로 Postgres/SQLite 배포가 불가.
+R12-E/R12-F 가 IO + persistence 를 port 뒤로 inversion 완료. 코드
+변경 없이 다음을 진행:
 
-작업 단위 후보:
+1. **engine smoke 재실행 (r12ef 브랜치)** — `scripts/smoke.sh` 풀
+   파이프라인 (docker MySQL → keygen → witness → prover → verifier
+   → userproof → verifier -user) 이 inversion 후에도 byte-equivalent
+   하게 통과하는지. cmd shim 의 osvfs/Parse/adapter 구성이 기존
+   path 동작과 동일함을 확인.
+2. **(optional) Redis / S3 adapter against the ports** — R12-F port
+   가 이미 seam. Redis `WitnessQueue` (BLPOP 큐, R13 의 자연 진입점)
+   또는 S3 `vfs.Opener`/`KeySink` (key/snapshot 원격). engine 코드
+   변경 0 — adapter package + cmd shim wiring 만.
+3. **(optional, still-queued) R12-D DB-mux** — 정말 *같은 SQL gorm
+   에서 2nd dialect* 가 필요하면 `store.Open` driver-switch +
+   `gorm.io/driver/{postgres,sqlite}`. 단 port 가 더 깨끗하므로
+   기본은 #2 (별도 adapter) 권장. (ROADMAP §Stage R12 의
+   `R12-D — GPU 측정 smoke` 라벨과는 무관.)
 
-1. **driver-selection switch** — config 에 driver 필드 추가 (mysql /
-   postgres / sqlite). `store.Open` 이 DSN + driver 로 분기.
-2. **per-driver error translation** — duplicate-key / not-found 등
-   sentinel error 가 driver 마다 다름. `store.ErrNotFound` 매핑 유지.
-3. **gorm dialector 의존성** — `gorm.io/driver/postgres`,
-   `gorm.io/driver/sqlite` go.mod 추가. SQLite 는 in-process 테스트
-   (실 MySQL 없이 store 단위 테스트) 가능성도 검토.
-4. **smoke fixture** — 현재 docker-compose MySQL 고정. driver matrix
-   smoke 는 별도 (cheap: SQLite in-memory 로 store round-trip).
-
-종료 조건: `store.Open` 이 ≥2 driver 지원, 기존 MySQL 경로 무회귀,
-build/vet/test green. R13 (multi-instance prover) 와 결합 가능.
+종료 조건: smoke green (무회귀). adapter 슬라이스는 build/vet/test
+green + 해당 port round-trip 테스트.
 
 ### Deferred slices
 

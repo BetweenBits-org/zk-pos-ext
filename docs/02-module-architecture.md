@@ -434,6 +434,127 @@ constraint_module) tuple 으로 결정되며 customer profile 은 이 tuple
 (예: `zkpor.<model>.cap<N>.<tier>_<users>.<module>`) — operator 의
 실수 위험을 줄이는 trade-off. R5 시점에는 컨벤션-only.
 
+# 6.4 Source-Agnostic Engine Input (R12-E)
+
+R12-E inverts how each engine (`pkg/{prover,witness,userproof,verifier,
+keygen}`) receives its input. Before R12-E the engine `Run` read input
+itself — `os.ReadFile(configPath)`, `os.Open(snapshotCsv)`,
+`filepath.Join(keysDir, stem+ext)`. After R12-E the engine receives
+**already-resolved values and openers**; the `cmd/<svc>/main.go` shim
+is the only place that touches paths and the OS filesystem.
+
+## 6.4.1 Value vs Opener injection
+
+| Input kind | Injection form | Why |
+|---|---|---|
+| profile (TOML, parsed once) | **value** `*declarative.Profile` | small, single read; parsed in the shim via `declarative.Parse([]byte)`. |
+| config (JSON, parsed once) | **value** `*<svc>config.Config` | small, single read; parsed via `<svc>config.Parse([]byte)`. |
+| snapshot (CSV, large / streamed) | **opener** `vfs.Opener` | the engine opens each named file lazily with its own `ctx`. |
+| proving / verifying keys | **opener** `vfs.KeyOpener` (read) / `vfs.KeySink` (write) | gnark `ReadFrom` / `UnsafeReadFrom` streams directly off the returned `io.ReadCloser`. |
+| user-config bytes (verifier `-user`) | **opener** `vfs.ByteSource` | one-shot `ReadAll(ctx)` behind a port so the source can be non-file. |
+
+The split rule: parse-once-and-keep inputs cross the boundary as values;
+large / multiple / lazily-opened inputs cross as openers so the engine
+controls streaming and cancellation (`ctx`) without knowing the backend.
+
+## 6.4.2 `core/io/vfs` + `osvfs` — the only input-side os/filepath point
+
+```text
+core/io/vfs/                ← ports (no os, no filepath)
+├── vfs.go                  Opener / KeyOpener / KeySink / ByteSource
+└── osvfs/                  ← the ONLY input-side os + filepath user
+    └── osvfs.go            Dir(dir) Opener
+                            KeyDir(dir) KeyOpener
+                            KeyDirSink(out) KeySink
+                            File(path) ByteSource
+```
+
+Port signatures:
+
+- `Opener.Open(ctx, name) (io.ReadCloser, error)` — snapshot side.
+- `KeyOpener.Open(ctx, stem, ext) (io.ReadCloser, error)` — read keys.
+- `KeySink.Create(stem, ext) (io.WriteCloser, error)` — write keys.
+- `ByteSource.ReadAll(ctx) ([]byte, error)` — one-shot bytes.
+
+Because `osvfs` is the single concrete input-side adapter, an **S3 /
+DB / in-memory backend just implements `vfs`** — no engine code
+changes. `osvfs` is stateless and goroutine-safe (every `Open` is an
+independent `os.Open`), so the verifier's `max(16, NumCPU)` worker pool
+shares one `KeyOpener` safely.
+
+## 6.4.3 Logical stem (key naming)
+
+The key identifier the engine carries is the **bare logical stem**
+from `provider.KeyName(...)` — the engine no longer does
+`filepath.Join(keysDir, stem)`. The directory join lives entirely in
+`osvfs.KeyDir.Open` / `osvfs.KeyDirSink.Create`, which produce
+`<dir>/<stem>.<ext>`. This preserves the on-wire `<stem>.<ext>` naming
+(smoke `ensure_keys` depends on it) while letting a non-directory
+backend define its own addressing for the same stem.
+
+## 6.4.4 Lazy construction in the cmd shim
+
+The shim builds inputs in the locked construction order, and the
+verifier builds them **lazily inside the mode switch**: the `-hash A B`
+mode reads only `flag.Args()` and never loads profile / config /
+proofs / user-config, so `verifier -hash A B` succeeds with an empty
+`-profile`. The default (batch) and `-user` branches construct
+profile / config / store / openers only when entered.
+
+# 6.5 Persistence Ports (R12-F)
+
+R12-F applies the same inversion to persistence. The three persistence
+surfaces — witness queue, proof store, userproof store — cross the core
+boundary as **backing-agnostic ports with gorm-free DTOs**, and `store`
+is demoted to the MySQL adapter that wraps the gorm rows.
+
+## 6.5.1 `core/host` owns the ports + DTOs
+
+```text
+core/host/
+├── witness_port.go     WitnessQueue   + BatchWitnessDTO
+├── proof_port.go       ProofStore     + ProofDTO
+└── userproof_port.go   UserProofStore + UserProofDTO
+                        ErrNotFound / IsNotFound
+                        StatusPublished(0) / StatusReceived(1) / StatusFinished(2)
+```
+
+The DTOs are plain structs — **no `gorm.Model`, no `gorm` import**.
+`core/solvency/<model>/host` runners depend only on these ports; they
+never import `store`.
+
+## 6.5.2 `store` is the MySQL adapter-wrapper
+
+`store.NewWitnessQueueAdapter` / `NewProofStoreAdapter` /
+`NewUserProofStoreAdapter` wrap the gorm stores and satisfy the ports.
+The wrapping is verbatim string/field mapping plus a not-found remap
+(`store.ErrNotFound` → `corehost.ErrNotFound`). **`gorm.Model` lives
+only on `store` row types**; it never reaches core. The shim builds
+the adapters and injects them into the engine `Options`.
+
+## 6.5.3 `ErrNotFound` is the cross-backend control-flow sentinel
+
+`corehost.ErrNotFound` (probed with `corehost.IsNotFound`) is the
+**single sentinel** the engine uses for not-found control flow — the
+prover's poll loop reads "queue empty" through it. Each adapter remaps
+its backend's native not-found (gorm's `ErrRecordNotFound`, a Redis nil
+reply, an S3 404, …) onto this one sentinel, so core never sees
+backend-specific errors.
+
+## 6.5.4 Backing-agnostic via the port, NOT via SQL-driver multiplexing
+
+The abstraction that makes persistence backing-agnostic is **the port
+itself**, not a driver-selection switch inside `store`. R12-F
+deliberately did **not** add `gorm.io/driver/postgres` or
+`gorm.io/driver/sqlite`, and did not add a `store.Open` driver switch.
+**MySQL stays the one shipped adapter.** Redis / S3 / Postgres are
+**future adapters against the same port** — each is a new
+implementation of `WitnessQueue` / `ProofStore` / `UserProofStore`, not
+another SQL dialect multiplexed behind one gorm `store`. This folds the
+deferred R12-D "store driver + PG adapter" goal into a cleaner shape:
+the seam already exists (the port), so a new backend is an adapter
+package, not a `store` rewrite.
+
 # 7. G16 — Composition Compatibility Process (방향 lock)
 
 composition 자체는 §1 의 add-only 로 수학적으로 안전. 그러나

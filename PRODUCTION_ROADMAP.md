@@ -936,6 +936,141 @@ estimates/`) 의 multi-instance 시나리오 실측 + 운영 자동화.
 - 회로 변경 (R12 이후 회로 안 건드림).
 - Customer-specific GTM 작업 (V1-PROD 또는 별도 customer stage).
 
+### Stage R12-E — Source-Agnostic Engine Input (CLOSED)
+
+**목적**: R12-A/B/C 가 5 service 를 `Run(ctx, Options) error` library
+surface 로 만들었다. 그러나 각 engine 의 `Run` 이 여전히 `os.ReadFile`
+/ `os.Open` / `filepath.Join` 으로 **입력을 직접 구성**했다 — config
+JSON, profile TOML, snapshot CSV, proving/verifying key 파일을 engine
+안에서 path 로 열었다. 이는 engine 을 local filesystem 에 묶어 S3 /
+in-memory / 임베드 배포를 막고, in-process 테스트가 임시 디렉터리를
+깔아야만 가능하게 했다. R12-E 는 **입력 구성을 engine 밖 (cmd shim)
+으로 끌어내고, engine 은 주입된 값 / opener / port 만 받게** 한다.
+
+**Locked design**:
+
+- **value vs opener 주입**: 작은 한-번-읽고-끝 입력 (profile, config)
+  은 이미 parse 된 **value** (`*declarative.Profile`, `*<svc>config.Config`)
+  로 주입. 큰 / 다수 / lazy 입력 (snapshot CSV, key 파일) 은
+  **opener port** (`vfs.Opener`, `vfs.KeyOpener`, `vfs.KeySink`,
+  `vfs.ByteSource`) 로 주입 — engine 이 스스로 `ctx` 와 함께 stream
+  open.
+- **`core/io/vfs` ports + `osvfs` adapter 가 유일한 input-side os/
+  filepath 지점**: `vfs.Opener.Open(ctx, name)`,
+  `vfs.KeyOpener.Open(ctx, stem, ext)`, `vfs.KeySink.Create(stem, ext)`,
+  `vfs.ByteSource.ReadAll(ctx)`. local 구현은 `core/io/vfs/osvfs`
+  (`Dir`, `KeyDir`, `KeyDirSink`, `File`) 한 곳. S3 / DB / in-memory
+  backend 는 같은 port 를 구현하기만 하면 engine 코드 변경 0 으로
+  꽂힌다.
+- **logical stem**: key 식별자는 `provider.KeyName(...)` 의 **bare
+  logical stem** 으로 격하 (engine 이 `filepath.Join(keysDir, stem)`
+  안 함). dir join 은 `osvfs.KeyDir.Open` 이 수행 — `<dir>/<stem>.<ext>`.
+  on-wire key 명명 `<stem>.<ext>` 보존 (smoke `ensure_keys` 의존).
+- **seam parse 함수**: `declarative.Parse([]byte)` +
+  `<svc>config.Parse([]byte)` 로 byte → value 변환을 분리. cmd shim
+  이 `os.ReadFile` 후 `Parse` 호출, engine 은 이미-parse 된 value 만
+  본다.
+- **lazy verifier -hash**: verifier 의 `-hash A B` 모드는 flag.Args()
+  만 읽고 profile/config/proofs/userconfig 를 절대 만지지 않는다.
+  cmd shim 이 이 입력들을 **mode switch 안에서 lazily** 구성 — 빈
+  `-profile` 로도 `verifier -hash` 가 성공 (기존 동작 보존).
+
+**작업 분해 (S0-S14, 모두 closed)**:
+
+```
+S0   declarative.Parse([]byte) seam 추출
+S1   pkg/{prover,witness,userproof,verifier} config.Parse([]byte) seam
+S2   core/io/vfs opener ports (Opener/KeyOpener/KeySink/ByteSource)
+S3   core/io/vfs/osvfs local adapter (Dir/KeyDir/KeyDirSink/File)
+S4   snapshot parsers read through vfs.Opener (ctx 준수 stream)
+S5   witness engine — Snapshot/Config injected (Options 타입 inversion)
+S6   userproof engine — Snapshot/Config injected
+S7   prover engine — Keys/Config injected + load.go key streaming
+S8   verifier engine — Keys/Config/UserConfig injected + lazy -hash
+S9   keygen engine — KeySink injected
+S10  cmd/{prover,witness,userproof} shim — os/Parse/osvfs 구성 이전
+S11  cmd/{verifier,keygen} shim — lazy -hash 구성 + KeyDirSink
+S12  store/host port wiring (R12-F 와 동반, 아래 참조)
+S13  prover_test/verifier_test stem assertions → bare logical stem
+S14  docs (R12-E + R12-F roadmap stages + arch sections + handoff)
+```
+
+**Exit criteria** (모두 충족):
+
+- 각 engine `Run` 안에 `os.ReadFile` / `os.Open` / `filepath.Join`
+  입력 0 — 모든 입력은 주입된 value / opener / port.
+- `core/io/vfs` + `osvfs` 가 input-side os/filepath 의 유일 지점.
+- on-wire witness / proof / key bytes 불변 (verbatim). `Run(ctx, ...)`
+  시그니처 불변. key 명명 `<stem>.<ext>` 보존.
+- build / vet / 각 package in-test green.
+
+**관련 Gate**: 없음 (engine surface refactor, 계약 freeze 미해당 —
+on-wire bytes / 명명 / 시그니처 모두 보존).
+
+### Stage R12-F — Persistence Port Inversion (CLOSED)
+
+**목적**: R12-E 가 *file/stream* 입력을 port 뒤로 inversion 했다면,
+R12-F 는 *persistence* (witness queue, proof store, userproof store)
+를 같은 방식으로 inversion 한다. R12-E 이전에는 `core/solvency/<model>/
+host` 의 runner 들이 `store` 의 gorm 타입을 직접 호출했다 — engine 이
+MySQL gorm 에 묶였다. R12-F 는 **core 가 backing-agnostic port +
+gorm-free DTO 만 알게** 하고, `store` 를 그 port 의 MySQL adapter
+구현으로 격하한다.
+
+**기존 R12-D 와의 관계 (개념 fold-in, 명시적 비-목표 포함)**:
+
+- HANDOFF 의 **R12-D (DB engine 다중화, MySQL only 해제)** 와
+  ROADMAP §R3 step 4 follow-up 의 **"Store driver 인터페이스 + PG
+  adapter (slice D, deferred)"** 가 노렸던 backing-agnostic 목표는
+  R12-F 의 **port abstraction** 으로 **개념적으로 흡수**된다.
+- 단 **R12-D 라벨은 두 곳 모두 그대로 둔다**: ROADMAP §Stage R12 의
+  하위 step `R12-D — GPU 측정 smoke` (GPU 트랙), §R3 step 4 follow-up
+  의 deferred store-driver 항목. 둘 다 의미가 다르거나 (GPU) 잔여
+  작업으로 남아 (DB-mux) 삭제하지 않는다.
+- **명시적 비-목표 (중요)**: R12-F 는 **postgres / sqlite gorm
+  dialector 를 추가하지 않는다**. backing-agnostic 의 단일 진실원은
+  *port 그 자체* 이지 SQL-driver 다중화가 아니다. MySQL 은 출하되는
+  **단 하나의 adapter** 로 유지된다. Redis / S3 / Postgres 는 같은
+  port 에 대한 **미래 adapter** 후보일 뿐 — port 를 추가 driver 로
+  multiplex 하는 것이 아니라, port 를 새 backend 로 구현하는 것이다.
+  (원래 R12-D 가 노린 `store.Open` driver-selection switch +
+  `gorm.io/driver/{postgres,sqlite}` go.mod 추가는 **하지 않았다** —
+  port 가 더 깨끗한 abstraction 이므로.)
+
+**Locked design**:
+
+- **`core/host` 가 3 port + gorm-free DTO 소유**: `WitnessQueue`,
+  `ProofStore`, `UserProofStore` interface + `BatchWitnessDTO` /
+  `ProofDTO` / `UserProofDTO` (plain struct, gorm.Model 없음) +
+  `ErrNotFound` / `IsNotFound` sentinel + `StatusPublished(0)` /
+  `StatusReceived(1)` / `StatusFinished(2)` 상수.
+- **`store` 는 MySQL adapter-wrapper**: `store.NewWitnessQueueAdapter`
+  / `NewProofStoreAdapter` / `NewUserProofStoreAdapter` 가 gorm store
+  를 감싸 port 를 만족 (verbatim string mapping, `store.ErrNotFound`
+  → `corehost.ErrNotFound` remap). gorm.Model 은 `store` 의 row
+  타입에만 — core 는 보지 않는다.
+- **`ErrNotFound` 가 cross-backend control-flow sentinel**: prover 의
+  poll 루프가 "큐 비었음" 을 이 sentinel 로 관측. adapter 가 각
+  backend 의 not-found 를 이 단일 sentinel 로 remap → core 가
+  backend 마다 다른 error 를 알 필요 없음.
+
+**작업 분해**: R12-E 의 S2(host ports) / S3(store adapter) / S5-S6
+(runner port 의존 전환) 와 인터리브되어 진행 (위 R12-E 표 참조 —
+host ports + adapter + runner 전환이 R12-F 의 실체).
+
+**Exit criteria** (모두 충족):
+
+- `core/solvency/<model>/host` 의 runner 가 `store` 를 import 하지
+  않고 `core/host` port 만 의존.
+- `store` 가 port adapter-wrapper 로 격하, gorm 타입은 `store` 안에
+  격리.
+- not-found control flow 가 `corehost.ErrNotFound` 단일 sentinel 경유.
+- MySQL 경로 무회귀 (verbatim mapping). build / vet / test green.
+
+**관련 Gate**: 없음 (persistence surface refactor). R12-D 의 DB-mux
+잔여 항목은 R13 (multi-instance, Redis 큐) 또는 별도 adapter 슬라이스
+로 carry — port 가 이미 그 작업의 seam 을 제공.
+
 ### Roadmap path (R10 이후 stages)
 
 ```
