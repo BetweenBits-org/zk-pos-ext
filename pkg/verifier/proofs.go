@@ -18,18 +18,18 @@ import (
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	vconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/verifier/config"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 	"github.com/gocarina/gocsv"
 )
 
-// loadProofs reads proof rows either from the prover's MySQL proof
-// table (when cfg.MysqlDataSource is set) or from the legacy CSV at
-// cfg.ProofTable. In both cases the returned slice is indexed by
-// BatchNumber — i.e. result[i] is the proof for batch i, assuming
-// batch numbers are a dense 0..N-1 sequence as the prover produces.
-func loadProofs(cfg *vconfig.Config) ([]corehost.ProofRow, error) {
+// loadProofs reads proof rows either from the injected ProofStore (when
+// cfg.MysqlDataSource is set — the store is wired by cmd/verifier) or
+// from the legacy CSV at cfg.ProofTable. In both cases the returned
+// slice is indexed by BatchNumber — i.e. result[i] is the proof for
+// batch i, assuming batch numbers are a dense 0..N-1 sequence as the
+// prover produces.
+func loadProofs(cfg *vconfig.Config, proofs corehost.ProofStore) ([]corehost.ProofRow, error) {
 	if cfg.MysqlDataSource != "" {
-		return loadProofsFromDB(cfg)
+		return loadProofsFromStore(proofs, cfg.DbSuffix)
 	}
 	return loadProofsFromCSV(cfg.ProofTable)
 }
@@ -54,25 +54,20 @@ func loadProofsFromCSV(path string) ([]corehost.ProofRow, error) {
 	return out, nil
 }
 
-// loadProofsFromDB reads every proof row from the prover's proof table
-// in BatchNumber order and converts each store.Proof into the ProofRow
-// shape the verifier downstream consumes. The conversion mirrors the
-// CSV column layout: ProofInfo / BatchCommitment / AssetsCount /
-// BatchNumber are direct copies; CexAssetListCommitments and
-// AccountTreeRoots are unmarshalled from JSON (the prover writes them
-// as JSON-encoded [][]byte → []base64-string arrays).
-func loadProofsFromDB(cfg *vconfig.Config) ([]corehost.ProofRow, error) {
-	db, err := store.Open(cfg.MysqlDataSource)
-	if err != nil {
-		return nil, fmt.Errorf("open mysql: %w", err)
-	}
-	proofStore := store.NewProofStore(db, cfg.DbSuffix)
-	rows, err := proofStore.ListAllInOrder()
+// loadProofsFromStore reads every proof row from the injected
+// ProofStore in BatchNumber order and converts each ProofDTO into the
+// ProofRow shape the verifier downstream consumes. The conversion
+// mirrors the CSV column layout: ProofInfo / BatchCommitment /
+// AssetsCount / BatchNumber are direct copies; CexAssetListCommitments
+// and AccountTreeRoots are unmarshalled from JSON (the prover writes
+// them as JSON-encoded [][]byte → []base64-string arrays).
+func loadProofsFromStore(proofs corehost.ProofStore, dbSuffix string) ([]corehost.ProofRow, error) {
+	rows, err := proofs.ListAllInOrder()
 	if err != nil {
 		return nil, fmt.Errorf("list proofs: %w", err)
 	}
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("proof table is empty (suffix %q)", cfg.DbSuffix)
+		return nil, fmt.Errorf("proof table is empty (suffix %q)", dbSuffix)
 	}
 	out := make([]corehost.ProofRow, len(rows))
 	for _, row := range rows {
@@ -88,11 +83,11 @@ func loadProofsFromDB(cfg *vconfig.Config) ([]corehost.ProofRow, error) {
 	return out, nil
 }
 
-// convertStoredProof maps one store.Proof into the ProofRow shape the
-// verifier uses. The two JSON-encoded slices are decoded directly into
-// []string — json.Marshal of [][]byte writes base64-encoded strings,
-// which is the same on-wire shape the CSV path produces.
-func convertStoredProof(row store.Proof) (corehost.ProofRow, error) {
+// convertStoredProof maps one corehost.ProofDTO into the ProofRow shape
+// the verifier uses. The two JSON-encoded slices are decoded directly
+// into []string — json.Marshal of [][]byte writes base64-encoded
+// strings, which is the same on-wire shape the CSV path produces.
+func convertStoredProof(row corehost.ProofDTO) (corehost.ProofRow, error) {
 	var cexCommits []string
 	if err := json.Unmarshal([]byte(row.CexAssetListCommitments), &cexCommits); err != nil {
 		return corehost.ProofRow{}, fmt.Errorf("unmarshal cex commitments: %w", err)

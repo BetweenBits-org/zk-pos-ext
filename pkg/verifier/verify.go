@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 	"github.com/consensys/gnark/backend/groth16"
@@ -30,7 +31,9 @@ import (
 // guaranteed; the first arriving error wins). A cancelled ctx is a
 // termination cause: each worker observes it between proofs and records
 // ctx.Err(), so the pool unwinds without verifying the remaining rows.
-func verifyAllProofs(ctx context.Context, proofs []corehost.ProofRow, r *resolved) error {
+// The injected vfs.KeyOpener loads each tier's .vk; osvfs is
+// stateless/goroutine-safe, so all workers share the one opener.
+func verifyAllProofs(ctx context.Context, proofs []corehost.ProofRow, r *resolved, keys vfs.KeyOpener) error {
 	workersNum := max(16, runtime.NumCPU())
 	averageProofCount := (len(proofs) + workersNum - 1) / workersNum
 
@@ -55,7 +58,7 @@ func verifyAllProofs(ctx context.Context, proofs []corehost.ProofRow, r *resolve
 				return
 			}
 			endIndex := min((index+1)*averageProofCount, len(proofs))
-			if err := verifyProofRange(ctx, proofs[startIndex:endIndex], r); err != nil {
+			if err := verifyProofRange(ctx, proofs[startIndex:endIndex], r, keys); err != nil {
 				recordErr(err)
 			}
 		}(w)
@@ -70,7 +73,7 @@ func verifyAllProofs(ctx context.Context, proofs []corehost.ProofRow, r *resolve
 // constructed via the model-specific runner so the verify circuit
 // shape matches the .vk. A cancelled ctx aborts the range between
 // proofs, returning ctx.Err().
-func verifyProofRange(ctx context.Context, rows []corehost.ProofRow, r *resolved) error {
+func verifyProofRange(ctx context.Context, rows []corehost.ProofRow, r *resolved, keys vfs.KeyOpener) error {
 	var vk groth16.VerifyingKey
 	currentAssetCountsTier := -1
 
@@ -128,7 +131,7 @@ func verifyProofRange(ctx context.Context, rows []corehost.ProofRow, r *resolved
 			if keyIndex == -1 {
 				return fmt.Errorf("batch %d: invalid asset counts tier %d", batchNumber, row.AssetsCount)
 			}
-			vk, err = loadVerifyingKey(r.plan.ZkKeyStems[keyIndex] + ".vk")
+			vk, err = loadVerifyingKey(ctx, keys, r.plan.ZkKeyStems[keyIndex])
 			if err != nil {
 				return fmt.Errorf("batch %d: load verifying key: %w", batchNumber, err)
 			}

@@ -32,51 +32,54 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	vconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/verifier/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
 
-// Options bundles the inputs every Run* entry point needs. Fields not
-// relevant to a given mode are ignored:
+// Options bundles the inputs every Run* entry point needs. R12-EF
+// inverted the IO: cmd/verifier builds every value/opener/port and
+// injects them here, so the engine never touches os/path or store. The
+// fields not relevant to a given mode are ignored:
 //
-//   - RunBatch consumes ProfilePath, KeysDir, CapacityOverride, ConfigPath.
-//   - RunUser  consumes ProfilePath, KeysDir, CapacityOverride, UserConfigPath.
+//   - RunBatch consumes Profile, Keys, CapacityOverride, Config, Proofs.
+//   - RunUser  consumes Profile, Keys, CapacityOverride, UserConfig.
 //   - RunHash  consumes nothing (its two base64 args are passed directly).
 //
 // CapacityOverride > 0 supersedes profile.asset_capacity; this is the
 // smoke-harness escape hatch and must stay zero in production callers.
 type Options struct {
-	// ProfilePath points at the declarative profile.toml. Required for
-	// RunBatch and RunUser.
-	ProfilePath string
+	// Profile is the parsed declarative profile. Required for RunBatch
+	// and RunUser; cmd/verifier loads it via declarative.Load.
+	Profile *declarative.Profile
 
-	// KeysDir is the directory holding the .vk verifying-key artifacts
-	// the keygen service wrote. Required for RunBatch (the .vk files
-	// drive groth16.Verify) and for RunUser when the runner needs to
-	// resolve a per-tier stem.
-	KeysDir string
+	// Keys opens the .vk verifying-key artifacts the keygen service
+	// wrote. Required for RunBatch (the .vk files drive groth16.Verify).
+	// cmd/verifier wraps the keys directory via osvfs.KeyDir.
+	Keys vfs.KeyOpener
 
 	// CapacityOverride supersedes profile.asset_capacity when > 0.
 	// Smoke-harness use only.
 	CapacityOverride int
 
-	// ConfigPath points at the verifier's deployment config JSON
-	// (DB DSN, CexAssetsInfo, proof-table CSV path). Defaults to
-	// "config/config.json" when empty. RunBatch only.
-	ConfigPath string
+	// Config is the parsed verifier deployment config (DB DSN,
+	// CexAssetsInfo, proof-table CSV path). Required for RunBatch;
+	// cmd/verifier parses it via vconfig.Parse.
+	Config *vconfig.Config
 
-	// UserConfigPath points at the per-user inclusion-proof artifact
-	// the userproof service emitted. Defaults to
-	// "config/user_config.json" when empty. RunUser only.
-	UserConfigPath string
+	// Proofs is the injected proof-store port. Used by RunBatch when
+	// Config.MysqlDataSource is set; cmd/verifier wires the MySQL adapter.
+	Proofs corehost.ProofStore
+
+	// UserConfig reads the per-user inclusion-proof artifact the
+	// userproof service emitted. Required for RunUser; cmd/verifier wraps
+	// the path via osvfs.File.
+	UserConfig vfs.ByteSource
 }
 
 // resolved bundles the derived plan plus the chosen model for dispatch.
@@ -106,23 +109,15 @@ func RunBatch(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	if opts.KeysDir == "" {
-		return fmt.Errorf("verifier: KeysDir is required (path to keygen .artifacts/)")
+	if opts.Keys == nil {
+		return fmt.Errorf("verifier: Keys is required (vfs.KeyOpener over the keygen .artifacts/)")
 	}
-	configPath := opts.ConfigPath
-	if configPath == "" {
-		configPath = "config/config.json"
+	if opts.Config == nil {
+		return fmt.Errorf("verifier: Config is required")
 	}
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("verifier: read config %q: %w", configPath, err)
-	}
-	verifierConfig := &vconfig.Config{}
-	if err := json.Unmarshal(content, verifierConfig); err != nil {
-		return fmt.Errorf("verifier: parse config %q: %w", configPath, err)
-	}
+	verifierConfig := opts.Config
 
-	proofs, err := loadProofs(verifierConfig)
+	proofs, err := loadProofs(verifierConfig, opts.Proofs)
 	if err != nil {
 		return fmt.Errorf("verifier: load proofs: %w", err)
 	}
@@ -147,7 +142,7 @@ func RunBatch(ctx context.Context, opts Options) error {
 	prevAccountTreeRoots[1] = emptyAccountTreeRoot
 	prevCexAssetListCommitments[1] = emptyCexAssetListCommitment
 
-	if err := verifyAllProofs(ctx, proofs, r); err != nil {
+	if err := verifyAllProofs(ctx, proofs, r, opts.Keys); err != nil {
 		return fmt.Errorf("verifier: verify proofs: %w", err)
 	}
 
@@ -168,11 +163,14 @@ func RunUser(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	userConfigPath := opts.UserConfigPath
-	if userConfigPath == "" {
-		userConfigPath = "config/user_config.json"
+	if opts.UserConfig == nil {
+		return fmt.Errorf("verifier: UserConfig is required (vfs.ByteSource over the user-config artifact)")
 	}
-	if err := dispatchVerifyUserInclusion(r.model, r.plan, userConfigPath); err != nil {
+	userConfigBytes, err := opts.UserConfig.ReadAll(ctx)
+	if err != nil {
+		return fmt.Errorf("verifier: read user config: %w", err)
+	}
+	if err := dispatchVerifyUserInclusion(r.model, r.plan, userConfigBytes); err != nil {
 		return fmt.Errorf("verifier: verify user inclusion: %w", err)
 	}
 	return nil
@@ -198,17 +196,19 @@ func RunHash(arg0, arg1 string) error {
 	return nil
 }
 
-// resolveFromProfile loads profile.toml + derives the (model, capacity,
-// tiers, stems) plan. Used by both batch + user modes. CapacityOverride
-// supersedes profile.asset_capacity when > 0.
+// resolveFromProfile derives the (model, capacity, tiers, stems) plan
+// from the injected profile. Used by both batch + user modes.
+// CapacityOverride supersedes profile.asset_capacity when > 0.
+//
+// R12-EF: ZkKeyStems are LOGICAL identifiers (provider.KeyName output
+// only); the directory join moved into the injected vfs.KeyOpener
+// (osvfs.KeyDir.Open joins dir + stem + ext). The plan no longer
+// path-prefixes the stems.
 func resolveFromProfile(opts Options) (*resolved, error) {
-	if opts.ProfilePath == "" {
-		return nil, fmt.Errorf("verifier: ProfilePath is required (path to profile.toml)")
+	if opts.Profile == nil {
+		return nil, fmt.Errorf("verifier: Profile is required")
 	}
-	prof, err := declarative.Load(opts.ProfilePath)
-	if err != nil {
-		return nil, err
-	}
+	prof := opts.Profile
 	model := corespec.SolvencyModelID(prof.Profile.Model)
 	provider, err := declarative.BuildBatchShapeProvider(model, prof.BatchShapes)
 	if err != nil {
@@ -225,7 +225,7 @@ func resolveFromProfile(opts Options) (*resolved, error) {
 	}
 	for i, s := range shapes {
 		plan.AssetCountTiers[i] = s.AssetCountTier
-		plan.ZkKeyStems[i] = filepath.Join(opts.KeysDir, provider.KeyName(s, prof.Constraint.Module))
+		plan.ZkKeyStems[i] = provider.KeyName(s, prof.Constraint.Module)
 	}
 	return &resolved{model: model, plan: plan}, nil
 }

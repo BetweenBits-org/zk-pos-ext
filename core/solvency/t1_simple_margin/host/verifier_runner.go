@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
 	t1circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/circuit"
@@ -61,16 +60,14 @@ func NewVerifyPublicWitness(batchCommitment []byte) (witness.Witness, error) {
 	return w, nil
 }
 
-// VerifyUserInclusion reads a T1-typed UserConfig (no TotalCollateral),
-// recomputes the universal 5-input leaf hash with slot-3 zero, and
-// checks Merkle inclusion against the embedded root.
-func VerifyUserInclusion(plan *corehost.VerifierPlan, userConfigPath string) error {
-	content, err := os.ReadFile(userConfigPath)
-	if err != nil {
-		return fmt.Errorf("read %q: %w", userConfigPath, err)
-	}
+// VerifyUserInclusion decodes a T1-typed UserConfig (no TotalCollateral)
+// from the supplied bytes, recomputes the universal 5-input leaf hash
+// with slot-3 zero, and checks Merkle inclusion against the embedded
+// root. The caller (cmd/verifier) reads the bytes via a vfs.ByteSource;
+// this runner stays IO-free.
+func VerifyUserInclusion(plan *corehost.VerifierPlan, userConfigBytes []byte) error {
 	userConfig := &UserConfig{}
-	if err := json.Unmarshal(content, userConfig); err != nil {
+	if err := json.Unmarshal(userConfigBytes, userConfig); err != nil {
 		return fmt.Errorf("unmarshal user config: %w", err)
 	}
 

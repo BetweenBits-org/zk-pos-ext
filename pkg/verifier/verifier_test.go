@@ -1,23 +1,39 @@
 package verifier
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"testing"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
 )
+
+// loadProfileFixture reads a reference profile.toml for the resolve
+// tests. R12-EF: the engine takes a parsed *declarative.Profile, so the
+// path read lives in the test (mirroring cmd/verifier's declarative.Load).
+func loadProfileFixture(t *testing.T, path string) *declarative.Profile {
+	t.Helper()
+	prof, err := declarative.Load(path)
+	if err != nil {
+		t.Fatalf("declarative.Load(%q): %v", path, err)
+	}
+	return prof
+}
 
 // TestResolveFromProfile_T4Reference locks the verifier's derivation of
 // asset capacity / tiers / .vk stems from the T4 reference profile.
 // User mode uses plan.AssetCountTiers to pad a user's asset list;
 // batch mode uses plan.ZkKeyStems + plan.AssetCapacity. Phase 3d adds
 // the model selector — t4_reference.toml resolves to T4.
+//
+// R12-EF: the stems are now LOGICAL identifiers (provider.KeyName only);
+// the directory join moved into the vfs.KeyOpener (covered by the osvfs
+// test). So the plan carries no "/keys" prefix.
 func TestResolveFromProfile_T4Reference(t *testing.T) {
 	r, err := resolveFromProfile(Options{
-		ProfilePath: "../../profile/t4_reference/t4_reference.toml",
-		KeysDir:     "/keys",
+		Profile: loadProfileFixture(t, "../../profile/t4_reference/t4_reference.toml"),
 	})
 	if err != nil {
 		t.Fatalf("resolveFromProfile: %v", err)
@@ -35,8 +51,8 @@ func TestResolveFromProfile_T4Reference(t *testing.T) {
 		}
 	}
 	wantStems := []string{
-		"/keys/zkpor.t4_tiered_haircut_margin_3pool.50_700",
-		"/keys/zkpor.t4_tiered_haircut_margin_3pool.500_92",
+		"zkpor.t4_tiered_haircut_margin_3pool.50_700",
+		"zkpor.t4_tiered_haircut_margin_3pool.500_92",
 	}
 	for i := range wantStems {
 		if r.plan.ZkKeyStems[i] != wantStems[i] {
@@ -49,8 +65,7 @@ func TestResolveFromProfile_T4Reference(t *testing.T) {
 // supersedes profile.asset_capacity (smoke harness behaviour).
 func TestResolveFromProfile_CapacityOverride(t *testing.T) {
 	r, err := resolveFromProfile(Options{
-		ProfilePath:      "../../profile/t4_reference/t4_reference.toml",
-		KeysDir:          "/keys",
+		Profile:          loadProfileFixture(t, "../../profile/t4_reference/t4_reference.toml"),
 		CapacityOverride: 5,
 	})
 	if err != nil {
@@ -65,14 +80,56 @@ func TestResolveFromProfile_CapacityOverride(t *testing.T) {
 // reference profile. Confirms Phase 3d removed the T4-only guard.
 func TestResolveFromProfile_T1Reference(t *testing.T) {
 	r, err := resolveFromProfile(Options{
-		ProfilePath: "../../profile/t1_reference/t1_reference.toml",
-		KeysDir:     "/keys",
+		Profile: loadProfileFixture(t, "../../profile/t1_reference/t1_reference.toml"),
 	})
 	if err != nil {
 		t.Fatalf("resolveFromProfile: %v", err)
 	}
 	if r.model != "t1_simple_margin" {
 		t.Errorf("model = %q, want t1_simple_margin", r.model)
+	}
+}
+
+// TestResolveFromProfile_NilProfile confirms the engine rejects a
+// missing profile rather than panicking — cmd/verifier loads it lazily,
+// so a programming error (nil Profile) must surface as an error.
+func TestResolveFromProfile_NilProfile(t *testing.T) {
+	if _, err := resolveFromProfile(Options{}); err == nil {
+		t.Fatal("expected error for nil Profile")
+	}
+}
+
+// TestRunHash_NoProfileRequired locks the -hash adversarial contract:
+// RunHash is model-blind and consumes neither Profile, Keys, Config nor
+// any IO. `verifier -hash A B` with an EMPTY -profile must still
+// succeed, so the engine entry point must not touch Options at all.
+func TestRunHash_NoProfileRequired(t *testing.T) {
+	// Two valid base64 inputs that decode to small (valid) bn254 field
+	// elements; no Options, no profile, no keys.
+	a := base64.StdEncoding.EncodeToString([]byte{0x01})
+	b := base64.StdEncoding.EncodeToString([]byte{0x02})
+	if err := RunHash(a, b); err != nil {
+		t.Fatalf("RunHash with no profile: %v", err)
+	}
+}
+
+// TestRunHash_RejectsBadBase64 ensures a non-base64 argument surfaces an
+// error rather than hashing garbage.
+func TestRunHash_RejectsBadBase64(t *testing.T) {
+	if err := RunHash("!not-base64!", "AAAA"); err == nil {
+		t.Fatal("expected error for bad arg0 base64")
+	}
+}
+
+// TestRunBatch_MissingKeys confirms RunBatch rejects a nil Keys opener
+// before doing any work — cmd/verifier always injects one, so a nil is a
+// wiring error that must surface as an error, not a nil-deref.
+func TestRunBatch_MissingKeys(t *testing.T) {
+	err := RunBatch(context.Background(), Options{
+		Profile: loadProfileFixture(t, "../../profile/t4_reference/t4_reference.toml"),
+	})
+	if err == nil {
+		t.Fatal("expected error for nil Keys")
 	}
 }
 
@@ -126,9 +183,9 @@ func TestDecodeBatchMetadataRejectsBadBase64(t *testing.T) {
 	}
 }
 
-// TestConvertStoredProof confirms a store.Proof row maps to the proof
-// row shape the verifier downstream consumes — including JSON decode
-// of the two [][]byte → []base64-string fields the prover writes.
+// TestConvertStoredProof confirms a corehost.ProofDTO row maps to the
+// proof row shape the verifier downstream consumes — including JSON
+// decode of the two [][]byte → []base64-string fields the prover writes.
 func TestConvertStoredProof(t *testing.T) {
 	rootBefore := []byte("account-root-before-32-bytes....")
 	rootAfter := []byte("account-root-after-32-bytes.....")
@@ -144,7 +201,7 @@ func TestConvertStoredProof(t *testing.T) {
 		t.Fatalf("marshal roots: %v", err)
 	}
 
-	row := store.Proof{
+	row := corehost.ProofDTO{
 		ProofInfo:               "proof-blob-base64",
 		BatchCommitment:         "batch-commit-base64",
 		AssetsCount:             5,
@@ -181,11 +238,11 @@ func TestConvertStoredProof(t *testing.T) {
 // TestConvertStoredProofRejectsBadJSON ensures a corrupted row surfaces
 // a parse error rather than silently producing an empty slice.
 func TestConvertStoredProofRejectsBadJSON(t *testing.T) {
-	row := store.Proof{CexAssetListCommitments: "{not json"}
+	row := corehost.ProofDTO{CexAssetListCommitments: "{not json"}
 	if _, err := convertStoredProof(row); err == nil {
 		t.Fatal("expected error for bad cex commitments JSON")
 	}
-	row = store.Proof{
+	row = corehost.ProofDTO{
 		CexAssetListCommitments: "[]",
 		AccountTreeRoots:        "{not json",
 	}
