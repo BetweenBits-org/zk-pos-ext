@@ -2,7 +2,7 @@
 // engine consumes. R8-C/2 slimmed this down to deployment-secret +
 // runtime-ops fields only; per-customer values (asset capacity, user
 // data directory, snapshot id, pricing, batch shapes) flow from the
-// declarative profile.toml referenced via Options.ProfilePath instead.
+// declarative profile.toml (parsed into Options.Profile) instead.
 //
 // R12-A library extraction: this schema moved out from
 // zkpor/cmd/witness/config so other in-process clients can import the

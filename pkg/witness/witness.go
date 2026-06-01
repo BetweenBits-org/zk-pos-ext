@@ -7,9 +7,14 @@
 // Phase 3b (R10+1) swap: every model-typed loop (streamAndBucket,
 // runBatches, buildBatch, safeAdd) is pulled into model-specific
 // runner packages at core/solvency/<model>/host/witness_runner.go.
-// This package is a thin wiring layer — load profile.toml, build
-// shared dependencies, switch on profile.Model, and delegate to the
-// matching runner.
+// This package is a thin wiring layer — it receives the parsed profile,
+// config, snapshot opener, and witness-queue port as injected Options
+// (the cmd shim builds them), derives shared dependencies, switches on
+// profile.Model, and delegates to the matching runner.
+//
+// R12-E contract: Run no longer reads files, parses the profile/config,
+// or opens the store itself — those inputs arrive pre-built in Options.
+// cmd/witness is the sole os/path + store wiring point.
 //
 // Sequential per-account hashing, fresh-start only (no DB resume, no
 // tree rollback). G6 (ValueScale invariant) closure happens inside
@@ -35,15 +40,14 @@ package witness
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 
+	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
 	wconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/witness/config"
 	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
 
 	// Register all four model-specific standard CSV snapshot connectors.
 	// init() in each parser package adds the connector to its model's
@@ -55,19 +59,32 @@ import (
 	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
 )
 
-// Options bundles the inputs Run needs.
+// Options bundles the inputs Run needs. The cmd/witness shim builds
+// every injected value (parses the profile + config, resolves the
+// snapshot directory into a vfs.Opener, and wires the witness queue
+// adapter); the engine never touches os/path or store itself.
 type Options struct {
-	// ProfilePath points at the declarative profile.toml. Required.
-	ProfilePath string
+	// Profile is the parsed declarative profile.toml. Required.
+	Profile *declarative.Profile
 
-	// ConfigPath points at the witness deployment config JSON
-	// (DB DSN + TreeDB driver/endpoint). Defaults to
-	// "config/config.json" when empty.
-	ConfigPath string
+	// Snapshot opens the customer snapshot inputs by name. The cmd
+	// shim resolves the data directory (UserDataDir override else
+	// profile.snapshot.user_data_dir) into this opener. Required.
+	Snapshot vfs.Opener
+
+	// Config is the parsed witness deployment config (DB DSN + TreeDB
+	// driver/endpoint). Required.
+	Config *wconfig.Config
+
+	// WitnessQueue is the injected persistence port for the
+	// witness↔prover artifact channel. Required; the cmd shim provides
+	// the MySQL adapter and has already called EnsureSchema.
+	WitnessQueue corehost.WitnessQueue
 
 	// UserDataDir overrides profile.snapshot.user_data_dir when
-	// non-empty. Smoke harness + per-snapshot ops use this; production
-	// callers should leave it empty so the profile value is authoritative.
+	// non-empty. The engine no longer uses this for IO (the cmd shim
+	// already baked the resolved directory into Snapshot); it is kept
+	// only as the snapshot connector's logical identifier passthrough.
 	UserDataDir string
 
 	// SnapshotID overrides profile.snapshot.snapshot_id when non-empty.
@@ -90,22 +107,20 @@ type Options struct {
 // runner failure encountered; nil on success. A cancelled ctx aborts
 // the snapshot stream and surfaces as a (wrapped) context error.
 func Run(ctx context.Context, opts Options) error {
-	if opts.ProfilePath == "" {
-		return fmt.Errorf("witness: ProfilePath is required (path to profile.toml)")
+	if opts.Profile == nil {
+		return fmt.Errorf("witness: Profile is required")
 	}
-	configPath := opts.ConfigPath
-	if configPath == "" {
-		configPath = "config/config.json"
+	if opts.Config == nil {
+		return fmt.Errorf("witness: Config is required")
 	}
-
-	cfg, err := loadConfig(configPath)
-	if err != nil {
-		return err
+	if opts.Snapshot == nil {
+		return fmt.Errorf("witness: Snapshot is required")
 	}
-	prof, err := declarative.Load(opts.ProfilePath)
-	if err != nil {
-		return fmt.Errorf("witness: load profile %q: %w", opts.ProfilePath, err)
+	if opts.WitnessQueue == nil {
+		return fmt.Errorf("witness: WitnessQueue is required")
 	}
+	cfg := opts.Config
+	prof := opts.Profile
 
 	// G6 closure: BuildPricing rejects invariant violations at build time.
 	pricing, err := declarative.BuildPricing(prof.Pricing)
@@ -124,10 +139,6 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.CapacityOverride > 0 {
 		capacity = opts.CapacityOverride
 	}
-	dataDir := prof.Snapshot.UserDataDir
-	if opts.UserDataDir != "" {
-		dataDir = opts.UserDataDir
-	}
 	snapID := prof.Snapshot.SnapshotID
 	if opts.SnapshotID != "" {
 		snapID = opts.SnapshotID
@@ -138,25 +149,16 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("witness: open account tree: %w", err)
 	}
 
-	db, err := store.Open(cfg.MysqlDataSource)
-	if err != nil {
-		return fmt.Errorf("witness: open mysql: %w", err)
-	}
-	wq := store.NewWitnessQueueAdapter(store.NewWitnessStore(db, cfg.DbSuffix))
-	if err := wq.EnsureSchema(); err != nil {
-		return fmt.Errorf("witness: create witness table: %w", err)
-	}
-
 	deps := dispatchInput{
 		model:           model,
 		ctx:             ctx,
 		sourceType:      prof.Snapshot.SourceType,
-		dataDir:         dataDir,
+		snapshot:        opts.Snapshot,
 		snapID:          snapID,
 		capacity:        capacity,
 		pricing:         pricing,
 		accountTree:     accountTree,
-		witnessStore:    wq,
+		witnessStore:    opts.WitnessQueue,
 		shapeProvider:   shapeProvider,
 		assetCountTiers: assetCountTiers,
 		dumpFinalCex:    opts.DumpFinalCex,
@@ -165,19 +167,6 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("witness: run: %w", err)
 	}
 	return nil
-}
-
-// loadConfig reads and parses the on-disk JSON config.
-func loadConfig(path string) (*wconfig.Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("witness: read config %q: %w", path, err)
-	}
-	cfg := &wconfig.Config{}
-	if err := json.Unmarshal(raw, cfg); err != nil {
-		return nil, fmt.Errorf("witness: parse config %q: %w", path, err)
-	}
-	return cfg, nil
 }
 
 // tiersFromShapes flattens the deployment's BatchShape set to the

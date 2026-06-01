@@ -10,7 +10,7 @@ import (
 	"fmt"
 
 	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
+	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
 	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
 	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
 	t3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/host"
@@ -25,7 +25,7 @@ type dispatchInput struct {
 	model           corespec.SolvencyModelID
 	ctx             context.Context
 	sourceType      string
-	dataDir         string
+	snapshot        vfs.Opener
 	snapID          string
 	capacity        int
 	pricing         corespec.PriceScaleProvider
@@ -43,7 +43,7 @@ type dispatchInput struct {
 func dispatchRunWitness(d dispatchInput) error {
 	switch d.model {
 	case "t1_simple_margin":
-		snapshot := t1host.NewSnapshot(d.sourceType, osvfs.Dir(d.dataDir), d.snapID, d.capacity, d.pricing)
+		snapshot := t1host.NewSnapshot(d.sourceType, d.snapshot, d.snapID, d.capacity, d.pricing)
 		return t1host.RunWitness(t1host.WitnessRunnerConfig{
 			Ctx:             d.ctx,
 			Snapshot:        snapshot,
@@ -54,7 +54,7 @@ func dispatchRunWitness(d dispatchInput) error {
 			DumpFinalCex:    d.dumpFinalCex,
 		})
 	case "t2_static_haircut_margin":
-		snapshot := t2host.NewSnapshot(d.sourceType, osvfs.Dir(d.dataDir), d.snapID, d.capacity, d.pricing)
+		snapshot := t2host.NewSnapshot(d.sourceType, d.snapshot, d.snapID, d.capacity, d.pricing)
 		return t2host.RunWitness(t2host.WitnessRunnerConfig{
 			Ctx:             d.ctx,
 			Snapshot:        snapshot,
@@ -65,7 +65,7 @@ func dispatchRunWitness(d dispatchInput) error {
 			DumpFinalCex:    d.dumpFinalCex,
 		})
 	case "t3_tiered_haircut_margin_1pool":
-		snapshot := t3host.NewSnapshot(d.sourceType, osvfs.Dir(d.dataDir), d.snapID, d.capacity, d.pricing)
+		snapshot := t3host.NewSnapshot(d.sourceType, d.snapshot, d.snapID, d.capacity, d.pricing)
 		return t3host.RunWitness(t3host.WitnessRunnerConfig{
 			Ctx:             d.ctx,
 			Snapshot:        snapshot,
@@ -76,7 +76,7 @@ func dispatchRunWitness(d dispatchInput) error {
 			DumpFinalCex:    d.dumpFinalCex,
 		})
 	case "t4_tiered_haircut_margin_3pool":
-		snapshot := t4host.NewSnapshot(d.sourceType, osvfs.Dir(d.dataDir), d.snapID, d.capacity, d.pricing)
+		snapshot := t4host.NewSnapshot(d.sourceType, d.snapshot, d.snapID, d.capacity, d.pricing)
 		return t4host.RunWitness(t4host.WitnessRunnerConfig{
 			Ctx:             d.ctx,
 			Snapshot:        snapshot,
