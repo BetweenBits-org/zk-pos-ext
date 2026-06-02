@@ -1,140 +1,96 @@
 #!/usr/bin/env bash
-# Install the GPU prove toolchain on the EC2 host: NVIDIA driver + CUDA
-# toolkit + Icicle v3 native CUDA libraries. This is what the `-tags icicle`
-# GPU prover (PRODUCTION_ROADMAP R13-A/B/C) needs at link/run time. Parallel
-# to bootstrap.sh (Docker + Go) — run this AFTER it, and AFTER switching the
-# instance to a GPU type:
+# Install the GPU prove toolchain on the EC2 host for the `-tags icicle`
+# GPU prover (PRODUCTION_ROADMAP R13-A/B/C). VERIFIED PATH (2026-06):
 #
-#   scripts/ec2/switch_type.sh g6e.4xlarge     # L40S 48GB  (~$4.19/hr) — T4-scale
-#   scripts/ec2/switch_type.sh g6.4xlarge      # L4  24GB   (cheaper)   — T1/mid
-#   scripts/ec2/bootstrap.sh                   # Docker + Go (once)
-#   scripts/ec2/bootstrap-gpu.sh install       # driver + CUDA  → then reboot the box
-#   scripts/ec2/bootstrap-gpu.sh post-reboot   # Icicle v3 native libs + verify
+#   Launch the GPU box from a Deep Learning AMI (NVIDIA driver + CUDA
+#   PREINSTALLED), NOT by self-installing the driver. The driver-build
+#   route on a plain Amazon Linux 2023 box FAILS: AL2023 g6 boxes run a
+#   6.18 kernel but the NVIDIA DKMS / kernel-modules-extra packages only
+#   exist for the 6.1.x line, so the cuda-repo driver build dies on a
+#   kernel-version conflict. The DLAMI ships a driver already built for its
+#   kernel, sidestepping all of that.
 #
-# A reboot is REQUIRED between `install` and `post-reboot` so the NVIDIA
-# kernel module loads. Reboot the box with:
-#   aws ec2 reboot-instances --region "$AWS_REGION" --instance-ids "$EC2_INSTANCE_ID"
-# (wait ~60s, refresh EC2_HOST IP if it changed, then run post-reboot).
+#   DLAMI used (AL2023, x86_64, driver+CUDA preinstalled; ec2-user):
+#     aws ssm get-parameter --region us-east-1 \
+#       --name /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-amazon-linux-2023/latest/ami-id \
+#       --query Parameter.Value --output text
+#   (2026-06: ami-0f6660dbc23015eac). The DLAMI carries MULTIPLE CUDA
+#   versions under /usr/local/cuda-* — this script builds Icicle v3.2.2
+#   against CUDA 12.8 (icicle-gnark/v3 v3.2.2 is a CUDA-12 release; the
+#   DLAMI default /usr/local/cuda may be 13.x, which Icicle 3.2.2 does not
+#   build against).
 #
-# OS support: detects dnf (Amazon Linux 2023) vs apt (Ubuntu 24.04). The
-# bb-por reference benchmark (2.3x on L40S) ran on Ubuntu 24.04 with
-# nvidia-driver-535 + cuda-toolkit-12-8. The AL2023 path uses the amzn2023
-# CUDA repo + dnf driver module and is LESS battle-tested — if the AL2023
-# driver install fights you, relaunch the box from an Ubuntu 24.04 GPU AMI
-# (or an AWS Deep Learning AMI with CUDA preinstalled) and re-run.
+# So the only thing this script does on a DLAMI box is build + install the
+# Icicle v3 native CUDA libraries and set the runtime env. Run it after
+# bootstrap.sh (Go) + sync.sh (code):
 #
-# Reference: bb-por apply_optimize_gnark_pr/{01_gpu_benchmark_setup.sh,
-# ICICLE_V3_UPGRADE_PLAN.md}. The gnark-fork Icicle v3 swap itself (R13-A)
-# is a repo change (vendor the fork at commit 4b5261061f04 — the SAME base
-# zkpor's go.mod already pins — then apply the bb-por bundle), not part of
-# this host-setup script.
+#   scripts/ec2/bootstrap-gpu.sh            # build Icicle v3 libs (CUDA 12.8)
+#
+# It is idempotent. Then the GPU prover is built on the box with:
+#   CGO_ENABLED=1 go build -tags icicle -o /tmp/prover-gpu ./cmd/prover/
+# (R13-A also requires the gnark fork vendored at ./gnark-fork with the
+# Icicle v3 bundle applied — see docs/R13_GPU_RUNBOOK.md.)
 
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
 
 ICICLE_VERSION="v3.2.2"
-PHASE="${1:-}"
+CUDA_FOR_ICICLE="/usr/local/cuda-12.8"
 
-usage() {
-  echo "usage: $0 <install|post-reboot>" >&2
-  echo "  install      — NVIDIA driver + CUDA toolkit (reboot after)" >&2
-  echo "  post-reboot   — Icicle $ICICLE_VERSION native libs + GPU verify" >&2
-  exit 2
-}
-
-case "$PHASE" in
-  install) ;;
-  post-reboot) ;;
-  *) usage ;;
-esac
-
-# ── install: NVIDIA driver + CUDA toolkit ───────────────────────────────────
-if [ "$PHASE" = "install" ]; then
-  log "GPU install on $EC2_HOST — NVIDIA driver + CUDA toolkit"
-  ec2_ssh bash -s <<'EOF'
-set -euo pipefail
-
-if nvidia-smi >/dev/null 2>&1; then
-  echo "nvidia-smi already works — driver present"
-  nvidia-smi --query-gpu=gpu_name,memory.total --format=csv,noheader
-  echo "skip driver install; proceed to post-reboot"
-  exit 0
-fi
-
-if command -v apt-get >/dev/null 2>&1; then
-  echo "=== Ubuntu path (apt) ==="
-  sudo apt-get update -qq
-  sudo apt-get install -y build-essential cmake pkg-config wget curl git
-  wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb
-  sudo dpkg -i /tmp/cuda-keyring.deb
-  sudo apt-get update -qq
-  sudo apt-get install -y cuda-toolkit-12-8 nvidia-driver-535
-elif command -v dnf >/dev/null 2>&1; then
-  echo "=== Amazon Linux 2023 path (dnf) — less-tested, see header note ==="
-  sudo dnf install -y kernel-devel-"$(uname -r)" kernel-modules-extra gcc make cmake pkgconfig wget curl git || \
-    sudo dnf install -y kernel-devel kernel-modules-extra gcc make cmake pkgconfig wget curl git
-  sudo dnf config-manager --add-repo \
-    https://developer.download.nvidia.com/compute/cuda/repos/amzn2023/x86_64/cuda-amzn2023.repo
-  sudo dnf clean all
-  # cuda-toolkit pulls the matching driver (open-dkms) on AL2023.
-  sudo dnf -y module install nvidia-driver:latest-dkms || true
-  sudo dnf install -y cuda-toolkit-12-8
-else
-  echo "unknown package manager (need apt-get or dnf)" >&2
-  exit 1
-fi
-
-echo ""
-echo "=== driver + CUDA installed — REBOOT REQUIRED to load the kernel module ==="
-echo "from your laptop:"
-echo "  aws ec2 reboot-instances --region <region> --instance-ids <id>"
-echo "then run: scripts/ec2/bootstrap-gpu.sh post-reboot"
-EOF
-  log "install phase done — reboot the instance, then run: $0 post-reboot"
-  exit 0
-fi
-
-# ── post-reboot: Icicle v3 native libs + verify ─────────────────────────────
-log "GPU post-reboot on $EC2_HOST — verify driver + build Icicle $ICICLE_VERSION native libs"
+log "GPU toolchain on $EC2_HOST — Icicle $ICICLE_VERSION native libs (CUDA 12.8)"
 ec2_ssh bash -s <<EOF
 set -euo pipefail
 
-echo "--- GPU check ---"
-nvidia-smi || { echo "ERROR: nvidia-smi failed — driver not loaded. Did you reboot after 'install'?"; exit 1; }
-nvidia-smi --query-gpu=gpu_name,memory.total,driver_version --format=csv,noheader
+echo "--- GPU check (DLAMI driver must be preinstalled) ---"
+if ! nvidia-smi --query-gpu=gpu_name,memory.total,driver_version --format=csv,noheader; then
+  echo "ERROR: nvidia-smi failed. Launch the box from a Deep Learning AMI" >&2
+  echo "       (driver preinstalled). Self-installing the driver on a plain" >&2
+  echo "       AL2023 g6 box fails on the 6.18-kernel DKMS conflict." >&2
+  exit 1
+fi
 
-# Persist CUDA + Icicle backend env (idempotent).
+if [ ! -d "$CUDA_FOR_ICICLE" ]; then
+  echo "ERROR: $CUDA_FOR_ICICLE not found. Icicle $ICICLE_VERSION needs CUDA 12.x;" >&2
+  echo "       the DLAMI usually ships it under /usr/local/cuda-12.8." >&2
+  echo "       Available: \$(ls -d /usr/local/cuda-* 2>/dev/null | tr '\n' ' ')" >&2
+  exit 1
+fi
+
+export CUDA_HOME="$CUDA_FOR_ICICLE"
+export PATH="$CUDA_FOR_ICICLE/bin:\$PATH"
+export CUDACXX="$CUDA_FOR_ICICLE/bin/nvcc"
+export ICICLE_BACKEND_INSTALL_DIR=/usr/local/lib/backend
+echo "nvcc: \$(nvcc --version | grep release)"
+
+# Persist runtime env (idempotent).
 if ! grep -q 'ICICLE_BACKEND_INSTALL_DIR' "\$HOME/.bashrc" 2>/dev/null; then
   {
-    echo 'export PATH=/usr/local/cuda/bin:\$PATH'
-    echo 'export LD_LIBRARY_PATH=/usr/local/cuda/lib64:\$LD_LIBRARY_PATH'
+    echo "export PATH=$CUDA_FOR_ICICLE/bin:\\\$PATH"
+    echo "export LD_LIBRARY_PATH=/usr/local/lib:$CUDA_FOR_ICICLE/lib64:\\\$LD_LIBRARY_PATH"
     echo 'export ICICLE_BACKEND_INSTALL_DIR=/usr/local/lib/backend'
   } >> "\$HOME/.bashrc"
 fi
-export PATH=/usr/local/cuda/bin:\$PATH
-export ICICLE_BACKEND_INSTALL_DIR=/usr/local/lib/backend
 
-echo "--- Building Icicle CUDA backend ($ICICLE_VERSION, curve bn254) ---"
+echo "--- Building Icicle CUDA backend ($ICICLE_VERSION, curve bn254, CUDA 12.8) ---"
 if [ ! -d "\$HOME/icicle-gnark" ]; then
   git clone --depth 1 --branch "$ICICLE_VERSION" https://github.com/ingonyama-zk/icicle-gnark.git "\$HOME/icicle-gnark"
 fi
 cd "\$HOME/icicle-gnark/wrappers/golang"
 chmod +x build.sh
 # build.sh runs 'cmake --build build --target install' → writes /usr/local/lib → needs sudo.
-sudo PATH="\$PATH" ./build.sh -curve=bn254
+# Pass the CUDA 12.8 toolchain explicitly through sudo's clean env.
+sudo env PATH="\$PATH" CUDACXX="\$CUDACXX" CUDA_HOME="\$CUDA_HOME" ./build.sh -curve=bn254
 sudo ldconfig
 
 echo "--- Installed Icicle libraries ---"
-ls -1 /usr/local/lib/libicicle_* 2>/dev/null || echo "WARNING: libicicle_* not found in /usr/local/lib"
-ls -1 /usr/local/lib/backend/cuda/ 2>/dev/null || echo "WARNING: cuda backend not found in /usr/local/lib/backend"
+ls -1 /usr/local/lib/libicicle_* 2>/dev/null || { echo "ERROR: libicicle_* not installed" >&2; exit 1; }
+ls -1 /usr/local/lib/backend/*/cuda/*.so 2>/dev/null || echo "WARNING: cuda backend libs not found under /usr/local/lib/backend"
 
 echo ""
 echo "=== GPU toolchain ready ==="
-echo "nvcc: \$(nvcc --version 2>&1 | tail -1)"
-echo ""
-echo "Next (R13-A/B/C):"
-echo "  1. Vendor the gnark fork + apply the bb-por Icicle v3 bundle (R13-A)."
-echo "  2. Build the GPU prover:  CGO_ENABLED=1 go build -tags icicle ./cmd/prover/"
-echo "  3. Run the GPU smoke (R13-C) and compare prove time vs the CPU baseline."
+echo "Next (R13-A/B/C): vendor gnark fork (./gnark-fork + Icicle v3 bundle),"
+echo "  CGO_ENABLED=1 go build -tags icicle -o /tmp/prover-gpu ./cmd/prover/,"
+echo "  then run the prover with LD_LIBRARY_PATH=/usr/local/lib:$CUDA_FOR_ICICLE/lib64"
+echo "  ICICLE_BACKEND_INSTALL_DIR=/usr/local/lib/backend. See docs/R13_GPU_RUNBOOK.md."
 EOF
-log "post-reboot done — GPU toolchain installed; proceed with R13-A (fork vendor) + R13-C (GPU smoke)"
+log "GPU toolchain installed — proceed with the gnark-fork vendor + -tags icicle build (docs/R13_GPU_RUNBOOK.md)"
