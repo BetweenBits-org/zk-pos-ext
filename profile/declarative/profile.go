@@ -36,12 +36,12 @@ import (
 	"fmt"
 	"os"
 
-	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
-	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
-	t1schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
-	t2schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t2_static_haircut_margin"
-	t3schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t3_tiered_haircut_margin_1pool"
-	t4schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
+	snapshotmapping "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/mapping"
+	snapshotschema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/schema"
+	t1schema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t1_simple_margin"
+	t2schema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t2_static_haircut_margin"
+	t3schema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t3_tiered_haircut_margin_1pool"
+	t4schema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t4_tiered_haircut_margin_3pool"
 	"github.com/pelletier/go-toml/v2"
 )
 

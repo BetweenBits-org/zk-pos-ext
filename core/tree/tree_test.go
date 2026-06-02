@@ -5,9 +5,9 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/tree"
+	"github.com/BetweenBits-org/zk-pos-ext/core/host"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/tree"
 )
 
 // TestNewAccountTree_MemoryRoundTrip exercises the smallest meaningful

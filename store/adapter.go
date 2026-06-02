@@ -1,7 +1,7 @@
 package store
 
 import (
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
 )
 
 // This file holds the MySQL/gorm adapter-wrappers that let the gorm-bound

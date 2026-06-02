@@ -47,20 +47,20 @@ import (
 	"context"
 	"fmt"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 
 	// Register all four model-specific standard CSV snapshot connectors.
 	// init() in each parser package adds the connector to its model's
 	// host registry; an unknown source_type in profile.toml panics at
 	// engine startup (G17/G18).
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t2_static_haircut_margin"
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t3_tiered_haircut_margin_1pool"
-	_ "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
+	_ "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t1_simple_margin"
+	_ "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t2_static_haircut_margin"
+	_ "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t3_tiered_haircut_margin_1pool"
+	_ "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t4_tiered_haircut_margin_3pool"
 )
 
 // Options bundles the inputs Run needs. The cmd/witness shim builds

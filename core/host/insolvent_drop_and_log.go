@@ -3,7 +3,7 @@ package host
 import (
 	"fmt"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // InsolventActionDropAndLogV0 is the v1 frozen action ID for the

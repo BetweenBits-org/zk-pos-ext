@@ -30,11 +30,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/prover"
-	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/prover/config"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs/osvfs"
+	"github.com/BetweenBits-org/zk-pos-ext/pkg/prover"
+	pconfig "github.com/BetweenBits-org/zk-pos-ext/pkg/prover/config"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
+	"github.com/BetweenBits-org/zk-pos-ext/store"
 )
 
 func main() {

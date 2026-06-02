@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	t1circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/circuit"
-	t1spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	t1circuit "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t1_simple_margin/circuit"
+	t1spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t1_simple_margin/spec"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 	"github.com/consensys/gnark/backend/witness"

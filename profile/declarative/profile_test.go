@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 )
 
 // TestLoadT4Reference verifies the published t4_reference.toml parses

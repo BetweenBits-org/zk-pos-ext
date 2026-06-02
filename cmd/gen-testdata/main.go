@@ -32,8 +32,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/cmd/gen-testdata/internal/testdata"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	"github.com/BetweenBits-org/zk-pos-ext/cmd/gen-testdata/internal/testdata"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 )
 
 func main() {

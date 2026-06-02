@@ -15,7 +15,7 @@ import (
 	"hash"
 	"time"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 	"github.com/bnb-chain/zkbnb-smt/database"
 	"github.com/bnb-chain/zkbnb-smt/database/memory"

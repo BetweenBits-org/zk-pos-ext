@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"sort"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	t3spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	t3spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t3_tiered_haircut_margin_1pool/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 )
 

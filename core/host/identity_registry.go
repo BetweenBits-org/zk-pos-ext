@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // IdentityFactory constructs an AccountIDProvider for a given scheme.

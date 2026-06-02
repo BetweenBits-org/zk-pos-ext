@@ -3,8 +3,8 @@ package host
 import (
 	"math/big"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	t1spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	t1spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t1_simple_margin/spec"
 )
 
 // UserConfig is the per-account inclusion-proof artifact for the

@@ -3,8 +3,8 @@ package circuit
 import (
 	"math/big"
 
-	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
-	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
+	corecircuit "github.com/BetweenBits-org/zk-pos-ext/core/circuit"
+	t4spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/lookup/logderivlookup"
 )

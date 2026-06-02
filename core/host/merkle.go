@@ -7,7 +7,7 @@
 package host
 
 import (
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
 

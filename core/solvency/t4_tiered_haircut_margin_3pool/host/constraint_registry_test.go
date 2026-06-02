@@ -4,9 +4,9 @@ import (
 	"slices"
 	"testing"
 
-	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
-	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	t4host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/host"
+	t4spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	"github.com/consensys/gnark/frontend"
 )
 

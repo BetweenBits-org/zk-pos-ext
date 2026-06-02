@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	snapshotcsv "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/csv"
-	t1schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
-	t4schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t4_tiered_haircut_margin_3pool"
+	snapshotcsv "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/csv"
+	t1schema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t1_simple_margin"
+	t4schema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t4_tiered_haircut_margin_3pool"
 )
 
 const accountID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

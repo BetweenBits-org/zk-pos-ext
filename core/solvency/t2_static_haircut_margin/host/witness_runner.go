@@ -8,9 +8,9 @@ import (
 	"os"
 	"sort"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	t2spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	t2spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	bsmt "github.com/bnb-chain/zkbnb-smt"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )

@@ -1,6 +1,6 @@
 package spec
 
-import corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+import corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 
 // CreateUserOperation is the witness-side per-user batch entry for the
 // t1_simple_margin model. AccountID is the raw account-id bytes;

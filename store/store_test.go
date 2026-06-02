@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/store"
+	"github.com/BetweenBits-org/zk-pos-ext/store"
 	"github.com/go-sql-driver/mysql"
 )
 

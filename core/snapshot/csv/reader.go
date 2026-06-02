@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
+	snapshotschema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/schema"
 )
 
 // ErrInvalidRow classifies row-level data violations in standard raw

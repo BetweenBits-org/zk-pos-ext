@@ -1,8 +1,8 @@
 package circuit
 
 import (
-	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	corecircuit "github.com/BetweenBits-org/zk-pos-ext/core/circuit"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // Type aliases so this package doesn't need to import gnark/frontend

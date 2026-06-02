@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	t2spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	t2spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/spec"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"

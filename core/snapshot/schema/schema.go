@@ -17,7 +17,7 @@ package schema
 import (
 	"fmt"
 
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // FieldType identifies a canonical scalar type in a standard raw

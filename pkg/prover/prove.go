@@ -20,8 +20,8 @@ import (
 	"errors"
 	"fmt"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
 )
 
 // proveOne handles one claimed batch: decode → prove → verify →

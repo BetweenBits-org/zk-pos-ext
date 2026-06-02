@@ -5,9 +5,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
-	t2spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
+	t2spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // SnapshotFactory constructs a t2_static_haircut_margin SnapshotSource

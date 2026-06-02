@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 )
 
 // TestTiersFromShapes_T4Reference locks the T4 reference profile's

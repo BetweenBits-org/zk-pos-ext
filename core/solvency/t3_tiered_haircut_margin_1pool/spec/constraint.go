@@ -1,8 +1,8 @@
 package spec
 
 import (
-	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	corecircuit "github.com/BetweenBits-org/zk-pos-ext/core/circuit"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	"github.com/consensys/gnark/frontend"
 )
 

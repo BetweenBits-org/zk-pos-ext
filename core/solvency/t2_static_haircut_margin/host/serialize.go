@@ -5,7 +5,7 @@ import (
 	"encoding/gob"
 	"fmt"
 
-	t2spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/spec"
+	t2spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/spec"
 	"github.com/klauspost/compress/s2"
 )
 

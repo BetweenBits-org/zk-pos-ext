@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // TestDropAndLogV0_AutoRegistered confirms importing core/host

@@ -4,11 +4,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
-	t1host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/host"
-	t1spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs/osvfs"
+	t1host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t1_simple_margin/host"
+	t1spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t1_simple_margin/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 func stubFactory(vfs.Opener, string, int, corespec.PriceScaleProvider) t1spec.SnapshotSource {

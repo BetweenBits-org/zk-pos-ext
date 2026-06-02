@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	t4circuit "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"

@@ -8,11 +8,11 @@ package keygen
 import (
 	"fmt"
 
-	t1circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/circuit"
-	t2circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/circuit"
-	t3circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/circuit"
-	t4circuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	t1circuit "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t1_simple_margin/circuit"
+	t2circuit "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/circuit"
+	t3circuit "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t3_tiered_haircut_margin_1pool/circuit"
+	t4circuit "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/circuit"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	"github.com/consensys/gnark/frontend"
 )
 

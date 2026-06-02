@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 )
 
 // loadProfileFixture reads a reference profile.toml for the resolve

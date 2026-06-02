@@ -5,8 +5,8 @@ import (
 	"sort"
 	"sync"
 
-	t1spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t1_simple_margin/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	t1spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t1_simple_margin/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // ConstraintModuleFactory constructs a T1 ConstraintModule. Same

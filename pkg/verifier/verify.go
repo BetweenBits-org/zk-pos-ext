@@ -16,8 +16,8 @@ import (
 	"runtime"
 	"sync"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 	"github.com/consensys/gnark/backend/groth16"

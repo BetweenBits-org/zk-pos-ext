@@ -1,7 +1,7 @@
 package circuit
 
 import (
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	"github.com/consensys/gnark/std/hash/poseidon"
 )
 

@@ -31,9 +31,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/host"
+	snapshotmapping "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/mapping"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // BuildIdentity returns the AccountIDProvider registered in core/host

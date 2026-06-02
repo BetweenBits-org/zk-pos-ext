@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
 )
 
 // TestBatchWitnessDTORoundTrip locks the on-wire invariant that the

@@ -22,7 +22,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
 )
 
 // Compile-time assertions that the unexported backings satisfy the vfs

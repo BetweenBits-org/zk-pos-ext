@@ -1,8 +1,8 @@
 package circuit
 
 import (
-	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
-	t2spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/spec"
+	corecircuit "github.com/BetweenBits-org/zk-pos-ext/core/circuit"
+	t2spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/spec"
 	"github.com/consensys/gnark/std/hash/poseidon"
 	"github.com/consensys/gnark/std/lookup/logderivlookup"
 	"github.com/consensys/gnark/std/rangecheck"

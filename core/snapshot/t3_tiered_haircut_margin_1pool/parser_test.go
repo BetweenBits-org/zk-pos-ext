@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	t3snapshot "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t3_tiered_haircut_margin_1pool"
-	t3host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t3_tiered_haircut_margin_1pool/host"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	t3snapshot "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t3_tiered_haircut_margin_1pool"
+	t3host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t3_tiered_haircut_margin_1pool/host"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 const accountID0 = "1111111111111111111111111111111111111111111111111111111111111111"

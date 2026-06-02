@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	t2snapshot "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t2_static_haircut_margin"
-	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
+	t2snapshot "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t2_static_haircut_margin"
+	t2host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/host"
 )
 
 const accountID0 = "1111111111111111111111111111111111111111111111111111111111111111"

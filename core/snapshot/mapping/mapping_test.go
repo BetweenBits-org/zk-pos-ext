@@ -3,9 +3,9 @@ package mapping_test
 import (
 	"testing"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
-	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
-	t1schema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/t1_simple_margin"
+	"github.com/BetweenBits-org/zk-pos-ext/core/snapshot/mapping"
+	snapshotschema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/schema"
+	t1schema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t1_simple_margin"
 )
 
 func TestValidateDirectMapping(t *testing.T) {

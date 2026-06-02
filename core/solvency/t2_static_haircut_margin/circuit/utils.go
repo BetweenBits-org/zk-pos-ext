@@ -1,7 +1,7 @@
 package circuit
 
 import (
-	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
+	corecircuit "github.com/BetweenBits-org/zk-pos-ext/core/circuit"
 	"github.com/consensys/gnark/frontend"
 )
 

@@ -4,11 +4,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
-	t4host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/host"
-	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs/osvfs"
+	t4host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/host"
+	t4spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // stubFactory is a dummy SnapshotFactory used by negative tests that

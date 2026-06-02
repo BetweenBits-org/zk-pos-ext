@@ -10,14 +10,14 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
-	snapshotcsv "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/csv"
-	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
-	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
-	t2host "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/host"
-	t2spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/spec"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs/osvfs"
+	snapshotcsv "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/csv"
+	snapshotmapping "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/mapping"
+	snapshotschema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/schema"
+	t2host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/host"
+	t2spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/spec"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 )
 

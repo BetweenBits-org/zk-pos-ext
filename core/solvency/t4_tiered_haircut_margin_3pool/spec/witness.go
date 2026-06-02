@@ -1,6 +1,6 @@
 package spec
 
-import corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+import corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 
 // CreateUserOperation is the witness-side per-user batch entry for the
 // t4_tiered_haircut_margin_3pool model. It carries the raw byte / uint64 values that the

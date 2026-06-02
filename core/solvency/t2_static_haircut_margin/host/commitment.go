@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"math/big"
 
-	t2spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t2_static_haircut_margin/spec"
+	t2spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
 

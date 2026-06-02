@@ -3,8 +3,8 @@ package testdata
 import (
 	"fmt"
 
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 )
 
 // Options carries the synthesis parameters cmd/gen-testdata passes

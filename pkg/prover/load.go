@@ -18,7 +18,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 )

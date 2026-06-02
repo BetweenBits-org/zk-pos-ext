@@ -4,11 +4,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	snapshotmapping "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/mapping"
-	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	"github.com/BetweenBits-org/zk-pos-ext/core/host"
+	snapshotmapping "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/mapping"
+	snapshotschema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/schema"
+	"github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 )
 
 // TestBuildIdentity_KnownScheme confirms the builder wires through to

@@ -3,8 +3,8 @@
 package t1_simple_margin
 
 import (
-	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+	snapshotschema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/schema"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 )
 
 // StandardSchema is the v1 canonical raw data contract for

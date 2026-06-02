@@ -1,6 +1,6 @@
 package spec
 
-import corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
+import corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 
 // RiskPolicy supplies per-asset tier-ratio *values* for the
 // t4_tiered_haircut_margin_3pool solvency model. The piecewise-linear haircut *model*

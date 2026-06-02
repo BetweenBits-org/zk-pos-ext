@@ -34,11 +34,11 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	vconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/verifier/config"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	vconfig "github.com/BetweenBits-org/zk-pos-ext/pkg/verifier/config"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
 )
 

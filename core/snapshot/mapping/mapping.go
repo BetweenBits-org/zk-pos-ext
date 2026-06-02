@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"strings"
 
-	snapshotcsv "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/csv"
-	snapshotschema "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/snapshot/schema"
+	snapshotcsv "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/csv"
+	snapshotschema "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/schema"
 )
 
 // Config is the mapping DSL root for one customer snapshot source.

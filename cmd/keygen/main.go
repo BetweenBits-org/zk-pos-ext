@@ -37,9 +37,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs/osvfs"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/keygen"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs/osvfs"
+	"github.com/BetweenBits-org/zk-pos-ext/pkg/keygen"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 )
 
 func main() {

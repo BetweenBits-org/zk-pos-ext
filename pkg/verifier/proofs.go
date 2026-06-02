@@ -17,9 +17,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	corehost "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/host"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/io/vfs"
-	vconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/verifier/config"
+	corehost "github.com/BetweenBits-org/zk-pos-ext/core/host"
+	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
+	vconfig "github.com/BetweenBits-org/zk-pos-ext/pkg/verifier/config"
 	"github.com/gocarina/gocsv"
 )
 

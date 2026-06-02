@@ -1,9 +1,9 @@
 package circuit
 
 import (
-	corecircuit "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/circuit"
-	corespec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/spec"
-	t4spec "github.com/binance/zkmerkle-proof-of-solvency/zkpor/core/solvency/t4_tiered_haircut_margin_3pool/spec"
+	corecircuit "github.com/BetweenBits-org/zk-pos-ext/core/circuit"
+	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	t4spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	"github.com/consensys/gnark/std/hash/poseidon"
 	"github.com/consensys/gnark/std/lookup/logderivlookup"
 	"github.com/consensys/gnark/std/rangecheck"

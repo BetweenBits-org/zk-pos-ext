@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	pconfig "github.com/binance/zkmerkle-proof-of-solvency/zkpor/pkg/prover/config"
-	"github.com/binance/zkmerkle-proof-of-solvency/zkpor/profile/declarative"
+	pconfig "github.com/BetweenBits-org/zk-pos-ext/pkg/prover/config"
+	"github.com/BetweenBits-org/zk-pos-ext/profile/declarative"
 )
 
 // TestConfigParse_RoundTrip confirms the slim R8-C/3 config carries the
