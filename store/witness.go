@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // BatchWitness rows are the witness↔prover artifact channel. The
@@ -104,17 +105,31 @@ func (s *WitnessStore) Touch(height int64) error {
 	return nil
 }
 
-// ClaimOldestByStatus is the single-instance prover's task pump:
-// inside one transaction find the oldest row at `from` status (lowest
-// Height), flip it to `to`, and return it. Returns ErrNotFound when
-// no row matches — the prover treats it as "queue empty, time to
-// quit". Multi-worker deployments will eventually wrap this with a
-// Redis BLPOP queue (legacy pattern); single-instance prover doesn't
-// need it.
+// ClaimOldestByStatus is the prover's task pump: inside one transaction
+// find the oldest row at `from` status (lowest Height), flip it to `to`,
+// and return it. Returns ErrNotFound when no row matches — the prover
+// treats it as "queue empty, time to quit".
+//
+// Multi-instance safe (R13-D): the SELECT takes FOR UPDATE SKIP LOCKED, so
+// N concurrent provers each lock a DISTINCT oldest row and skip rows a peer
+// is mid-claiming — no batch is ever claimed twice. Requires MySQL 8.0+.
+// The conditional UPDATE (`AND status = from`) is belt-and-suspenders for
+// any backing without row-level skip-locked semantics. The claim
+// transaction does only SELECT+UPDATE (proving happens after it commits),
+// so a row's lock is held for microseconds.
+//
+// ErrNotFound now means "no CLAIMABLE row": the queue is drained, or — only
+// transiently at the tail — every remaining row is locked by a peer that is
+// finishing its own claim. A worker quitting on it loses no work, because a
+// locked row is always claimed by the peer holding the lock (the claim tx
+// never returns between lock and UPDATE except on error).
 func (s *WitnessStore) ClaimOldestByStatus(from, to int64) (*BatchWitness, error) {
 	var row BatchWitness
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		dbTx := tx.Clauses(MaxExecutionTimeHint).Table(s.table).
+		dbTx := tx.Clauses(
+			MaxExecutionTimeHint,
+			clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"},
+		).Table(s.table).
 			Where("status = ?", from).
 			Order("height asc").Limit(1).Find(&row)
 		if dbTx.Error != nil {
@@ -123,10 +138,16 @@ func (s *WitnessStore) ClaimOldestByStatus(from, to int64) (*BatchWitness, error
 		if dbTx.RowsAffected == 0 {
 			return ErrNotFound
 		}
-		dbTx = tx.Table(s.table).Where("height = ?", row.Height).
+		dbTx = tx.Table(s.table).
+			Where("height = ? AND status = ?", row.Height, from).
 			Updates(map[string]any{"status": to})
 		if dbTx.Error != nil {
 			return ConvertMySQLErr(dbTx.Error)
+		}
+		if dbTx.RowsAffected == 0 {
+			// Reachable only without SKIP LOCKED: a peer claimed this row
+			// between our SELECT and UPDATE. Treat as empty; the peer covers it.
+			return ErrNotFound
 		}
 		row.Status = to
 		return nil
