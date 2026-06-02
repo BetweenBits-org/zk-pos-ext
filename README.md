@@ -322,10 +322,16 @@ replace (
 
 ### 버전 핀
 
-아직 release 태그가 없다. 정식 태그(`v0.x.0`) 전까지는 pseudo-version 또는
-로컬 `replace github.com/BetweenBits-org/zk-pos-ext => <local path>` 로
-핀한다. 태그가 끊기면 normal `require` 로 단순화된다 (gnark replace 2줄은
-그래도 별도 유지).
+```
+require github.com/BetweenBits-org/zk-pos-ext v0.1.0
+```
+
+pre-1.0 이므로 API(엔진 `Options` 등)는 breaking 변경될 수 있다. 로컬
+`replace … => <local path>` 는 더는 필요 없다. **단 gnark replace 2줄은
+그래도 별도로 유지**해야 한다 (위 참조).
+
+repo 가 private 이면 consumer 쪽에 `GOPRIVATE=github.com/BetweenBits-org/*`
++ git 인증 설정이 필요하다 (public 이면 Go proxy 로 자동).
 
 ---
 
