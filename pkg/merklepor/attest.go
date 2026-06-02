@@ -3,6 +3,7 @@ package merklepor
 import (
 	"context"
 	"fmt"
+	"os"
 )
 
 // RunAttest streams the snapshot, runs the auditor reconcile checks, builds
@@ -36,5 +37,16 @@ func RunAttest(ctx context.Context, opts Options) error {
 		return err
 	}
 	fmt.Printf("merklepor attest: root=%x total=%s leaves=%d rows=%d\n", root.Hash, root.Sum, len(leaves), written)
+
+	if opts.DumpUserPath != "" {
+		row, err := opts.Attest.GetByIndex(uint32(opts.DumpUserIndex))
+		if err != nil {
+			return fmt.Errorf("merklepor: read attest index %d for dump: %w", opts.DumpUserIndex, err)
+		}
+		if err := os.WriteFile(opts.DumpUserPath, []byte(row.Config), 0o644); err != nil {
+			return fmt.Errorf("merklepor: write %q: %w", opts.DumpUserPath, err)
+		}
+		fmt.Printf("merklepor attest: sum_user_config[%d] written to %s\n", opts.DumpUserIndex, opts.DumpUserPath)
+	}
 	return nil
 }

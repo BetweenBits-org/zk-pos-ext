@@ -15,6 +15,11 @@ import (
 	"github.com/BetweenBits-org/zk-pos-ext/core/io/vfs"
 	t1host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t1_simple_margin/host"
 	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+
+	// Register the T1 standard CSV snapshot connector so in-process callers
+	// of the engine resolve "t1_standard_csv.v1" without extra wiring (the
+	// side line is T1-only, gate G19 D3).
+	_ "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t1_simple_margin"
 )
 
 // collectDeps bundles the shared inputs the model-typed snapshot build +

@@ -43,6 +43,8 @@ func run() error {
 	capacityOverride := flag.Int("asset-capacity", 0, "override profile.asset_capacity (smoke only; 0 = toml value)")
 	publishedTotal := flag.String("published-total", "", "optional claimed total liabilities to reconcile against (decimal)")
 	maxBalance := flag.String("max-balance", "", "optional per-account balance ceiling (decimal)")
+	dumpUserIndex := flag.Int("dump-user-index", 0, "positional index dumped when -dump-user-path is set")
+	dumpUserPath := flag.String("dump-user-path", "", "if set, write that account's SumUserConfig JSON here after attesting")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -95,6 +97,8 @@ func run() error {
 		MaxBalance:       maxBalanceBig,
 		CapacityOverride: *capacityOverride,
 		SnapshotID:       *snapshotID,
+		DumpUserIndex:    *dumpUserIndex,
+		DumpUserPath:     *dumpUserPath,
 	})
 }
 

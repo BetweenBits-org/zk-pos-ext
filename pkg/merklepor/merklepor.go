@@ -77,6 +77,15 @@ type Options struct {
 
 	// SnapshotID overrides profile.snapshot.snapshot_id when non-empty.
 	SnapshotID string
+
+	// DumpUserPath, when non-empty, makes RunAttest write the SumUserConfig
+	// JSON of the account at DumpUserIndex to that path after persisting —
+	// the seam that hands one user their published proof artifact (and the
+	// smoke harness's bridge into RunVerifyUser). Empty disables the dump.
+	DumpUserPath string
+
+	// DumpUserIndex is the positional index dumped when DumpUserPath is set.
+	DumpUserIndex int
 }
 
 // sumNodeJSON is the wire form of a sum-tree node in the published
