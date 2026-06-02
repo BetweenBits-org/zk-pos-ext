@@ -1,7 +1,9 @@
 # AGENTS.md
 
-이 파일은 `zkpor/` 엔진에 대한 agent contract이다. 세션 cwd는 project root
-(`zkmerkle-proof-of-solvency/`) 기준. 작업 시작 시 가장 먼저 읽는다.
+이 파일은 `zkpor/` 엔진에 대한 agent contract이다. 문서 내 경로는 outer
+checkout (`zkmerkle-proof-of-solvency/`) 기준 표기지만, **zkpor 는 자립 Go
+모듈로 추출**되어 빌드·테스트·git 은 `zkpor/` 에서 수행한다 (`cd zkpor &&
+go build ./...`). 작업 시작 시 가장 먼저 읽는다.
 
 ## Project Context
 
@@ -29,10 +31,14 @@ scheme 공개 + 외부 audit.
 
 ## Repository Direction
 
-- `circuit/`, `src/` — legacy Binance OSS PoR v2 reference. **수정
-  금지**. 현재 동작하며 trusted setup 그대로 유효.
-- `zkpor/` — 신규 modular engine. 자체 git 저장소 (`zkpor/.git/`).
-  모든 신규 작업은 여기.
+- `circuit/`, `src/` — legacy Binance OSS PoR v2 reference (binance
+  모듈). **수정 금지**. 현재 동작하며 trusted setup 그대로 유효.
+  zkpor 추출 후 legacy 와는 **별도 Go 모듈** — zkpor production 은
+  legacy 를 import 하지 않는다 (parity 테스트는 추출 시 제거됨).
+- `zkpor/` — 신규 modular engine. **자립 Go 모듈** (`zkpor/go.mod`,
+  module `github.com/BetweenBits-org/zk-pos-ext`) + 자체 git 저장소
+  (`zkpor/.git/`). 더는 binance OSS 위 overlay subdir 가 아니다.
+  빌드는 `cd zkpor && go build ./...`. 모든 신규 작업은 여기.
   - `zkpor/core/spec/` — universal interfaces + 4-tier catalog 상수 (R6 freeze).
   - `zkpor/core/circuit/` — universal zk helpers (Merkle, commitment, arith).
   - `zkpor/core/solvency/<model>/` — audited math 카탈로그. T1~T4.
@@ -95,13 +101,18 @@ scheme 공개 + 외부 audit.
 
 ## Testing And Harness Rules
 
-- 신규 구현은 다음 baseline 명령으로 검증한다 (project root에서 실행).
+- 신규 구현은 다음 baseline 명령으로 검증한다. **zkpor 는 자립 Go
+  모듈로 추출됨** — `cd zkpor` 에서 실행 (outer binance 모듈에서
+  `./zkpor/...` 로 빌드하지 않는다).
 
   ```bash
-  go build ./zkpor/...
-  go vet ./zkpor/...
-  go build ./...           # legacy + 신규 (legacy 영향 없음 확인)
+  go build ./...
+  go vet ./...
+  go test -short ./...
   ```
+
+  module path 는 `github.com/BetweenBits-org/zk-pos-ext` (go 1.22,
+  gnark/gnark-crypto → bnb-chain fork replace 보유). overlay 절차 불요.
 
 - 회로 코드를 이식하면 trusted setup byte-equivalence를 검증한다 (`.pk`/
   `.vk` 파일 hash 비교).

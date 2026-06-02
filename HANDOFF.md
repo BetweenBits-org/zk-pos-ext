@@ -45,9 +45,11 @@ b08258c feat(zkpor): core/io/vfs opener ports (R12-E/2)
 | **R12-A (library extraction — 5 services → pkg/\*)** | **✅ closed (2026-05-28)** | verifier/prover/witness/userproof/keygen 모두 pkg/\* + cmd thin shim. `Options` + `Run(opts)` 통일 |
 | **R12-B (panic → error migration)** | **✅ closed (2026-05-29)** | 5 pkg/\* 모두 `Run(opts) error`. in-process 호출 가능 (no recover). 3 commit (B/1 verifier, B/2 keygen, B/3 user+wit+prover closure) |
 | **R12-C (context.Context 지원, cancellable Run)** | **✅ closed (2026-05-29)** | 5 pkg/\* 모두 `Run(ctx, ...)`. prover 폴 루프 batch-granular cancel, witness/userproof snapshot stream 중단, verifier worker pool ctx 조기종료, keygen shape-granular. cmd shim `signal.NotifyContext`. 3 commit (C/1 prover, C/2 wit+user, C/3 verifier+keygen) |
-| **R12-E (Source-Agnostic Engine Input)** | **✅ closed (2026-06-01, branch r12ef)** | 입력 구성을 engine `Run` 밖 cmd shim 으로 inversion. profile/config 은 parsed value, snapshot/keys 는 `vfs.Opener`/`KeyOpener`/`KeySink`/`ByteSource` port. `core/io/vfs` + `osvfs` 가 input-side os/filepath 유일 지점. logical stem (no `filepath.Join` in engine). lazy `verifier -hash`. on-wire bytes/명명/시그니처 보존. ROADMAP §R12-E |
-| **R12-F (Persistence Port Inversion)** | **✅ closed (2026-06-01, branch r12ef)** | `core/host` 가 3 port (`WitnessQueue`/`ProofStore`/`UserProofStore`) + gorm-free DTO + `ErrNotFound` sentinel 소유. `store` 는 MySQL adapter-wrapper. gorm.Model 은 store row 에만. R12-D 의 backing-agnostic 목표를 **port 로 흡수** — 단 postgres/sqlite gorm driver 는 **추가하지 않음** (MySQL 단일 adapter, Redis/S3/PG 는 port 의 미래 adapter). ROADMAP §R12-F |
+| **R12-E (Source-Agnostic Engine Input)** | **✅ closed (2026-06-01, merged → main)** | 입력 구성을 engine `Run` 밖 cmd shim 으로 inversion. profile/config 은 parsed value, snapshot/keys 는 `vfs.Opener`/`KeyOpener`/`KeySink`/`ByteSource` port. `core/io/vfs` + `osvfs` 가 input-side os/filepath 유일 지점. logical stem (no `filepath.Join` in engine). lazy `verifier -hash`. verifier proof CSV 도 `vfs.ByteSource` 로 inversion → **engine pkg+core 직접 file/db IO 0**. on-wire bytes/명명/시그니처 보존. ROADMAP §R12-E |
+| **R12-F (Persistence Port Inversion)** | **✅ closed (2026-06-01, merged → main)** | `core/host` 가 3 port (`WitnessQueue`/`ProofStore`/`UserProofStore`) + gorm-free DTO + `ErrNotFound` sentinel 소유. `store` 는 MySQL adapter-wrapper. gorm.Model 은 store row 에만. R12-D 의 backing-agnostic 목표를 **port 로 흡수** — 단 postgres/sqlite gorm driver 는 **추가하지 않음** (MySQL 단일 adapter, Redis/S3/PG 는 port 의 미래 adapter). ROADMAP §R12-F |
 | **R12-D (DB engine 다중화, MySQL only 해제)** | ⏳ **R12-F 로 개념 흡수 (잔여 DB-mux 는 optional)** | backing-agnostic 은 R12-F port 가 제공. `store.Open` driver-switch + postgres/sqlite dialector 는 **미실시** (port 가 더 깨끗한 seam). 실제 2nd adapter 가 필요하면 별도 슬라이스. ROADMAP §Stage R12 의 `R12-D — GPU 측정 smoke` 와는 별개 라벨 (둘 다 intact) |
+| **R12-G (TreeDB 백킹 주입)** | **✅ closed (2026-06-02, merged → main)** | witness/userproof 가 `tree.NewAccountTree(cfg.TreeDB…)` 를 직접 호출하고 config 에 tree DSN 보유하던 마지막 engine-측 backing 구성 제거. cmd shim 이 tree 빌드 후 `Options.AccountTree` (`bsmt.SparseMerkleTree`) 주입, engine Options 에서 `Config` 삭제. tree 백엔드(memory/redis/future) 도 cmd 선택. T1 tiny smoke green |
+| **Standalone module 추출** | **✅ closed (2026-06-02, merged → main)** | zkpor 가 binance OSS 모듈의 overlay subdir (go.mod 없음, import `…/zkmerkle-proof-of-solvency/zkpor/…`) 에서 **자립 Go 모듈**로 전환. 자체 `go.mod` (module `github.com/BetweenBits-org/zk-pos-ext`, gnark/gnark-crypto replace 2개 이관) + 131 파일 import rewrite + legacy parity 테스트 4개 제거 (G1 closed; production 은 이미 legacy-free). `cd zkpor && go build/test ./...` + T1 smoke green. 커밋 `594dc16` |
 | R12 GPU PoC (ICICLE) | deferred | host RAM 요구 8xl+ — 측정 가치 큼, 별도 트랙 |
 | R13 (multi-instance prover) | deferred | R12 closure 후 |
 
@@ -100,7 +102,8 @@ b08258c feat(zkpor): core/io/vfs opener ports (R12-E/2)
 | `zkpor/scripts/deploy/docker-compose.yml` | ✅ smoke MySQL fixture |
 | `zkpor/docs/BENCHMARK.md` | ✅ benchmark single source of truth (R6.5/§2.4/§2.6 측정 fold-in) |
 | `zkpor/docs/R11D_RUNBOOK.md` | ✅ R11-D 절차 |
-| `circuit/`, `src/` (legacy) | ✅ untouched |
+| `circuit/`, `src/` (legacy, binance OSS 모듈) | ✅ untouched. zkpor 는 standalone 추출 후 legacy 와 **별도 Go 모듈** — production 은 원래 legacy-free, parity 테스트(legacy import)는 추출 시 제거됨 |
+| `zkpor/go.mod` + `go.sum` | ✅ standalone — module `github.com/BetweenBits-org/zk-pos-ext`, go 1.22, gnark/gnark-crypto → bnb-chain fork replace 보유. `cd zkpor && go build ./...` |
 
 ## Non-Negotiable Rules
 
@@ -121,8 +124,8 @@ b08258c feat(zkpor): core/io/vfs opener ports (R12-E/2)
 다음 agent 의 진입 순서:
 
 1. `zkpor/AGENTS.md`, `zkpor/PRODUCTION_ROADMAP.md`, **본 문서** 읽기.
-2. `git -C zkpor log --oneline -12` (branch `r12ef-io-inversion`) 으로
-   최근 commit 확인.
+2. `git -C zkpor log --oneline -12` (branch `main`) 으로 최근 commit 확인.
+   **빌드는 자립 모듈**: `cd zkpor && go build ./...` (outer 에서 `./zkpor/...` 아님).
 3. R12-E/R12-F 결과 흡수: engine `Run` 은 입력을 직접 안 연다. cmd shim
    이 profile/config 를 `Parse` value 로, snapshot/keys 를 `osvfs`
    opener 로, store 를 `store.New*Adapter` port 로 구성해 `Options` 에
@@ -133,21 +136,19 @@ b08258c feat(zkpor): core/io/vfs opener ports (R12-E/2)
    profile 로도 성공 (lazy 구성). on-wire bytes/명명/시그니처 보존.
 4. 다음 슬라이스 — 아래 §Next Slice.
 
-### Next Slice: r12ef 검증 + (optional) port 의 첫 2nd adapter
+### Next Slice: port 의 첫 non-local adapter (DB/S3/Redis)
 
-R12-E/R12-F 가 IO + persistence 를 port 뒤로 inversion 완료. 코드
-변경 없이 다음을 진행:
+R12-E/F/G + standalone 추출 완료. T1 tiny smoke green (cmd shim 의
+osvfs/Parse/adapter/tree 구성이 기존 path 동작과 무회귀임 확인됨).
+engine 은 입력(profile/config value, snapshot/keys opener, tree) +
+persistence(queue/proof/userproof port) 를 전부 주입받으므로 **코드
+변경 0 으로 backing 만 교체** 가능. 다음은 실제 non-local adapter:
 
-1. **engine smoke 재실행 (r12ef 브랜치)** — `scripts/smoke.sh` 풀
-   파이프라인 (docker MySQL → keygen → witness → prover → verifier
-   → userproof → verifier -user) 이 inversion 후에도 byte-equivalent
-   하게 통과하는지. cmd shim 의 osvfs/Parse/adapter 구성이 기존
-   path 동작과 동일함을 확인.
-2. **(optional) Redis / S3 adapter against the ports** — R12-F port
+1. **Redis / S3 adapter against the ports** — R12-F port
    가 이미 seam. Redis `WitnessQueue` (BLPOP 큐, R13 의 자연 진입점)
    또는 S3 `vfs.Opener`/`KeySink` (key/snapshot 원격). engine 코드
    변경 0 — adapter package + cmd shim wiring 만.
-3. **(optional, still-queued) R12-D DB-mux** — 정말 *같은 SQL gorm
+2. **(optional, still-queued) R12-D DB-mux** — 정말 *같은 SQL gorm
    에서 2nd dialect* 가 필요하면 `store.Open` driver-switch +
    `gorm.io/driver/{postgres,sqlite}`. 단 port 가 더 깨끗하므로
    기본은 #2 (별도 adapter) 권장. (ROADMAP §Stage R12 의
@@ -168,9 +169,9 @@ green + 해당 port round-trip 테스트.
 
 - 작업 워크트리: `cd .worktree/development` (또는 `cd zkpor` for main)
 - `git status` + `git log --oneline -10`
-- `cd zkmerkle-proof-of-solvency && go test ./zkpor/...`
-- `cd zkmerkle-proof-of-solvency && go build ./zkpor/...`
-- Smoke 검증: `./scripts/smoke.sh profile/<X>_reference/<X>_reference.toml`
+- **빌드/테스트 (zkpor 는 이제 자립 Go 모듈)**: `cd zkpor && go build ./... && go vet ./... && go test -short ./...`.
+  더는 outer `zkmerkle-proof-of-solvency` 에서 `./zkpor/...` 로 빌드하지 않는다 — `zkpor/go.mod` 가 모듈 루트 (module `github.com/BetweenBits-org/zk-pos-ext`, go 1.22, bnb-chain/gnark+gnark-crypto replace 보유). overlay 절차 불요.
+- Smoke 검증 (zkpor/ 에서): `./scripts/smoke.sh profile/<X>_reference/<X>_reference.toml`
 - EC2 측정 (R12 GPU PoC 진입 시): `./scripts/ec2/sync.sh` → `INSTANCE_TAG=<tag> ./scripts/ec2/r11d.sh <cell>` → `./scripts/ec2/fetch.sh`
 
 ## Commit Discipline

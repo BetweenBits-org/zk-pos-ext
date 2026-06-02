@@ -1067,6 +1067,57 @@ host ports + adapter + runner 전환이 R12-F 의 실체).
 - not-found control flow 가 `corehost.ErrNotFound` 단일 sentinel 경유.
 - MySQL 경로 무회귀 (verbatim mapping). build / vet / test green.
 
+추가 inversion (R12-E 표의 후속 slice): **verifier proof CSV** 도
+`os.Open` → 주입된 `vfs.ByteSource` 로 전환 (cmd 가 `osvfs.File(cfg.
+ProofTable)` 주입). 이로써 engine `pkg/`+`core/` 의 직접 file/db IO 가
+**0** 이 됨 (osvfs adapter 만 os/filepath 보유).
+
+### Stage R12-G — TreeDB Backing Injection (CLOSED)
+
+**목적**: R12-E/F 이후 engine 에 남은 마지막 backing 구성 — witness/
+userproof 가 `tree.NewAccountTree(cfg.TreeDB.Driver, …Addr)` 를 직접
+호출하고 config 에 tree DSN 을 보유 — 를 제거. R12-F 가 queue/proof/
+userproof *테이블* 채널을 port 화했다면, R12-G 는 **SMT (depth-28) 노드
+backing** 을 inversion 한다.
+
+**Locked design**:
+
+- witness/userproof `Options` 에서 `Config` 제거, `AccountTree
+  bsmt.SparseMerkleTree` 주입. engine 은 `tree.NewAccountTree` / TreeDB
+  DSN 을 보지 않는다.
+- cmd shim 이 deployment config 의 TreeDB block 으로 tree 를 빌드해
+  주입. `wconfig` / `uconfig` 의 TreeDB struct 는 config.json schema 로
+  유지 (이제 cmd 만 소비).
+
+**Exit criteria**: witness/userproof engine 에 `tree.NewAccountTree`
+호출 0, tree backend (memory / redis / future) 가 cmd 선택. T1 tiny
+smoke green.
+
+### Stage Standalone — zk-pos-ext 자립 모듈 추출 (CLOSED)
+
+**목적**: zkpor 를 binance OSS 모듈의 overlay subdir 에서 독립 배포·
+import 가능한 **자립 Go 모듈**로 추출 (SaaS productization 토대).
+
+**전제 (검증됨)**: production 코드는 legacy (`src/`, `circuit/`) 를
+import 하지 않음 (R3 step 4 closure). legacy import 는 byte-equivalence
+parity *테스트* 4개에만 존재했다.
+
+**작업**:
+
+- `zkpor/go.mod` 신설 — module `github.com/BetweenBits-org/zk-pos-ext`,
+  go 1.22, gnark / gnark-crypto → bnb-chain fork **replace 디렉티브 이관**
+  (암호 정확성이 fork 에 의존).
+- import prefix 일괄 치환: `…/zkmerkle-proof-of-solvency/zkpor/` →
+  `…/zk-pos-ext/` (131 파일).
+- legacy parity 테스트 4개 제거 (G1 closed; R1CS hash 는 §G1 기록).
+  혼합 파일 `core/host/merkle_test.go` 는 legacy 부분만 수술 제거 (비-
+  legacy 2개 테스트 보존).
+
+**Exit criteria** (모두 충족): `cd zkpor && go build / vet / test
+-short ./...` green (standalone). T1 tiny smoke green (실 MySQL). 커밋
+`594dc16`. 빌드 명령이 `cd zkpor && go build ./...` 로 변경 (AGENTS /
+HANDOFF Required Commands 갱신). overlay 절차 폐지.
+
 **관련 Gate**: 없음 (persistence surface refactor). R12-D 의 DB-mux
 잔여 항목은 R13 (multi-instance, Redis 큐) 또는 별도 adapter 슬라이스
 로 carry — port 가 이미 그 작업의 seam 을 제공.
