@@ -1136,6 +1136,79 @@ R11 은 V1-PROD 와 병렬 가능 (서로 의존성 약함). R12 + R13 는 GTM S
 아님. CPU-only 단일 instance 로도 mid-tier 거래소 GTM 가능 (mid-tier
 3-way 보고서 참고).
 
+### Stage MS — Merkle-sum PoR 사이드 라인 (proof-of-liabilities, non-zk)
+
+**포지셔닝**: 메인 제품은 4-tier zk PoS (T1~T4). 그 옆에 **별도 부속
+라인**으로 감사인-신뢰 기반 Merkle-sum PoR (= zk 없는 proof-of-
+liabilities) 을 제공한다. 같은 snapshot·leaf·tree 인프라 위에서 zk
+witness/prover 를 **sum-root 계산 + 감사 reconcile** 로 치환한다. 신뢰
+뿌리가 "수학 + ceremony" → "감사인 재계산 + 발표 root 불변성" 으로
+이동한다. 완전성(누락) gap 은 zk 와 동일하게 self-inclusion + 외부 감사로
+보완 (`docs/01-project-context.md` "Not Guaranteed" 참조).
+
+**메인 라인 무영향 (구조적 격리)**: 사이드 라인은 `core/circuit`,
+`pkg/keygen`, `pkg/prover`, groth16, `.pk`/`.vk`, trusted setup 에 **import
+의존 0**. proving 스택·ceremony 없이 빌드/실행. `ConstraintModule` 계약·
+카탈로그 `L[k]`·동결 leaf 미변경 (add-only 격리).
+
+**Design lock (G19, D1~D5)**:
+
+- **D1 (A) Merkle Sum Tree** — 노드 = `(Poseidon(L.h, R.h, L.sum, R.sum),
+  L.sum + R.sum)`. root 자체가 총부채를 담아 사용자가 sum 기여까지 공개
+  검증. plain SMT + off-tree 합산 (B) 기각.
+- **D2 분리** — zk 트리오와 병렬인 별도 `pkg/merklepor`. 메인 verifier 에
+  모드 추가하지 않음 ("메인 약화 금지").
+- **D3 T1 전용** — Merkle-sum = 부채증명. 순잔고가 깔끔히 정의되는
+  `t1_simple_margin` 만 지원, 기존 `t1host.NewSnapshot` 로더 재사용.
+  haircut 모델 (T2~T4) 은 zk PoS 라인 책임.
+- **D4 부채까지만** — 엔진은 attested 부채 root+total 발행. reserves
+  (온체인 지갑) 총액은 **감사 input** 으로 받아 `RunAudit` 이
+  `Reserves ≥ Liabilities` 비교만. 멀티체인 RPC / 지갑 서명검증은 engine
+  scope 밖 (별 모듈 / 감사인 책임).
+- **D5 프라이버시** — sum-tree leaf identity 는 동결 `AccountLeafHash`
+  재사용 (새 identity 체계 없음 — G2 단일 원칙 준수). v1 완화 = batch 내
+  leaf 무작위 셔플. per-user salt 는 `AccountIDProvider` HMAC/salt 업그레이
+  드 (G2 의 V2) 로 deferral.
+
+**산출물**:
+
+- core (model-blind, `core/circuit` 무관):
+  - `core/sumtree/` — Merkle Sum Tree (`Set(idx, leafHash, balance)` /
+    `Commit` / `Root() (hash, sum)` / `GetSumProof(idx)`).
+  - `core/host/merklesum.go` — `VerifyMerkleSumProof(...)` off-circuit.
+  - `core/host/reconcile.go` — 감사 substitute pure 체크 (`CheckNonNegative`
+    / `CheckNoDuplicate` / `CheckRange` / `CheckSumEquality`).
+  - `core/host/por_port.go` — `AttestStore` port (`UserProofStore` 패턴).
+  - `core/spec/por.go` — sum-leaf 인코딩 + depth 상수 (add-only freeze).
+  - `core/solvency/t1_simple_margin/host/sum_runner.go` — `AccountInfo` →
+    `(idx, id, net)` 매핑 (기존 snapshot/bucketing 재사용).
+- pkg (사이드 진입면):
+  - `pkg/merklepor/` — `RunAttest` (트리빌드 + reconcile + root/proof
+    발행), `RunVerifyUser` (사용자 sum-inclusion), `RunAudit` (감사 리포트
+    \+ `Reserves ≥ Liabilities`) + `dispatch.go` + `config/`. `Options`
+    주입 · ctx · error 규약은 zk 트리오와 동일 (R12-B/C/E/F/G 정합).
+- cmd / store:
+  - `cmd/attest`, `cmd/audit` (얇은 shim), `store/attestation.go`
+    (`AttestRow` + adapter; `LeafSum` 컬럼).
+
+**재사용 (무변경)**: `core/host.VerifyMerkleProof`, `AccountLeafHash`,
+`core/tree`, `core/snapshot/*`, `core/io/vfs`, `profile/declarative`,
+`store` base.
+
+**Exit criteria**:
+
+- `cd zkpor && go build / vet / test -short ./...` green (사이드 패키지 포함).
+- sample T1 데이터로 end-to-end: `RunAttest` (sum-root + reconcile) →
+  `RunVerifyUser` (inclusion + sum-path pass) → `RunAudit` (≥0 / dup /
+  range / sum 통과 + reserves input 비교) 통과.
+- tamper fixture (음수 leaf / 중복 / sum 불일치) 가 `RunAudit` 에서 실패로
+  검출 (happy + tamper 쌍).
+- 메인 zk 라인 빌드/테스트 무영향 — import 격리 회귀 가드.
+
+**Blocking gate**: G19 (design lock — closed). 구현은 별 슬라이스
+(core primitive → `pkg/merklepor` → cmd/store 순, slice = commit). reserves
+attestation 모듈 + salt 정식화는 post-v1 별 gate.
+
 ## Decision Gate Register
 
 닫아야 할 설계 결정. 상태 의미:
@@ -1166,6 +1239,7 @@ R11 은 V1-PROD 와 병렬 가능 (서로 의존성 약함). R12 + R13 는 GTM S
 | **G16** Module composition compatibility 검토 프로세스 | deferred | first multi-module composition (R5 candidate) | `docs/02-module-architecture.md` §1 의 add-only 원칙으로 composition 자체는 수학적으로 안전. 그러나 module 간 hidden assumption 충돌 (한 module 이 system 의 변수 의미를 전제, 다른 module 이 그걸 깸 → unsat) 가능. 방향 lock: (a) 각 module 의 doc/audit note 에 assumed invariants 명시 의무, (b) composition 등록 (= 새 `.vk` ceremony 시작) 전에 reviewer 가 invariant 호환성 검토, (c) 자동화는 future work. process detail (reviewer who, document where, fail-mode) 는 첫 multi-module 등장 시 채움. | 첫 multi-module composition customer 등장 시 process detail 확정 + 이 row 의 status `deferred → closed`. |
 | **G17** Registry pattern v1 freeze (identity / insolvent / snapshot-connector / constraint-module) | closed | R10 | **In-process build-time registries, ID format `<id>.v<version>`, missing/dup → panic**. Four registry surfaces shipped: `core/host` owns identity + insolvent (model-blind universal contracts); `core/solvency/<model>/host` owns snapshot connector + constraint module (model-typed). Snapshot factory carries `(dir, snapshotID, capacity, PriceScaleProvider)` for uniform factory shape; standard connectors ignore pricing because input values are already scaled. v1 product entries: `passthrough_hex_bn254_reduced.v0`, `drop_and_log.v0`, `t1_standard_csv.v1`, `t2_standard_csv.v1`, `t3_standard_csv.v1`, `t4_standard_csv.v1`, plus model-typed noops (empty-string fast path). Profile raw connectors were removed in R10. Detailed shape doc: `docs/02-module-architecture.md §6.2`. | — |
 | **G18** Customer raw data schema v1 freeze (모델별 standard schema) | closed | R10 | 4 model 각각의 *file/data format level* standard CSV schema 의 v1 freeze. 방향 lock: (a) **모델별 schema** (single universal schema 비채택 — field bloat). T1=(account_id, asset_idx, equity, debt), T4=T1+collateral × 3 bucket. (b) Engine runtime consumes canonical standard CSV only; customer raw export normalization is outside the engine. (c) No profile raw adapter escape hatch in zkpor service binaries. (d) Schema 변경 governance = R7 catalog freeze 와 동일 (additive = minor, removal/rename = disallowed). Implemented by `core/snapshot/schema`, `core/snapshot/csv`, `core/snapshot/mapping`, and 4 model standard parsers. Detailed shape doc: `docs/02-module-architecture.md §6.3`, `docs/04-solvency-models.md §12`. | — |
+| **G19** Merkle-sum PoR 사이드 라인 design lock (D1~D5) | closed | Stage MS | **별도 부속 product line 채택 — 감사인-신뢰 non-zk proof-of-liabilities.** D1 **(A) Merkle Sum Tree** (노드가 자식 sum carry → root 가 총부채; 사용자 sum 기여 공개검증. plain SMT+off-tree 합산 기각). D2 **분리** — 별 `pkg/merklepor`, 메인 verifier 무변경 ("메인 약화 금지"). D3 **T1 전용** — 순잔고 정의가 깔끔한 `t1_simple_margin` 만, `t1host.NewSnapshot` 재사용; haircut(T2~T4) 은 zk 라인 책임. D4 **부채까지만** — 엔진은 attested 부채 root+total, reserves(온체인 지갑) 총액은 감사 input → `RunAudit` 이 `Reserves ≥ Liabilities` 비교 (멀티체인 RPC/서명검증 scope 밖). D5 **프라이버시** — leaf identity = 동결 `AccountLeafHash` 재사용 + batch 셔플, per-user salt 는 G2 의 V2(HMAC/salt) 로 deferral. 구조적 격리: `core/circuit`/`pkg/{keygen,prover}`/groth16/`.pk`·`.vk`/ceremony import 의존 0. | Stage MS 구현 슬라이스 진입 (core primitive → `pkg/merklepor` → cmd/store). reserves attestation 모듈 + salt 정식화는 post-v1 별 gate. |
 
 ## Gate → Stage Dependency
 
@@ -1188,6 +1262,7 @@ R3 step 4 follow-up (Redis BLPOP queue + multi-worker prover/userproof) --> R13 
 G16 --> R5 candidate (module composition compatibility process)
 G17 --> R8 (registry pattern v1 freeze)
 G18 --> R9 (customer raw data schema v1 freeze)
+G19 --> Stage MS (Merkle-sum PoR 사이드 라인 — design lock closed; 구현 별 슬라이스)
 
 (G7, G8, G9 는 R0 시점에 closed)
 ```
