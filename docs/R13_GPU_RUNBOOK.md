@@ -10,17 +10,23 @@ the Icicle v3 gnark-fork backend and benchmarked **2.3× at 64M constraints
 
 ## TL;DR result
 
-| | nbConstraints | acceleration | prove (gnark) | prove (wall) | verify |
-|---|---:|---|---:|---:|---|
-| CPU | 174,463 | none | 499 ms | 655 ms | pass |
-| **GPU (icicle)** | 174,463 | **icicle** | 1437 ms | 1643 ms | **pass** |
+Measured on a DLAMI g6.4xlarge (NVIDIA L4 24GB, CUDA 12.8), T1 model, 1 batch:
+
+| shape | constraints | prover phase (MSM/NTT) | proof gen (total) | verify |
+|---|---:|---:|---:|---|
+| CPU 5_10 (tiny) | 174,463 | — | 655 ms | pass |
+| GPU 5_10 (tiny) | 174,463 | — | 1,643 ms | pass |
+| CPU 50_200 | 4,443,128 | 11,157 ms | 13,055 ms | pass |
+| **GPU 50_200** | 4,443,128 | **2,154 ms** | **4,918 ms** | **pass** |
 
 - ✅ **zkpor proves on GPU and the proof verifies** (`acceleration=icicle`,
   `ICICLE backend loaded`). The whole port — vendored Icicle v3 gnark fork,
   `-tags icicle` build, native CUDA libs — works end-to-end.
-- ⚠️ At this **tiny** circuit (174k constraints) the GPU is **slower** than
-  CPU — GPU setup/transfer overhead dominates small circuits. Speedup only
-  appears at scale (bb-por: 64M → 2.3×). A tiny smoke validates *correctness*,
+- 📈 **Crossover confirmed.** At **174k** constraints GPU is 0.40× (slower —
+  setup/transfer overhead dominates). At **4.4M** GPU is **2.65× overall and
+  5.18× on the prover phase** (11.16s → 2.15s MSM/NTT); the constant ~1.8s
+  CPU-bound solver is what dilutes the overall number. The GPU win grows with
+  scale (bb-por: 64M → 2.3× overall) — a tiny smoke validates *correctness*,
   not *speedup*.
 - ✅ **G1 byte-equivalence preserved**: vendoring the v3 fork (base commit
   `4b5261061f04`, the same commit zkpor's go.mod already pins) leaves the

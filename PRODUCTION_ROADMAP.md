@@ -905,10 +905,11 @@ v3 로 이미 구현·벤치마크 완료: L40S 에서 **2.3× speedup**, MSM 1M
 - **R13-A** ✅ **GPU 박스에서 검증** (box-local; 영구 vendor vs fork-repo는 미결,
   `docs/R13_GPU_RUNBOOK.md` 참조) — gnark fork(base `4b5261061f04` = go.mod 핀)
   vendor + bb-por Icicle v3 번들 적용, **CPU 빌드 OK + T1 R1CS hash 보존(G1)**.
-- **R13-C** ✅ **GPU prove + verify 성공** (DLAMI g6.4xlarge L4, CUDA 12.8):
-  `-tags icicle` 빌드 + `acceleration=icicle` + verify pass. 단 tiny 회로
-  (174k constraints)는 GPU(1437ms) > CPU(499ms) — 오버헤드 지배, speedup은
-  대규모(bb-por 64M → 2.3×)에서만. 절차·결과: `docs/R13_GPU_RUNBOOK.md`.
+- **R13-C** ✅ **GPU prove + verify 성공 + 크로스오버 실측** (DLAMI g6.4xlarge
+  L4, CUDA 12.8): `-tags icicle` + `acceleration=icicle` + verify pass. tiny
+  174k에선 GPU 0.40×(짐), **4.4M(shape 50_200)에선 GPU 2.65× 전체 / 5.18×
+  prover phase**(MSM/NTT 11.16s→2.15s) — 크로스오버는 4.4M 미만, scale 따라
+  GPU 이득 증가(bb-por 64M → 2.3×). 절차·결과: `docs/R13_GPU_RUNBOOK.md`.
 - **bootstrap-gpu.sh** ✅ 검증 경로로 수정 — DLAMI(드라이버 사전설치) + CUDA 12.8
   icicle 빌드. AL2023 self-install은 6.18-커널 DKMS 충돌로 실패 → 폐기.
 - 남은 것: R13-A 영구 통합 방식 결정(vendor vs fork-repo), 대규모 speedup 재현
