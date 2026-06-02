@@ -289,6 +289,46 @@ flowchart TB
 
 ---
 
+## 부록 A — Go 의존성으로 통합 (gnark fork replace 필수)
+
+zk-pos-ext 는 **자립 Go 모듈**입니다.
+
+- module path: `github.com/BetweenBits-org/zk-pos-ext`
+- 로컬 빌드/테스트: `cd zkpor && go build ./... && go test -short ./...`
+
+**다른 Go 모듈에서 import 할 때는, 자기 `go.mod` 에 아래 `replace` 2줄을
+반드시 추가해야 합니다.** (없으면 빌드 실패 또는 증명/검증이 깨짐.)
+
+```
+replace (
+    github.com/consensys/gnark        => github.com/bnb-chain/gnark        v0.10.1-0.20240910145009-4b5261061f04
+    github.com/consensys/gnark-crypto => github.com/bnb-chain/gnark-crypto v0.14.1-0.20240910145340-609ab3a7eb9b
+)
+```
+
+### 왜 필요한가
+
+- 엔진은 `consensys/gnark` 를 import 하지만 실제로는 **Binance fork**
+  (`bnb-chain/gnark`) 를 써야 한다. trusted setup·증명이 이 fork 동작에
+  의존하므로, replace 가 빠지면 upstream gnark 가 당겨져 빌드 실패 또는
+  증명/검증이 깨진다.
+- fork 의 go.mod 가 자기 module 을 `github.com/consensys/gnark` 로 선언
+  (drop-in 목적) 하므로 `bnb-chain/gnark` 경로로 **직접 import 는 불가** —
+  `replace` 가 유일한 연결 수단이다.
+- Go 의 `replace` 는 **main module 에서만 유효 (비-전이)**. 그래서 위
+  2줄은 zk-pos-ext 를 **쓰는 쪽이 직접** 자기 go.mod 에 재선언해야 하며
+  상속되지 않는다. (k8s · 블록체인 fork 생태계의 관례적 패턴 — consumer 가
+  위 블록을 복붙하면 된다.)
+
+### 버전 핀
+
+아직 release 태그가 없다. 정식 태그(`v0.x.0`) 전까지는 pseudo-version 또는
+로컬 `replace github.com/BetweenBits-org/zk-pos-ext => <local path>` 로
+핀한다. 태그가 끊기면 normal `require` 로 단순화된다 (gnark replace 2줄은
+그래도 별도 유지).
+
+---
+
 ## 한 줄로 다시
 
 > **검증된 zk 회로 1벌을 4개 솔밴시 모델로 카탈로그화하고, 거래소는 어댑터만
