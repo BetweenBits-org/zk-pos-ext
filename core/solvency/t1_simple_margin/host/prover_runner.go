@@ -49,7 +49,7 @@ func DecodeAndProve(
 		return nil, fmt.Errorf("public witness: %w", err)
 	}
 
-	proof, err := groth16.Prove(r1cs, pk, witness)
+	proof, err := groth16.Prove(r1cs, pk, witness, corehost.ProverOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("groth16.Prove: %w", err)
 	}
