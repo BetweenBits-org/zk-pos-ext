@@ -12,6 +12,7 @@ require (
 	github.com/gocarina/gocsv v0.0.0-20230123225133-763e25b40669
 	github.com/klauspost/compress v1.17.10
 	github.com/pelletier/go-toml/v2 v2.3.1
+	github.com/rs/zerolog v1.33.0
 	gorm.io/driver/mysql v1.4.7
 	gorm.io/gorm v1.25.0
 	gorm.io/hints v1.1.2
@@ -42,7 +43,6 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/ronanh/intcomp v1.1.0 // indirect
-	github.com/rs/zerolog v1.33.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/crypto v0.26.0 // indirect
 	golang.org/x/net v0.28.0 // indirect
