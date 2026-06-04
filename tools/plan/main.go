@@ -1,16 +1,15 @@
 // Command plan is the OPS-side capacity planner: given a (model, shape,
 // capacity), it predicts Setup/prove peak RAM, artifact sizes, Setup/prove
 // time, the GPU benefit, and recommends EC2 instance types — to drive batch
-// optimization and instance-bootstrap automation.
+// optimization and to inform (externally implemented) instance bootstrap.
 //
-// Split (PRODUCTION_ROADMAP R13 follow-up): the constraint count is computed
-// EXACTLY by the engine (pkg/estimate, density-free, intrinsic to the frozen
-// circuit). This tool layers the ENVIRONMENT-SPECIFIC resource coefficients
-// on top — they live here, not in the engine, because they depend on the
-// machine / gnark version / CUDA (Scope Boundary). Coefficients are dated +
-// sourced in docs/reports/2026-06-04_capacity_calibration.md.
+// It lives under tools/ — the "Engine 밖 / ops" Go tooling area (env-coupled,
+// not engine contract) — distinct from cmd/ (engine service CLI shims). The
+// constraint count it builds on is computed EXACTLY by the engine
+// (pkg/estimate, density-free). The resource coefficients are
+// environment-specific and live in calibration.go.
 //
-// Density only affects prove peak RAM (docs/BENCHMARK.md §1.3): constraints,
+// Density only affects prove peak RAM (docs/BENCHMARK.md §1.3); constraints,
 // Setup RAM, prove time, and artifact sizes are density-free. -density
 // defaults to 1.0 (worst-case) for safe sizing.
 package main
@@ -27,53 +26,6 @@ import (
 	"github.com/consensys/gnark/logger"
 	"github.com/rs/zerolog"
 )
-
-// Calibration coefficients — g6.4xlarge (L4, 16 vCPU), gnark bnb v0.10.1,
-// CUDA 12.8, Icicle v3.2.2, 2026-06-04. See the calibration report for the
-// underlying sweep. Re-measure when machine / gnark / CUDA change.
-const (
-	calibDate    = "2026-06-04"
-	calibMachine = "g6.4xlarge (L4, 16 vCPU)"
-
-	setupRAMGBPerM = 1.8   // Setup peak RAM per M-constraint (density-free)
-	pkBytesPerC    = 195.0 // .pk bytes per constraint
-	r1csBytesPerC  = 125.0 // .r1cs bytes per constraint
-	setupSecPerM   = 43.0  // Setup time per M-constraint (this machine)
-	cpuProveMsPerM = 2365.0
-	cpuProveMsBase = 450.0
-	gpuProveMsPerM = 896.0
-	gpuProveMsBase = 440.0
-	gpuFloorMs     = 1600.0  // GPU device-setup floor
-	gpuCrossoverC  = 500000.0 // below this, CPU prove is faster
-	// prove RAM density term (docs/BENCHMARK.md §1.3): GB per M-constraint
-	// per unit density per worker.
-	proveRAMGBPerMxDxW = 1.6
-)
-
-type instance struct {
-	name     string
-	vcpu     int
-	ramGB    int
-	gpu      string
-	usdPerHr float64
-}
-
-// A small catalog (README §EC2 + this session). Ordered cheapest-first per
-// class so the first match is the smallest viable box.
-// Cheapest/smallest-first so pick returns the smallest viable box. r-family
-// (1:8 vCPU:RAM) is preferred — c-family OOMs on these RAM-bound jobs and
-// Graviton lacks gnark's amd64 fast-path (README §EC2).
-var cpuBoxes = []instance{
-	{"m7a.2xlarge", 8, 32, "", 0.46},
-	{"r7a.2xlarge", 8, 64, "", 0.53},
-	{"r7a.4xlarge", 16, 128, "", 1.06},
-	{"r7a.8xlarge", 32, 256, "", 2.11},
-	{"r7a.16xlarge", 64, 512, "", 4.22},
-}
-var gpuBoxes = []instance{
-	{"g6.4xlarge", 16, 60, "L4 24GB", 1.30},
-	{"g6e.4xlarge", 16, 128, "L40S 48GB", 4.19},
-}
 
 // pick returns the smallest box whose RAM clears the need with 20% headroom.
 // Disk is reported separately — it is EBS, sized independently of the box.

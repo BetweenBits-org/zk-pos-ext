@@ -18,7 +18,7 @@
 // follow-up): the constraint count is intrinsic to the frozen circuit
 // contract. The OPS half — translating constraints into peak RAM / .pk
 // size / prove time / EC2 instance type — lives OUTSIDE the engine
-// (cmd/plan), because those coefficients are environment-specific
+// (tools/plan), because those coefficients are environment-specific
 // deployment concerns (Scope Boundary).
 package estimate
 

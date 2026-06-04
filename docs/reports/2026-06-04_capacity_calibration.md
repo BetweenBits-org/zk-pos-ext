@@ -1,6 +1,6 @@
 # Capacity-planner calibration — 2026-06-04
 
-Calibration anchors for the OPS capacity planner (`cmd/plan`). The ENGINE
+Calibration anchors for the OPS capacity planner (`tools/plan`). The ENGINE
 side (`pkg/estimate.Constraints`) computes the constraint count exactly and
 needs no measurement; this report holds the **environment-specific resource
 coefficients** that turn a constraint count into peak RAM / artifact size /

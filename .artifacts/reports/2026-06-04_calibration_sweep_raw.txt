@@ -1,0 +1,109 @@
+=== SHAPE model=t1_simple_margin cap=200 shape=50_100 (03:20:35) ===
+KEYGEN zkpor.t1_simple_margin.50_100: r1cs compiled in 37.621459042s (2241759 constraints)
+KEYGEN zkpor.t1_simple_margin.50_100: groth16.Setup done in 1m33.825026056s
+KEYGEN zkpor.t1_simple_margin.50_100.pk: 452405751 bytes
+RAM 	Maximum resident set size (kbytes): 4647196
+PKBYTES 452405751
+WROWS 1 (witness run finished, account tree root = 05c72fc5e989945c60)
+CPU [90m03:23:42[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m2241759 [36mtook=[0m5762.254988
+CPU proof generation cost 6879 ms
+GPU [90m03:24:09[0m DBG setting up device pointers [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m2241759
+GPU [90m03:24:12[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m2241759 [36mtook=[0m1120.226929
+GPU proof generation cost 2745 ms
+RESULT t1_simple_margin 50_100 OK
+=== SHAPE model=t1_simple_margin cap=200 shape=50_300 (03:24:13) ===
+KEYGEN zkpor.t1_simple_margin.50_300: r1cs compiled in 1m49.377991391s (6619676 constraints)
+KEYGEN zkpor.t1_simple_margin.50_300: groth16.Setup done in 4m13.458632167s
+KEYGEN zkpor.t1_simple_margin.50_300.pk: 1200776121 bytes
+RAM 	Maximum resident set size (kbytes): 11931808
+PKBYTES 1200776121
+WROWS 1 (witness run finished, account tree root = 1401ef46c76348ccda)
+CPU [90m03:32:39[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m6619676 [36mtook=[0m13521.245778
+CPU proof generation cost 16105 ms
+GPU [90m03:33:51[0m DBG setting up device pointers [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m6619676
+GPU [90m03:33:57[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m6619676 [36mtook=[0m2522.296769
+GPU proof generation cost 6374 ms
+RESULT t1_simple_margin 50_300 OK
+=== SHAPE model=t2_static_haircut_margin cap=200 shape=50_50 (03:33:58) ===
+KEYGEN zkpor.t2_static_haircut_margin.50_50: r1cs compiled in 26.37105182s (1498620 constraints)
+KEYGEN zkpor.t2_static_haircut_margin.50_50: groth16.Setup done in 1m4.355584496s
+KEYGEN zkpor.t2_static_haircut_margin.50_50.pk: 295606259 bytes
+RAM 	Maximum resident set size (kbytes): 2701124
+PKBYTES 295606259
+WROWS 1 (witness run finished, account tree root = 1413651540d53a1f63)
+CPU [90m03:36:05[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m1498620 [36mtook=[0m3185.953546
+CPU proof generation cost 3996 ms
+GPU [90m03:36:23[0m DBG setting up device pointers [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m1498620
+GPU [90m03:36:25[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m1498620 [36mtook=[0m641.606914
+GPU proof generation cost 1784 ms
+RESULT t2_static_haircut_margin 50_50 OK
+=== SHAPE model=t2_static_haircut_margin cap=200 shape=50_150 (03:36:25) ===
+KEYGEN zkpor.t2_static_haircut_margin.50_150: r1cs compiled in 1m12.978092639s (4343494 constraints)
+KEYGEN zkpor.t2_static_haircut_margin.50_150: groth16.Setup done in 3m19.467924089s
+KEYGEN zkpor.t2_static_haircut_margin.50_150.pk: 923236659 bytes
+RAM 	Maximum resident set size (kbytes): 9357864
+PKBYTES 923236659
+WROWS 1 (witness run finished, account tree root = 02761633d8e276cacf)
+CPU [90m03:42:47[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m4343494 [36mtook=[0m10353.200909
+CPU proof generation cost 12282 ms
+GPU [90m03:43:42[0m DBG setting up device pointers [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m4343494
+GPU [90m03:43:47[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m4343494 [36mtook=[0m2060.860685
+GPU proof generation cost 4792 ms
+RESULT t2_static_haircut_margin 50_150 OK
+=== SHAPE model=t3_tiered_haircut_margin_1pool cap=200 shape=50_20 (03:43:47) ===
+KEYGEN zkpor.t3_tiered_haircut_margin_1pool.50_20: r1cs compiled in 27.360881628s (1784868 constraints)
+KEYGEN zkpor.t3_tiered_haircut_margin_1pool.50_20: groth16.Setup done in 1m15.401012261s
+KEYGEN zkpor.t3_tiered_haircut_margin_1pool.50_20.pk: 357006351 bytes
+RAM 	Maximum resident set size (kbytes): 3032888
+PKBYTES 357006351
+WROWS 1 (witness run finished, account tree root = 1512fb66d8699b4af3)
+CPU [90m03:46:12[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m1784868 [36mtook=[0m2714.509285
+CPU proof generation cost 3476 ms
+GPU [90m03:46:34[0m DBG setting up device pointers [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m1784868
+GPU [90m03:46:35[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m1784868 [36mtook=[0m623.249545
+GPU proof generation cost 1759 ms
+RESULT t3_tiered_haircut_margin_1pool 50_20 OK
+=== SHAPE model=t3_tiered_haircut_margin_1pool cap=200 shape=50_60 (03:46:36) ===
+KEYGEN zkpor.t3_tiered_haircut_margin_1pool.50_60: r1cs compiled in 49.00122353s (3495252 constraints)
+KEYGEN zkpor.t3_tiered_haircut_margin_1pool.50_60: groth16.Setup done in 2m25.315827701s
+KEYGEN zkpor.t3_tiered_haircut_margin_1pool.50_60.pk: 687024775 bytes
+RAM 	Maximum resident set size (kbytes): 6426864
+PKBYTES 687024775
+WROWS 1 (witness run finished, account tree root = 01827141f87da74488)
+CPU [90m03:51:09[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m3495252 [36mtook=[0m5286.50935
+CPU proof generation cost 6707 ms
+GPU [90m03:51:50[0m DBG setting up device pointers [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m3495252
+GPU [90m03:51:54[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m3495252 [36mtook=[0m1216.640248
+GPU proof generation cost 3291 ms
+RESULT t3_tiered_haircut_margin_1pool 50_60 OK
+=== SHAPE model=t4_tiered_haircut_margin_3pool cap=200 shape=50_8 (03:51:54) ===
+KEYGEN zkpor.t4_tiered_haircut_margin_3pool.50_8: r1cs compiled in 50.581668483s (3295729 constraints)
+KEYGEN zkpor.t4_tiered_haircut_margin_3pool.50_8: groth16.Setup done in 2m25.165508676s
+KEYGEN zkpor.t4_tiered_haircut_margin_3pool.50_8.pk: 683483645 bytes
+RAM 	Maximum resident set size (kbytes): 6004392
+PKBYTES 683483645
+WROWS 2 (witness run finished, account tree root = 16a052cefe4da31eef)
+CPU [90m03:56:28[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m3295729 [36mtook=[0m4449.895501
+CPU proof generation cost 5534 ms
+CPU [90m03:56:33[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m3295729 [36mtook=[0m4546.84289
+CPU proof generation cost 5521 ms
+GPU [90m03:57:14[0m DBG setting up device pointers [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m3295729
+GPU [90m03:57:17[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m3295729 [36mtook=[0m1137.903015
+GPU proof generation cost 2870 ms
+GPU [90m03:57:19[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m3295729 [36mtook=[0m946.490147
+GPU proof generation cost 1910 ms
+RESULT t4_tiered_haircut_margin_3pool 50_8 OK
+=== SHAPE model=t4_tiered_haircut_margin_3pool cap=200 shape=50_24 (03:57:20) ===
+KEYGEN zkpor.t4_tiered_haircut_margin_3pool.50_24: r1cs compiled in 1m3.234003433s (4543952 constraints)
+KEYGEN zkpor.t4_tiered_haircut_margin_3pool.50_24: groth16.Setup done in 3m33.2412896s
+KEYGEN zkpor.t4_tiered_haircut_margin_3pool.50_24.pk: 1016683643 bytes
+RAM 	Maximum resident set size (kbytes): 9504584
+PKBYTES 1016683643
+WROWS 1 (witness run finished, account tree root = 0fbbd8eaba6edd05b3)
+CPU [90m04:03:52[0m DBG prover done [36macceleration=[0mnone [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m4543952 [36mtook=[0m8125.107176
+CPU proof generation cost 9756 ms
+GPU [90m04:04:52[0m DBG setting up device pointers [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m4543952
+GPU [90m04:04:57[0m DBG prover done [36macceleration=[0micicle [36mbackend=[0mgroth16 [36mcurve=[0mbn254 [36mnbConstraints=[0m4543952 [36mtook=[0m2051.735735
+GPU proof generation cost 4508 ms
+RESULT t4_tiered_haircut_margin_3pool 50_24 OK
+=== SWEEP COMPLETE (04:04:58) ===
