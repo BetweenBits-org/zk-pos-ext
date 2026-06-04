@@ -16,10 +16,12 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// newCircuit returns the gnark circuit for the model at the given
-// shape. Each model has its own BatchCreateUserCircuit constructor;
-// adding a new model means extending this switch.
-func newCircuit(model corespec.SolvencyModelID, s corespec.BatchShape, assetCapacity int) (frontend.Circuit, error) {
+// NewCircuit returns the gnark circuit for the model at the given shape.
+// Each model has its own BatchCreateUserCircuit constructor; adding a new
+// model means extending this switch. Exported so pkg/estimate can compile
+// the same circuit a shape would key-gen, to count constraints without
+// running Setup.
+func NewCircuit(model corespec.SolvencyModelID, s corespec.BatchShape, assetCapacity int) (frontend.Circuit, error) {
 	switch model {
 	case "t1_simple_margin":
 		return t1circuit.NewBatchCreateUserCircuit(

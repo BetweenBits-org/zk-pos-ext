@@ -127,7 +127,7 @@ func Run(ctx context.Context, opts Options) error {
 // shape and asset capacity, then writes .pk / .vk / .r1cs through the
 // vfs.KeySink at logical stem "<stem>.<ext>".
 func keygenShape(model corespec.SolvencyModelID, s corespec.BatchShape, assetCapacity int, stem string, keys vfs.KeySink) error {
-	circuit, err := newCircuit(model, s, assetCapacity)
+	circuit, err := NewCircuit(model, s, assetCapacity)
 	if err != nil {
 		return err
 	}
