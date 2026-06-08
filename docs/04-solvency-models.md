@@ -289,6 +289,13 @@ R5-0 의 host helpers (commit e8eabed) 가 generalize 의 base. NbConstraints ba
 | T3 `t3_tiered_haircut_margin_1pool` | ✅ | ✅ | ✅ | **274,650** | 22.90s |
 | T4 `t4_tiered_haircut_margin_3pool` | ✅ | ✅ | ✅ | **723,790** | 58.15s |
 
+> **Post-R7 변경 (T2 baseline stale):** T2 회로에 `haircut_bp ≤ 10000` cap 추가
+> (soundness — haircut>10000 시 collateral over-credit 차단, T3/T4 의 in-circuit
+> `ratio ≤ 100` 과 대칭화). 위 T2 NbConstraints 는 cap **이전** 값이며 post-cap 은
+> **49,936** (+1,050 / +2.15% at 50 assets; 자산 capacity 에 비례, batch 무관).
+> R1CS 변경이라 T2 trusted setup 재실행 + 위 baseline 재기록이 ceremony 항목이다.
+> 결정 트레일: `PRODUCTION_ROADMAP.md` G20.
+
 T1 의 R1CS sha256 baseline (audit lock 후보):
 
 ```

@@ -83,6 +83,13 @@ func (b BatchCreateUserCircuit) Define(api API) error {
 		r.Check(b.BeforeCexAssets[i].BasePrice, 64)
 		r.Check(b.BeforeCexAssets[i].Collateral, 64)
 		r.Check(b.BeforeCexAssets[i].Haircut, 16)
+		// haircut_bp is a basis-points collateral weight in [0, 10000]
+		// (10000 = no haircut). Without this cap a value > 10000 would
+		// credit collateral above its face value — a false-solvency vector,
+		// since the per-asset haircut multiply has no other upper bound.
+		// Mirrors the in-circuit ratio <= 100 cap the T3/T4 tier curves
+		// already enforce in generateRapidArithmeticForCollateral.
+		api.AssertIsLessOrEqualNOp(b.BeforeCexAssets[i].Haircut, HaircutDenominatorFr, 16, true)
 
 		fillCexAssetCommitment(api, b.BeforeCexAssets[i], i, cexAssets)
 		afterCexAssets[i] = b.BeforeCexAssets[i]
