@@ -74,6 +74,13 @@ type snapshot struct {
 	assets []t4spec.CexAssetInfo
 	err    error
 
+	// policyCommitment is the canonical risk-policy digest, computed
+	// best-effort during the same lazy parse as assets. policyErr holds
+	// any digest-specific failure so a digest problem never breaks the
+	// existing CexAssets / AccountStream paths.
+	policyCommitment []byte
+	policyErr        error
+
 	invalidCount atomic.Uint64
 }
 
@@ -121,6 +128,53 @@ func (s *snapshot) CexAssets(ctx context.Context) ([]t4spec.CexAssetInfo, error)
 	return out, nil
 }
 
+// PolicyCommitment returns the canonical risk-policy digest, computed
+// once during the same lazy parse as CexAssets.
+func (s *snapshot) PolicyCommitment(ctx context.Context) ([]byte, error) {
+	s.once.Do(func() {
+		s.assets, s.err = s.loadCexAssets(ctx)
+	})
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.policyErr != nil {
+		return nil, s.policyErr
+	}
+	out := make([]byte, len(s.policyCommitment))
+	copy(out, s.policyCommitment)
+	return out, nil
+}
+
+// t4PolicyCommitment builds the tierpolicy.Policy from the real
+// (unpadded) per-asset, per-pool tier curves (loan, margin,
+// portfolio_margin in canonical order; a pool with no rows is an empty
+// curve) and returns its canonical digest.
+func t4PolicyCommitment(ratios map[uint16]map[string][]t4spec.TierRatio) ([]byte, error) {
+	assets := make([]tierpolicy.AssetPolicy, 0, len(ratios))
+	for idx, pools := range ratios {
+		assets = append(assets, tierpolicy.AssetPolicy{
+			AssetIndex: idx,
+			Pools: [][]tierpolicy.Tier{
+				t4Tiers(pools["loan"]),
+				t4Tiers(pools["margin"]),
+				t4Tiers(pools["portfolio_margin"]),
+			},
+		})
+	}
+	return tierpolicy.PolicyCommitment(tierpolicy.Policy{
+		Model:  corespec.T4TieredHaircutMargin3Pool,
+		Assets: assets,
+	})
+}
+
+func t4Tiers(src []t4spec.TierRatio) []tierpolicy.Tier {
+	out := make([]tierpolicy.Tier, len(src))
+	for i, t := range src {
+		out[i] = tierpolicy.Tier{Boundary: t.BoundaryValue, Ratio: t.Ratio}
+	}
+	return out
+}
+
 // SnapshotID returns the configured snapshot identifier.
 func (s *snapshot) SnapshotID() string { return s.cfg.SnapshotID }
 
@@ -144,6 +198,7 @@ func (s *snapshot) loadCexAssets(ctx context.Context) ([]t4spec.CexAssetInfo, er
 	if err != nil {
 		return nil, err
 	}
+	s.policyCommitment, s.policyErr = t4PolicyCommitment(ratios)
 	f, err := s.cfg.source().Open(ctx, "cex_assets.csv")
 	if err != nil {
 		return nil, fmt.Errorf("open cex_assets.csv: %w", err)

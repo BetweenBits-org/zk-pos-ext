@@ -29,9 +29,12 @@
 package tierpolicy
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 
 	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon"
@@ -253,11 +256,16 @@ func PolicyCommitment(p Policy) ([]byte, error) {
 		}
 		absorbInt(int64(len(a.Pools)))
 		for pi, pool := range a.Pools {
-			// Validate via the audited recipe; rejects any tier curve the
-			// circuit would reject. The built curve is discarded — only the
-			// authoritative (boundary, ratio) inputs are absorbed.
-			if _, err := BuildTierCurve(pool); err != nil {
-				return nil, fmt.Errorf("tierpolicy: asset %d pool %d: %w", a.AssetIndex, pi, err)
+			// Validate non-empty curves via the audited recipe; rejects any
+			// tier curve the circuit would reject. An empty pool is allowed —
+			// it represents an asset with no curve in that pool (collateral
+			// there earns no credit), matching the engine's all-reserved tier
+			// padding. Only the authoritative (boundary, ratio) inputs are
+			// absorbed; the built curve is discarded.
+			if len(pool) > 0 {
+				if _, err := BuildTierCurve(pool); err != nil {
+					return nil, fmt.Errorf("tierpolicy: asset %d pool %d: %w", a.AssetIndex, pi, err)
+				}
 			}
 			absorbInt(int64(len(pool)))
 			for _, t := range pool {
@@ -267,4 +275,23 @@ func PolicyCommitment(p Policy) ([]byte, error) {
 		}
 	}
 	return h.Sum(nil), nil
+}
+
+// VerifyCommitment reports whether got equals the operator-pinned policy
+// commitment expectedHex (a hex string, with or without a "0x" prefix).
+// It is the comparison half of the fail-closed authorization path: a
+// caller obtains the snapshot's actual digest from the engine (a
+// SnapshotSource.PolicyCommitment) and checks it against the value the
+// operator pinned in profile.toml. Returns a descriptive error if
+// expectedHex is malformed or the digests differ; nil on a match.
+func VerifyCommitment(got []byte, expectedHex string) error {
+	trimmed := strings.TrimPrefix(strings.TrimPrefix(expectedHex, "0x"), "0X")
+	want, err := hex.DecodeString(trimmed)
+	if err != nil {
+		return fmt.Errorf("tierpolicy: malformed expected commitment %q: %w", expectedHex, err)
+	}
+	if !bytes.Equal(got, want) {
+		return fmt.Errorf("tierpolicy: policy commitment mismatch: snapshot=%x pinned=%x", got, want)
+	}
+	return nil
 }

@@ -2,6 +2,7 @@ package tierpolicy_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"math/big"
 	"testing"
 
@@ -257,5 +258,54 @@ func TestPolicyCommitment_Validation(t *testing.T) {
 				t.Fatalf("expected error, got nil")
 			}
 		})
+	}
+}
+
+func TestVerifyCommitment(t *testing.T) {
+	d := mustCommit(t, t3Policy())
+	if err := tierpolicy.VerifyCommitment(d, hex.EncodeToString(d)); err != nil {
+		t.Fatalf("match: %v", err)
+	}
+	if err := tierpolicy.VerifyCommitment(d, "0x"+hex.EncodeToString(d)); err != nil {
+		t.Fatalf("match with 0x prefix: %v", err)
+	}
+	if err := tierpolicy.VerifyCommitment(d, hex.EncodeToString([]byte{0xde, 0xad})); err == nil {
+		t.Fatal("mismatch: want error, got nil")
+	}
+	if err := tierpolicy.VerifyCommitment(d, "zznothex"); err == nil {
+		t.Fatal("bad hex: want error, got nil")
+	}
+}
+
+func TestPolicyCommitment_EmptyPoolAllowed(t *testing.T) {
+	// A T4 asset with a loan curve but empty margin / portfolio_margin
+	// pools (no curve = no credit, the engine's all-reserved padding)
+	// must hash, not error.
+	withEmpty := tierpolicy.Policy{
+		Model: corespec.T4TieredHaircutMargin3Pool,
+		Assets: []tierpolicy.AssetPolicy{
+			{AssetIndex: 0, Pools: [][]tierpolicy.Tier{{tier(100, 50)}, {}, {}}},
+		},
+	}
+	d, err := tierpolicy.PolicyCommitment(withEmpty)
+	if err != nil {
+		t.Fatalf("empty pool should be allowed: %v", err)
+	}
+	if len(d) == 0 {
+		t.Fatal("empty digest")
+	}
+	// Filling a previously-empty pool changes the digest.
+	filled := tierpolicy.Policy{
+		Model: corespec.T4TieredHaircutMargin3Pool,
+		Assets: []tierpolicy.AssetPolicy{
+			{AssetIndex: 0, Pools: [][]tierpolicy.Tier{{tier(100, 50)}, {tier(200, 40)}, {}}},
+		},
+	}
+	d2, err := tierpolicy.PolicyCommitment(filled)
+	if err != nil {
+		t.Fatalf("filled: %v", err)
+	}
+	if bytes.Equal(d, d2) {
+		t.Fatal("digest insensitive to pool contents")
 	}
 }

@@ -1,7 +1,9 @@
 package t4_tiered_haircut_margin_3pool_test
 
 import (
+	"bytes"
 	"context"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +11,7 @@ import (
 	t4snapshot "github.com/BetweenBits-org/zk-pos-ext/core/snapshot/t4_tiered_haircut_margin_3pool"
 	t4host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/tierpolicy"
 )
 
 const accountID0 = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -87,6 +90,43 @@ func TestStandardCSVSnapshotT4RejectsBadPrecomputed(t *testing.T) {
 	src := t4snapshot.NewSnapshotCSV(t4snapshot.Config{Dir: dir, SnapshotID: "snap", AssetCapacity: 2})
 	if _, err := src.CexAssets(context.Background()); err == nil {
 		t.Fatalf("expected error for recipe-inconsistent precomputed_value, got nil")
+	}
+}
+
+// TestStandardCSVSnapshotT4PolicyCommitment asserts the snapshot's
+// PolicyCommitment equals the digest of the policy as authored,
+// proving the parser extracts the real per-asset, per-pool tier curves
+// in canonical pool order (loan, margin, portfolio_margin).
+func TestStandardCSVSnapshotT4PolicyCommitment(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "cex_assets.csv"), `asset_index,symbol,total_equity,total_debt,base_price,loan_collateral,margin_collateral,portfolio_margin_collateral
+0,btc,100,0,60000,100,0,0
+`)
+	writeFile(t, filepath.Join(dir, "tier_ratios.csv"), `asset_index,collateral_pool,tier_index,boundary_value,ratio,precomputed_value
+0,loan,0,100000000,100,100000000
+0,margin,0,100000000,100,100000000
+0,portfolio_margin,0,100000000,100,100000000
+`)
+	writeFile(t, filepath.Join(dir, "accounts.csv"), `account_id,asset_index,equity,debt,loan_collateral,margin_collateral,portfolio_margin_collateral
+`+accountID0+`,0,100,0,100,0,0
+`)
+	src := t4snapshot.NewSnapshotCSV(t4snapshot.Config{Dir: dir, SnapshotID: "snap", AssetCapacity: 2})
+	got, err := src.PolicyCommitment(context.Background())
+	if err != nil {
+		t.Fatalf("PolicyCommitment: %v", err)
+	}
+	curve := []tierpolicy.Tier{{Boundary: big.NewInt(100000000), Ratio: 100}}
+	want, err := tierpolicy.PolicyCommitment(tierpolicy.Policy{
+		Model: corespec.T4TieredHaircutMargin3Pool,
+		Assets: []tierpolicy.AssetPolicy{
+			{AssetIndex: 0, Pools: [][]tierpolicy.Tier{curve, curve, curve}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected PolicyCommitment: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("snapshot digest %x != policy-as-authored %x", got, want)
 	}
 }
 

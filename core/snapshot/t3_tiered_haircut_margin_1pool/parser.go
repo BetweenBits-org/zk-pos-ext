@@ -66,6 +66,13 @@ type snapshot struct {
 	assets []t3spec.CexAssetInfo
 	err    error
 
+	// policyCommitment is the canonical risk-policy digest, computed
+	// best-effort during the same lazy parse as assets. policyErr holds
+	// any digest-specific failure so a digest problem never breaks the
+	// existing CexAssets / AccountStream paths.
+	policyCommitment []byte
+	policyErr        error
+
 	invalidCount atomic.Uint64
 }
 
@@ -107,6 +114,38 @@ func (s *snapshot) CexAssets(ctx context.Context) ([]t3spec.CexAssetInfo, error)
 	return out, nil
 }
 
+// PolicyCommitment returns the canonical risk-policy digest, computed
+// once during the same lazy parse as CexAssets.
+func (s *snapshot) PolicyCommitment(ctx context.Context) ([]byte, error) {
+	s.once.Do(func() { s.assets, s.err = s.loadCexAssets(ctx) })
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.policyErr != nil {
+		return nil, s.policyErr
+	}
+	out := make([]byte, len(s.policyCommitment))
+	copy(out, s.policyCommitment)
+	return out, nil
+}
+
+// t3PolicyCommitment builds the tierpolicy.Policy from the real
+// (unpadded) per-asset tier curves and returns its canonical digest.
+func t3PolicyCommitment(ratios map[uint16][]t3spec.TierRatio) ([]byte, error) {
+	assets := make([]tierpolicy.AssetPolicy, 0, len(ratios))
+	for idx, tiers := range ratios {
+		pool := make([]tierpolicy.Tier, len(tiers))
+		for i, t := range tiers {
+			pool[i] = tierpolicy.Tier{Boundary: t.BoundaryValue, Ratio: t.Ratio}
+		}
+		assets = append(assets, tierpolicy.AssetPolicy{AssetIndex: idx, Pools: [][]tierpolicy.Tier{pool}})
+	}
+	return tierpolicy.PolicyCommitment(tierpolicy.Policy{
+		Model:  corespec.T3TieredHaircutMargin1Pool,
+		Assets: assets,
+	})
+}
+
 // SnapshotID returns the configured snapshot identifier.
 func (s *snapshot) SnapshotID() string { return s.cfg.SnapshotID }
 
@@ -129,6 +168,7 @@ func (s *snapshot) loadCexAssets(ctx context.Context) ([]t3spec.CexAssetInfo, er
 	if err != nil {
 		return nil, err
 	}
+	s.policyCommitment, s.policyErr = t3PolicyCommitment(ratios)
 	f, err := s.cfg.source().Open(ctx, "cex_assets.csv")
 	if err != nil {
 		return nil, err

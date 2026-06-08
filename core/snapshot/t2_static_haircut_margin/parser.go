@@ -18,6 +18,7 @@ import (
 	t2host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/host"
 	t2spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t2_static_haircut_margin/spec"
 	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/tierpolicy"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 )
 
@@ -62,6 +63,13 @@ type snapshot struct {
 	assets []t2spec.CexAssetInfo
 	err    error
 
+	// policyCommitment is the canonical risk-policy digest, computed
+	// best-effort during the same lazy parse as assets. policyErr holds
+	// any digest-specific failure so a digest problem never breaks the
+	// existing CexAssets / AccountStream paths.
+	policyCommitment []byte
+	policyErr        error
+
 	invalidCount atomic.Uint64
 }
 
@@ -103,6 +111,21 @@ func (s *snapshot) CexAssets(ctx context.Context) ([]t2spec.CexAssetInfo, error)
 	return out, nil
 }
 
+// PolicyCommitment returns the canonical risk-policy digest (per-asset
+// haircut_bp), computed once during the same lazy parse as CexAssets.
+func (s *snapshot) PolicyCommitment(ctx context.Context) ([]byte, error) {
+	s.once.Do(func() { s.assets, s.err = s.loadCexAssets(ctx) })
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.policyErr != nil {
+		return nil, s.policyErr
+	}
+	out := make([]byte, len(s.policyCommitment))
+	copy(out, s.policyCommitment)
+	return out, nil
+}
+
 // SnapshotID returns the configured snapshot identifier.
 func (s *snapshot) SnapshotID() string { return s.cfg.SnapshotID }
 
@@ -134,12 +157,17 @@ func (s *snapshot) loadCexAssets(ctx context.Context) ([]t2spec.CexAssetInfo, er
 	for i := range out {
 		out[i] = t2spec.CexAssetInfo{Symbol: "reserved", Index: uint32(i)}
 	}
+	policy := make([]tierpolicy.AssetPolicy, 0)
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		row, err := reader.Read()
 		if errors.Is(err, io.EOF) {
+			s.policyCommitment, s.policyErr = tierpolicy.PolicyCommitment(tierpolicy.Policy{
+				Model:  corespec.T2StaticHaircutMargin,
+				Assets: policy,
+			})
 			return out, nil
 		}
 		if err != nil {
@@ -168,6 +196,7 @@ func (s *snapshot) loadCexAssets(ctx context.Context) ([]t2spec.CexAssetInfo, er
 			Collateral:  collateral,
 			Haircut:     uint16(haircut),
 		}
+		policy = append(policy, tierpolicy.AssetPolicy{AssetIndex: idx, Haircut: uint16(haircut)})
 	}
 }
 

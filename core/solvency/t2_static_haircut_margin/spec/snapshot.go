@@ -46,4 +46,14 @@ type SnapshotSource interface {
 	// that valid + invalid == expected source row count — and for
 	// audit-trail metadata.
 	InvalidCount() uint64
+
+	// PolicyCommitment returns the canonical digest of the snapshot's
+	// risk policy (per-asset haircut_bp), computed from the real
+	// per-asset policy before capacity padding — the authorization
+	// counterpart to the publicly committed policy. An operator pins
+	// this value in profile.toml; a caller checks it via
+	// tierpolicy.VerifyCommitment to reject any snapshot whose policy
+	// was not operator-approved. Capacity-independent; depends only on
+	// the authoritative policy inputs, never the per-snapshot totals.
+	PolicyCommitment(ctx context.Context) ([]byte, error)
 }
