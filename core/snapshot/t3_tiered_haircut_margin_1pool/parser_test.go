@@ -19,7 +19,7 @@ func TestStandardCSVSnapshotT3(t *testing.T) {
 0,btc,100,0,60000,100
 `)
 	writeFile(t, filepath.Join(dir, "tier_ratios.csv"), `asset_index,tier_index,boundary_value,ratio,precomputed_value
-0,0,100000000,100,0
+0,0,100000000,100,100000000
 `)
 	writeFile(t, filepath.Join(dir, "accounts.csv"), `account_id,asset_index,equity,debt,collateral
 `+accountID0+`,0,100,0,100
@@ -48,6 +48,27 @@ func TestStandardCSVSnapshotT3(t *testing.T) {
 func TestStandardCSVSnapshotT3Registered(t *testing.T) {
 	if !contains(t3host.RegisteredSnapshotConnectors(), t3snapshot.ConnectorID) {
 		t.Fatalf("registered connectors missing %q", t3snapshot.ConnectorID)
+	}
+}
+
+// TestStandardCSVSnapshotT3RejectsBadPrecomputed asserts the parser
+// enforces the standard_schema precomputed_value invariant: a
+// recipe-inconsistent value (0 instead of the audited 1e8 for
+// boundary=1e8, ratio=100) is rejected before witness construction.
+func TestStandardCSVSnapshotT3RejectsBadPrecomputed(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "cex_assets.csv"), `asset_index,symbol,total_equity,total_debt,base_price,collateral
+0,btc,100,0,60000,100
+`)
+	writeFile(t, filepath.Join(dir, "tier_ratios.csv"), `asset_index,tier_index,boundary_value,ratio,precomputed_value
+0,0,100000000,100,0
+`)
+	writeFile(t, filepath.Join(dir, "accounts.csv"), `account_id,asset_index,equity,debt,collateral
+`+accountID0+`,0,100,0,100
+`)
+	src := t3snapshot.NewSnapshotCSV(t3snapshot.Config{Dir: dir, SnapshotID: "snap", AssetCapacity: 2})
+	if _, err := src.CexAssets(context.Background()); err == nil {
+		t.Fatalf("expected error for recipe-inconsistent precomputed_value, got nil")
 	}
 }
 

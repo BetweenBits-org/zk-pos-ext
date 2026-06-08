@@ -20,6 +20,7 @@ import (
 	t4host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/host"
 	t4spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t4_tiered_haircut_margin_3pool/spec"
 	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/tierpolicy"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 )
 
@@ -241,6 +242,9 @@ func (s *snapshot) loadTierRatios(ctx context.Context, opts snapshotcsv.Options)
 		}
 		row, err := reader.Read()
 		if errors.Is(err, io.EOF) {
+			if err := validateTierPrecomputed(out); err != nil {
+				return nil, err
+			}
 			return out, nil
 		}
 		if err != nil {
@@ -291,6 +295,36 @@ func (s *snapshot) loadTierRatios(ctx context.Context, opts snapshotcsv.Options)
 		})
 		out[idx][pool] = list
 	}
+}
+
+// validateTierPrecomputed enforces the standard_schema invariant that
+// "precomputed_value must match the cumulative tier function used by the
+// audited T4 circuit". For each (asset, pool) it rebuilds the canonical
+// curve with core/tierpolicy.BuildTierCurve — the single audited recipe,
+// the same cumulative the circuit re-derives in-circuit — and rejects any
+// boundary, ratio, or precomputed_value the audited circuit would reject,
+// turning a confusing late proof-generation failure into a clear parse
+// error.
+func validateTierPrecomputed(byAsset map[uint16]map[string][]t4spec.TierRatio) error {
+	for assetIdx, pools := range byAsset {
+		for pool, tiers := range pools {
+			inputs := make([]tierpolicy.Tier, len(tiers))
+			for i, t := range tiers {
+				inputs[i] = tierpolicy.Tier{Boundary: t.BoundaryValue, Ratio: t.Ratio}
+			}
+			built, err := tierpolicy.BuildTierCurve(inputs)
+			if err != nil {
+				return fmt.Errorf("tier_ratios.csv asset %d pool %s: %w", assetIdx, pool, err)
+			}
+			for i := range tiers {
+				if tiers[i].PrecomputedValue == nil || tiers[i].PrecomputedValue.Cmp(built[i].Precomputed) != 0 {
+					return fmt.Errorf("tier_ratios.csv asset %d pool %s tier %d: precomputed_value %v does not match audited recipe (want %s)",
+						assetIdx, pool, i, tiers[i].PrecomputedValue, built[i].Precomputed)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 type accountGroup struct {

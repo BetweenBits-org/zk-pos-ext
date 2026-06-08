@@ -74,7 +74,10 @@ func generateT4(opts Options, symbols []string) error {
 				"0",
 				"100000000000000000000",
 				"100",
-				"0",
+				// precomputed = boundary since ratio=100 (no haircut); matches
+				// the audited recipe in core/tierpolicy.BuildTierCurve, which the
+				// snapshot parser now validates.
+				"100000000000000000000",
 			})
 		}
 	}

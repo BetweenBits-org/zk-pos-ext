@@ -18,6 +18,7 @@ import (
 	t3host "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t3_tiered_haircut_margin_1pool/host"
 	t3spec "github.com/BetweenBits-org/zk-pos-ext/core/solvency/t3_tiered_haircut_margin_1pool/spec"
 	corespec "github.com/BetweenBits-org/zk-pos-ext/core/spec"
+	"github.com/BetweenBits-org/zk-pos-ext/core/tierpolicy"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 )
 
@@ -191,6 +192,9 @@ func (s *snapshot) loadTierRatios(ctx context.Context, opts snapshotcsv.Options)
 		}
 		row, err := reader.Read()
 		if errors.Is(err, io.EOF) {
+			if err := validateTierPrecomputed(out); err != nil {
+				return nil, err
+			}
 			return out, nil
 		}
 		if err != nil {
@@ -313,6 +317,35 @@ func addScaled(dst *big.Int, amount uint64, price *big.Int) {
 	tmp := new(big.Int).SetUint64(amount)
 	tmp.Mul(tmp, price)
 	dst.Add(dst, tmp)
+}
+
+// validateTierPrecomputed enforces the standard_schema invariant that
+// "precomputed_value must match the cumulative tier function used by the
+// audited T3 circuit; parser validation rejects mismatches before
+// witness construction". For each asset it rebuilds the canonical curve
+// with core/tierpolicy.BuildTierCurve — the single audited recipe, the
+// same cumulative the circuit re-derives in-circuit — and rejects any
+// boundary, ratio, or precomputed_value the audited circuit would reject.
+// Catching a malformed curve here turns a confusing late
+// proof-generation failure into a clear parse error.
+func validateTierPrecomputed(byAsset map[uint16][]t3spec.TierRatio) error {
+	for assetIdx, tiers := range byAsset {
+		inputs := make([]tierpolicy.Tier, len(tiers))
+		for i, t := range tiers {
+			inputs[i] = tierpolicy.Tier{Boundary: t.BoundaryValue, Ratio: t.Ratio}
+		}
+		built, err := tierpolicy.BuildTierCurve(inputs)
+		if err != nil {
+			return fmt.Errorf("tier_ratios.csv asset %d: %w", assetIdx, err)
+		}
+		for i := range tiers {
+			if tiers[i].PrecomputedValue == nil || tiers[i].PrecomputedValue.Cmp(built[i].Precomputed) != 0 {
+				return fmt.Errorf("tier_ratios.csv asset %d tier %d: precomputed_value %v does not match audited recipe (want %s)",
+					assetIdx, i, tiers[i].PrecomputedValue, built[i].Precomputed)
+			}
+		}
+	}
+	return nil
 }
 
 func haircutValue(value *big.Int, tiers []t3spec.TierRatio) *big.Int {
