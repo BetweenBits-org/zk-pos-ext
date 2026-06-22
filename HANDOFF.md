@@ -3,11 +3,28 @@
 이 문서는 agent 세션이 바뀌어도 작업을 이어가기 위한 **현재 시점의 인수인계**다.
 긴 히스토리 로그가 아니다. 작업 시작 전 source priority 상위 문서를 먼저 읽는다.
 
-## Current State
+## Current State (2026-06-22 — 로드맵 재편 직후)
 
 Origin: `https://github.com/BetweenBits-org/zk-pos-ext.git` (zkpor/.git/).
-브랜치 layout: `main` 은 stable, `development` 워크트리 (`.worktree/development/`)
-에서 in-progress 슬라이스 진행. main 으로 fast-forward merge 후 push.
+`main` stable, 직접 커밋 컨벤션.
+
+**현재 모멘트**: 1차 로드맵 완료 + `PRODUCTION_ROADMAP.md` 전면 재편(두 트랙).
+
+- **v1 = freeze** — 빌린 신뢰(Binance lineage)로 영업. 아키텍처/기능 동결,
+  deal-pull closer만 (G20 B-wire: profile `[risk_policy] commitment` 필드 +
+  snapshot-load reject).
+- **v2 = `zk-pos-ext` fork (분리노선)** — sovereign 엔진 R&D (gate G21). 진입점 =
+  **M0 de-risk spike 2개** (T4 해시 비중 측정 / BN254 Poseidon2-GKR readiness).
+  North star: upstream gnark v0.15 + 독자 Poseidon2 + Poseidon2-GKR + GPU + 독자
+  audit = 최저 prove-COGS. 상세 = `PRODUCTION_ROADMAP.md` §3.
+- **최근 landed**: R13 GPU 검증(L4 2.65×), Stage MS(Merkle-sum), G20 B-core
+  (`core/tierpolicy` + `SnapshotSource.PolicyCommitment`), 단위 문서(`docs/06`),
+  T2 `haircut_bp≤10000` cap.
+- **재편 결정(D1~D6)**: T2 setup 재실행=**소멸**, GPU 영구통합·gnark 보안권고→**v2**.
+  (`PRODUCTION_ROADMAP.md` Decision Log.)
+
+> 아래는 **재편 이전(R12) 시점 스냅샷** — 이력 참고용. 정확한 1차 stage 이력은
+> `PRODUCTION_ROADMAP_v1_FROZEN.md`.
 
 Latest commits (branch `r12ef-io-inversion`; R12-E + R12-F IO inversion):
 

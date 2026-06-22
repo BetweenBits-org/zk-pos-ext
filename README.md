@@ -479,7 +479,8 @@ flowchart LR
 | `docs/02-module-architecture.md` | 고객 추가 제약(Module)·registry·standard schema를 만들 때 |
 | `docs/03-system-architecture.md` | 시스템 그림 자세히 (다이어그램 다수) |
 | `docs/04-solvency-models.md` | 4개 모델의 산업 reference + 결정 트레일 |
-| `PRODUCTION_ROADMAP.md` | stage·gate 진척 + Decision Gate Register |
+| `PRODUCTION_ROADMAP.md` | go-forward 로드맵 — 두 트랙(v1 freeze / v2 sovereign fork) + Gate Register |
+| `PRODUCTION_ROADMAP_v1_FROZEN.md` | 1차 로드맵 이력 (frozen) — closed gate 결정 트레일 |
 | `HANDOFF.md` | 지금 무엇이 진행 중인지 (현재 시점 인수인계) |
 | `docs/BENCHMARK.md` | 성능·메모리·비용 견적 단일 진실원 |
 | `docs/R13_GPU_RUNBOOK.md` | GPU 측정 절차 |

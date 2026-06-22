@@ -44,7 +44,8 @@ scheme 공개 + 외부 audit.
   - `zkpor/core/solvency/<model>/` — audited math 카탈로그. T1~T4.
   - `zkpor/profile/<customer>/` — 고객사 deployment.
   - `zkpor/docs/` — methodology 문서 (project-context).
-  - `zkpor/PRODUCTION_ROADMAP.md` — Part 3 (stages + gates).
+  - `zkpor/PRODUCTION_ROADMAP.md` — go-forward 로드맵 (두 트랙: v1 freeze / v2 sovereign fork).
+  - `zkpor/PRODUCTION_ROADMAP_v1_FROZEN.md` — 1차 로드맵 이력 (frozen; closed gate 트레일).
   - `zkpor/HANDOFF.md` — 현재 시점 인수인계.
   - `zkpor/CLAUDE.md` — Claude 자동 로드 메모리 (AGENTS.md redirect).
 - `docs/` — historical design exploration. source 아님.
