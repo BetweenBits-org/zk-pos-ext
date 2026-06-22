@@ -57,9 +57,9 @@ var StandardSchema = snapshotschema.Schema{
 			Fields: []snapshotschema.Field{
 				{Name: "asset_index", Type: snapshotschema.FieldUint16, Required: true, Description: "Catalog asset slot."},
 				{Name: "tier_index", Type: snapshotschema.FieldUint16, Required: true, Description: "Dense tier order for this asset's collateral curve."},
-				{Name: "boundary_value", Type: snapshotschema.FieldBigInt, Required: true, Description: "Upper boundary for the tier in balance-scaled integer units."},
-				{Name: "ratio", Type: snapshotschema.FieldUint8, Required: true, Description: "Tier haircut ratio as used by the audited circuit implementation."},
-				{Name: "precomputed_value", Type: snapshotschema.FieldBigInt, Required: true, Description: "Precomputed cumulative value at the tier boundary."},
+				{Name: "boundary_value", Type: snapshotschema.FieldBigInt, Required: true, Description: "Upper boundary for the tier in value-scaled integer units (collateral balance x base_price, i.e. x ValueScale) - NOT balance-scaled. Both the host parser and the circuit compare collateral x price against this boundary."},
+				{Name: "ratio", Type: snapshotschema.FieldUint8, Required: true, Description: "Tier haircut ratio as a percent (/100) as used by the audited circuit implementation. Integer percent only - no fractional percent (uint8, divisor 100)."},
+				{Name: "precomputed_value", Type: snapshotschema.FieldBigInt, Required: true, Description: "Precomputed cumulative haircut value at the tier boundary, in value-scaled units (x ValueScale), matching the audited circuit's cumulative tier function."},
 			},
 			Description: "Asset-specific piecewise-linear haircut curves for the single collateral pool.",
 		},

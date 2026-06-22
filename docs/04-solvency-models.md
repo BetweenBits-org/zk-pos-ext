@@ -338,6 +338,12 @@ Code source-of-truth:
 - shared metadata: `core/snapshot/schema`
 - model schema: `core/snapshot/<model>/standard_schema.go`
 
+> **단위(스케일) 규약은 `06-units-and-scaling.md` 가 owner.** 아래 표의
+> `equity`/`debt`/`*collateral`/`total_*` 는 balance-scale, `base_price` 는
+> price-scale, tier `boundary_value`/`precomputed_value` 는 value-scale,
+> `haircut_bp`(T2)는 basis point, `ratio`(T3/T4)는 percent다. T2만 bp인
+> 이유와 환산/수량비교 분리는 그 문서 §4·§6 참조.
+
 공통 규칙:
 
 1. 금액은 모두 scaling 완료된 non-negative integer (`uint64` 또는
@@ -413,14 +419,14 @@ T3 account / cex asset shape 는 T2 와 같지만 static `haircut_bp` 대신
 |---|---|:---:|---|
 | `asset_index` | `uint16` | yes | catalog slot |
 | `tier_index` | `uint16` | yes | asset 별 dense tier order |
-| `boundary_value` | `bigint` | yes | tier upper boundary |
-| `ratio` | `uint8` | yes | audited circuit 의 tier ratio |
-| `precomputed_value` | `bigint` | yes | boundary 누적값 |
+| `boundary_value` | `bigint` | yes | tier upper boundary, **value-scale** (collateral × base_price = ×ValueScale). balance-scale 아님 — host/circuit 모두 `collateral × price` 를 이 boundary 와 비교한다 |
+| `ratio` | `uint8` | yes | audited circuit 의 tier ratio. **percent (÷100), 정수 % 만** (소수점 미지원) — cf. T2 `haircut_bp` 는 basis point (÷10000) |
+| `precomputed_value` | `bigint` | yes | boundary 누적 haircut 값, **value-scale** (×ValueScale) |
 
 Invariants:
 
 - `tier_index` 는 asset 별 dense sequence.
-- `boundary_value` 는 asset 별 strictly increasing.
+- `boundary_value` 는 asset 별 strictly increasing (value-scale 단위).
 - `precomputed_value` 는 회로의 tier cumulative function 과 일치해야 한다.
 
 ## §12.4 T4 `t4_tiered_haircut_margin_3pool`
@@ -442,9 +448,9 @@ T4 는 Binance-class 3-pool account shape 를 사용한다.
 | `asset_index` | `uint16` | yes | catalog slot |
 | `collateral_pool` | `enum` | yes | `loan`, `margin`, `portfolio_margin` |
 | `tier_index` | `uint16` | yes | asset+pool 별 dense tier order |
-| `boundary_value` | `bigint` | yes | tier upper boundary |
-| `ratio` | `uint8` | yes | audited circuit 의 tier ratio |
-| `precomputed_value` | `bigint` | yes | boundary 누적값 |
+| `boundary_value` | `bigint` | yes | tier upper boundary, **value-scale** (collateral × base_price = ×ValueScale). balance-scale 아님 — host/circuit 모두 `collateral × price` 를 이 boundary 와 비교한다 |
+| `ratio` | `uint8` | yes | audited circuit 의 tier ratio. **percent (÷100), 정수 % 만** (소수점 미지원) — cf. T2 `haircut_bp` 는 basis point (÷10000) |
+| `precomputed_value` | `bigint` | yes | boundary 누적 haircut 값, **value-scale** (×ValueScale) |
 
 Invariants:
 
